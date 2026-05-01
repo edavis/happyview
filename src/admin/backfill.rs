@@ -1349,12 +1349,14 @@ async fn fetch_records_from_pds(
 
             let rec_to_store = match crate::lua::run_record_event_script(
                 state,
-                collection,
-                "create",
-                &uri,
-                did,
-                &rkey,
-                Some(&entry.value),
+                crate::lua::RecordEventPayload {
+                    nsid: collection,
+                    action: "create",
+                    uri: &uri,
+                    did,
+                    rkey: &rkey,
+                    record: Some(&entry.value),
+                },
             )
             .await
             {
