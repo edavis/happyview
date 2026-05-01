@@ -108,6 +108,11 @@ pub enum Permission {
     SpacesManageRecords,
     #[serde(rename = "spaces:manage-credentials")]
     SpacesManageCredentials,
+
+    #[serde(rename = "scripts:read")]
+    ScriptsRead,
+    #[serde(rename = "scripts:manage")]
+    ScriptsManage,
 }
 
 impl Permission {
@@ -155,6 +160,8 @@ impl Permission {
             Self::SpacesManageInvites => "spaces:manage-invites",
             Self::SpacesManageRecords => "spaces:manage-records",
             Self::SpacesManageCredentials => "spaces:manage-credentials",
+            Self::ScriptsRead => "scripts:read",
+            Self::ScriptsManage => "scripts:manage",
         }
     }
 
@@ -406,6 +413,18 @@ impl Permission {
                 description: "Issue and revoke space access credentials",
                 category: "Spaces",
             },
+            Self::ScriptsRead => PermissionInfo {
+                key: "scripts:read",
+                name: "View Scripts",
+                description: "View trigger-keyed scripts",
+                category: "Scripts",
+            },
+            Self::ScriptsManage => PermissionInfo {
+                key: "scripts:manage",
+                name: "Manage Scripts",
+                description: "Create, update, and delete trigger-keyed scripts",
+                category: "Scripts",
+            },
         }
     }
 
@@ -453,6 +472,8 @@ impl Permission {
             Self::SpacesManageInvites,
             Self::SpacesManageRecords,
             Self::SpacesManageCredentials,
+            Self::ScriptsRead,
+            Self::ScriptsManage,
         ])
     }
 }
@@ -571,6 +592,7 @@ impl Template {
                 Permission::LexiconsRead,
                 Permission::RecordsRead,
                 Permission::ScriptVariablesRead,
+                Permission::ScriptsRead,
                 Permission::UsersRead,
                 Permission::ApiKeysRead,
                 Permission::BackfillRead,
@@ -592,6 +614,7 @@ impl Template {
                 perms.insert(Permission::LexiconsDelete);
                 perms.insert(Permission::ScriptVariablesCreate);
                 perms.insert(Permission::ScriptVariablesDelete);
+                perms.insert(Permission::ScriptsManage);
                 perms.insert(Permission::RecordsDelete);
                 perms.insert(Permission::LabelersCreate);
                 perms.insert(Permission::LabelersRead);
