@@ -7,6 +7,7 @@ pub mod db;
 #[allow(dead_code, unused_imports)]
 pub mod fixtures;
 
+#[allow(unused_macros)]
 macro_rules! require_db {
     () => {
         if std::env::var("TEST_DATABASE_URL").is_err() {
@@ -16,4 +17,5 @@ macro_rules! require_db {
     };
 }
 
+#[allow(unused_imports)]
 pub(crate) use require_db;

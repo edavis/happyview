@@ -1305,9 +1305,6 @@ async fn fetch_records_from_pds(
     let base = pds_endpoint.trim_end_matches('/');
     let mut cursor: Option<String> = None;
     let mut count: u32 = 0;
-    let index_hook = state.lexicons.get_index_hook(collection).await;
-    let env_vars = crate::lua::load_env_vars_cached(&state.db, state.db_backend).await;
-
     loop {
         if cancelled.load(Ordering::Relaxed) {
             break;
@@ -1350,27 +1347,19 @@ async fn fetch_records_from_pds(
             let rkey = entry.uri.rsplit('/').next().unwrap_or_default().to_string();
             let uri = format!("at://{did}/{collection}/{rkey}");
 
-            let rec_to_store = if let Some(ref script) = index_hook {
-                let hook_result = crate::lua::execute_hook_script(&crate::lua::HookEvent {
-                    state,
-                    lexicon_id: collection,
-                    script,
-                    action: "create",
-                    uri: &uri,
-                    did,
-                    collection,
-                    rkey: &rkey,
-                    record: Some(&entry.value),
-                    cached_env_vars: Some(&env_vars),
-                })
-                .await;
-
-                match hook_result {
-                    None => continue,
-                    Some(v) => v,
-                }
-            } else {
-                entry.value.clone()
+            let rec_to_store = match crate::lua::run_record_event_script(
+                state,
+                collection,
+                "create",
+                &uri,
+                did,
+                &rkey,
+                Some(&entry.value),
+            )
+            .await
+            {
+                None => continue,
+                Some(v) => v,
             };
 
             batch.push(PreparedRecord {
