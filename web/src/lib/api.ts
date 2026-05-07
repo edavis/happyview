@@ -141,8 +141,6 @@ export function uploadLexicon(body: {
   backfill?: boolean;
   target_collection?: string;
   action?: string;
-  script?: string;
-  index_hook?: string;
   token_cost?: number | null;
 }) {
   return apiFetch<{ id: string; revision: number }>("/admin/lexicons", {
