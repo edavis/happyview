@@ -414,9 +414,8 @@ pub(crate) fn register_record_api(
                     (uri, repo, rkey)
                 };
 
-                // Upsert. Sentinel CID `""` — no PDS round-trip means we
-                // have no real CID to record; consumers reading the row
-                // should treat empty CID as "local-only write".
+                // NULL CID — no PDS round-trip means we have no real CID
+                // to record.
                 let upsert_sql = adapt_sql(
                     r#"INSERT INTO records (uri, did, collection, rkey, record, cid, indexed_at, created_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -432,7 +431,7 @@ pub(crate) fn register_record_api(
                     .bind(&collection)
                     .bind(&rkey)
                     .bind(&data_str)
-                    .bind("")
+                    .bind(Option::<String>::None)
                     .bind(&now)
                     .bind(&now)
                     .bind(&now)
@@ -443,7 +442,7 @@ pub(crate) fn register_record_api(
                 let _ = sync_refs(&state.db, &uri, &collection, &data, backend).await;
 
                 this.raw_set("_uri", uri.as_str())?;
-                this.raw_set("_cid", "")?;
+                this.raw_set("_cid", mlua::Value::Nil)?;
 
                 Ok(this)
             }
