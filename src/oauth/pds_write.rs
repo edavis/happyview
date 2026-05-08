@@ -190,13 +190,16 @@ async fn retry_after_refresh(
                     api_client_id = %creds.session.api_client_id,
                     "refresh token permanently invalid, deleting broken session"
                 );
-                let _ = super::sessions::delete_dpop_session(
+                if let Err(del_err) = super::sessions::delete_dpop_session(
                     pool,
                     backend,
                     &creds.session.api_client_id,
                     &creds.session.user_did,
                 )
-                .await;
+                .await
+                {
+                    tracing::error!(%del_err, "failed to delete broken DPoP session");
+                }
                 return Err(AppError::Auth(
                     "session expired, please re-authenticate".into(),
                 ));
