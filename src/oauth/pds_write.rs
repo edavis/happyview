@@ -183,7 +183,23 @@ async fn retry_after_refresh(
                 );
                 creds.session = fresh_session;
             } else {
-                return Err(e);
+                // Session is unrecoverable — clean it up so future requests
+                // fail fast instead of repeating the same doomed refresh.
+                tracing::warn!(
+                    user_did = %creds.session.user_did,
+                    api_client_id = %creds.session.api_client_id,
+                    "refresh token permanently invalid, deleting broken session"
+                );
+                let _ = super::sessions::delete_dpop_session(
+                    pool,
+                    backend,
+                    &creds.session.api_client_id,
+                    &creds.session.user_did,
+                )
+                .await;
+                return Err(AppError::Auth(
+                    "session expired, please re-authenticate".into(),
+                ));
             }
         } else {
             return Err(e);
