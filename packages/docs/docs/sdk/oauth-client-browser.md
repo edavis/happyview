@@ -148,6 +148,23 @@ if (params) {
 }
 ```
 
+## Checking approved scopes
+
+After sign in or session restoration, you can check which scopes were approved:
+
+```typescript
+console.log(session.scopes);
+// ["atproto", "transition:generic"]
+```
+
+To fetch the latest scopes from the server:
+
+```typescript
+const info = await client.getSession("did:plc:abc123");
+console.log(info.scopes);
+// ["atproto", "transition:generic"]
+```
+
 ## Authenticated requests
 
 The session's `fetchHandler` attaches DPoP proof headers automatically:
