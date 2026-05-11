@@ -268,15 +268,6 @@ pub fn space_routes() -> Router<AppState> {
             post(revoke_invite),
         )
         .route(&format!("/xrpc/{NS}.space.invite.list"), get(list_invites))
-        // Credentials
-        .route(
-            &format!("/xrpc/{NS}.space.getMemberGrant"),
-            post(get_member_grant),
-        )
-        .route(
-            &format!("/xrpc/{NS}.space.getSpaceCredential"),
-            post(get_space_credential),
-        )
 }
 
 // ---------------------------------------------------------------------------
