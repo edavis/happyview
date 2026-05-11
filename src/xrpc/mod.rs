@@ -260,7 +260,19 @@ pub async fn xrpc_get(
     let mut params = parse_query_params(&raw_query);
     let claims = xrpc_claims.identity;
 
-    let rate_key = resolve_client_key(&state, claims.as_ref(), &parts, &params)?;
+    // Space credential Bearer requests bypass the client-key requirement;
+    // rate-limit by the credential's sub DID instead.
+    let rate_key = if claims.is_none() {
+        if let Some(ref token) = xrpc_claims.space_credential {
+            crate::spaces::credential::peek_credential_sub(token).ok_or_else(|| {
+                AppError::Auth("invalid space credential: unable to extract sub".into())
+            })?
+        } else {
+            resolve_client_key(&state, None, &parts, &params)?
+        }
+    } else {
+        resolve_client_key(&state, claims.as_ref(), &parts, &params)?
+    };
 
     let lexicon = state.lexicons.get(&method).await;
 
@@ -348,11 +360,23 @@ pub async fn xrpc_post(
 ) -> Result<Response, AppError> {
     let raw_query = raw_query.unwrap_or_default();
     let mut params = parse_query_params(&raw_query);
-    let claims = xrpc_claims
-        .identity
-        .ok_or_else(|| AppError::Auth("XRPC procedures require DPoP authentication".into()))?;
+    let claims = xrpc_claims.identity;
 
-    let rate_key = resolve_client_key(&state, Some(&claims), &parts, &params)?;
+    // Space credential Bearer requests bypass the client-key requirement;
+    // rate-limit by the credential's sub DID instead.
+    let rate_key = if claims.is_none() {
+        if let Some(ref token) = xrpc_claims.space_credential {
+            crate::spaces::credential::peek_credential_sub(token).ok_or_else(|| {
+                AppError::Auth("invalid space credential: unable to extract sub".into())
+            })?
+        } else {
+            return Err(AppError::Auth(
+                "XRPC procedures require DPoP authentication".into(),
+            ));
+        }
+    } else {
+        resolve_client_key(&state, claims.as_ref(), &parts, &params)?
+    };
 
     let lexicon = state.lexicons.get(&method).await;
 
@@ -415,6 +439,9 @@ pub async fn xrpc_post(
     if let Some(ref param_schema) = lexicon.parameters {
         coerce_params(&mut params, param_schema);
     }
+
+    let claims = claims
+        .ok_or_else(|| AppError::Auth("XRPC procedures require DPoP authentication".into()))?;
 
     let mut response =
         procedure::handle_procedure(&state, &method, &claims, &body, &params, &lexicon).await?;
