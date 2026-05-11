@@ -24,7 +24,7 @@ pub async fn link_account(
     Json(input): Json<LinkAccountInput>,
 ) -> Result<Response, AppError> {
     let claims = xrpc_claims
-        .0
+        .identity
         .ok_or_else(|| AppError::Auth("linkAccount requires authentication".into()))?;
 
     let caller_did = claims.did().to_string();

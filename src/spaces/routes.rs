@@ -1,5 +1,5 @@
 use axum::extract::{Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -201,11 +201,11 @@ const NS: &str = "dev.happyview";
 pub fn space_routes() -> Router<AppState> {
     Router::new()
         // Space CRUD
-        .route(&format!("/xrpc/{NS}.space.create"), post(create_space))
-        .route(&format!("/xrpc/{NS}.space.get"), get(get_space))
-        .route(&format!("/xrpc/{NS}.space.list"), get(list_spaces))
-        .route(&format!("/xrpc/{NS}.space.delete"), post(delete_space))
-        .route(&format!("/xrpc/{NS}.space.update"), post(update_space))
+        .route(&format!("/xrpc/{NS}.space.createSpace"), post(create_space))
+        .route(&format!("/xrpc/{NS}.space.getSpace"), get(get_space))
+        .route(&format!("/xrpc/{NS}.space.listSpaces"), get(list_spaces))
+        .route(&format!("/xrpc/{NS}.space.deleteSpace"), post(delete_space))
+        .route(&format!("/xrpc/{NS}.space.updateSpace"), post(update_space))
         // Records
         .route(
             &format!("/xrpc/{NS}.space.createRecord"),
@@ -227,6 +227,34 @@ pub fn space_routes() -> Router<AppState> {
             post(remove_member),
         )
         // Invites
+        .route(
+            &format!("/xrpc/{NS}.space.createInvite"),
+            post(create_invite),
+        )
+        .route(
+            &format!("/xrpc/{NS}.space.redeemInvite"),
+            post(redeem_invite),
+        )
+        .route(
+            &format!("/xrpc/{NS}.space.revokeInvite"),
+            post(revoke_invite),
+        )
+        .route(&format!("/xrpc/{NS}.space.listInvites"), get(list_invites))
+        // Credentials
+        .route(
+            &format!("/xrpc/{NS}.space.getMemberGrant"),
+            post(get_member_grant),
+        )
+        .route(
+            &format!("/xrpc/{NS}.space.getSpaceCredential"),
+            post(get_space_credential),
+        )
+        // Legacy aliases (will be removed in a future release)
+        .route(&format!("/xrpc/{NS}.space.create"), post(create_space))
+        .route(&format!("/xrpc/{NS}.space.get"), get(get_space))
+        .route(&format!("/xrpc/{NS}.space.list"), get(list_spaces))
+        .route(&format!("/xrpc/{NS}.space.delete"), post(delete_space))
+        .route(&format!("/xrpc/{NS}.space.update"), post(update_space))
         .route(
             &format!("/xrpc/{NS}.space.invite.create"),
             post(create_invite),
@@ -257,9 +285,9 @@ pub fn space_routes() -> Router<AppState> {
 
 fn require_auth(claims: &XrpcClaims) -> Result<&crate::auth::Claims, AppError> {
     claims
-        .0
+        .identity
         .as_ref()
-        .ok_or_else(|| AppError::Auth("This endpoint requires DPoP authentication".into()))
+        .ok_or_else(|| AppError::Auth("This endpoint requires authentication".into()))
 }
 
 async fn resolve_space(state: &AppState, space_uri: &str) -> Result<Space, AppError> {
@@ -291,13 +319,6 @@ async fn require_space_admin(state: &AppState, space: &Space, did: &str) -> Resu
     Err(AppError::Forbidden(
         "Only the space owner can perform this action".into(),
     ))
-}
-
-fn extract_space_credential(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get("x-space-credential")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
 }
 
 async fn require_membership(
@@ -552,14 +573,19 @@ async fn update_space(
 async fn create_record(
     State(state): State<AppState>,
     xrpc_claims: XrpcClaims,
-    headers: HeaderMap,
     Json(input): Json<CreateRecordInput>,
 ) -> Result<Response, AppError> {
     let claims = require_auth(&xrpc_claims)?;
     let did = claims.did().to_string();
     let space = resolve_space(&state, &input.space).await?;
-    let cred = extract_space_credential(&headers);
-    require_membership(&state, &space, &did, true, cred.as_deref()).await?;
+    require_membership(
+        &state,
+        &space,
+        &did,
+        true,
+        xrpc_claims.space_credential.as_deref(),
+    )
+    .await?;
 
     let rkey = generate_tid();
     let cid = content_cid(&input.record);
@@ -597,14 +623,19 @@ async fn create_record(
 async fn put_record(
     State(state): State<AppState>,
     xrpc_claims: XrpcClaims,
-    headers: HeaderMap,
     Json(input): Json<PutRecordInput>,
 ) -> Result<Response, AppError> {
     let claims = require_auth(&xrpc_claims)?;
     let did = claims.did().to_string();
     let space = resolve_space(&state, &input.space).await?;
-    let cred = extract_space_credential(&headers);
-    require_membership(&state, &space, &did, true, cred.as_deref()).await?;
+    require_membership(
+        &state,
+        &space,
+        &did,
+        true,
+        xrpc_claims.space_credential.as_deref(),
+    )
+    .await?;
 
     let cid = content_cid(&input.record);
     let record_uri = format!(
@@ -684,14 +715,19 @@ async fn delete_record(
 async fn apply_writes(
     State(state): State<AppState>,
     xrpc_claims: XrpcClaims,
-    headers: HeaderMap,
     Json(input): Json<ApplyWritesInput>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let claims = require_auth(&xrpc_claims)?;
     let did = claims.did().to_string();
     let space = resolve_space(&state, &input.space).await?;
-    let cred = extract_space_credential(&headers);
-    require_membership(&state, &space, &did, true, cred.as_deref()).await?;
+    require_membership(
+        &state,
+        &space,
+        &did,
+        true,
+        xrpc_claims.space_credential.as_deref(),
+    )
+    .await?;
 
     if let Some(ref expected_rev) = input.swap_commit {
         match &space.revision {
@@ -809,13 +845,18 @@ async fn apply_writes(
 async fn get_record(
     State(state): State<AppState>,
     xrpc_claims: XrpcClaims,
-    headers: HeaderMap,
     Query(query): Query<GetRecordQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let claims = require_auth(&xrpc_claims)?;
     let space = resolve_space(&state, &query.space).await?;
-    let cred = extract_space_credential(&headers);
-    require_membership(&state, &space, claims.did(), false, cred.as_deref()).await?;
+    require_membership(
+        &state,
+        &space,
+        claims.did(),
+        false,
+        xrpc_claims.space_credential.as_deref(),
+    )
+    .await?;
 
     let record = db::get_space_record_by_parts(
         &state.db,
@@ -837,16 +878,21 @@ async fn get_record(
 async fn list_records(
     State(state): State<AppState>,
     xrpc_claims: XrpcClaims,
-    headers: HeaderMap,
     Query(query): Query<ListRecordsQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let claims = require_auth(&xrpc_claims)?;
     let space = resolve_space(&state, &query.space).await?;
-    let cred = extract_space_credential(&headers);
-    require_membership(&state, &space, claims.did(), false, cred.as_deref()).await?;
+    require_membership(
+        &state,
+        &space,
+        claims.did(),
+        false,
+        xrpc_claims.space_credential.as_deref(),
+    )
+    .await?;
 
     let repo = query.repo.as_deref().or_else(|| {
-        if cred.is_some() {
+        if xrpc_claims.space_credential.is_some() {
             None
         } else {
             Some(claims.did())
@@ -893,15 +939,20 @@ async fn list_records(
 async fn list_members(
     State(state): State<AppState>,
     xrpc_claims: XrpcClaims,
-    headers: HeaderMap,
     Query(query): Query<SpaceUriQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let space = resolve_space(&state, &query.space).await?;
 
     if !space.config.membership_public {
         let claims = require_auth(&xrpc_claims)?;
-        let cred = extract_space_credential(&headers);
-        require_membership(&state, &space, claims.did(), false, cred.as_deref()).await?;
+        require_membership(
+            &state,
+            &space,
+            claims.did(),
+            false,
+            xrpc_claims.space_credential.as_deref(),
+        )
+        .await?;
     }
 
     let resolved = members::resolve_members(&state.db, state.db_backend, &space.id).await?;

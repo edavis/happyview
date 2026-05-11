@@ -311,7 +311,7 @@ async fn get_profile(
     xrpc_claims: XrpcClaims,
 ) -> Result<Response, AppError> {
     let claims = xrpc_claims
-        .0
+        .identity
         .ok_or_else(|| AppError::Auth("getProfile requires DPoP authentication".into()))?;
     let check = if let Some(client_key) = claims.client_key() {
         let cost = state

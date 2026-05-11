@@ -258,7 +258,7 @@ pub async fn xrpc_get(
 ) -> Result<Response, AppError> {
     let raw_query = raw_query.unwrap_or_default();
     let mut params = parse_query_params(&raw_query);
-    let claims = xrpc_claims.0;
+    let claims = xrpc_claims.identity;
 
     let rate_key = resolve_client_key(&state, claims.as_ref(), &parts, &params)?;
 
@@ -349,7 +349,7 @@ pub async fn xrpc_post(
     let raw_query = raw_query.unwrap_or_default();
     let mut params = parse_query_params(&raw_query);
     let claims = xrpc_claims
-        .0
+        .identity
         .ok_or_else(|| AppError::Auth("XRPC procedures require DPoP authentication".into()))?;
 
     let rate_key = resolve_client_key(&state, Some(&claims), &parts, &params)?;

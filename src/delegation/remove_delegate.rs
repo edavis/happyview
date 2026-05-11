@@ -26,7 +26,7 @@ pub async fn remove_delegate(
     Json(input): Json<RemoveDelegateInput>,
 ) -> Result<Response, AppError> {
     let claims = xrpc_claims
-        .0
+        .identity
         .ok_or_else(|| AppError::Auth("removeDelegate requires authentication".into()))?;
 
     let caller_did = claims.did().to_string();
