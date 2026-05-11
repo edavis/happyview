@@ -18,7 +18,7 @@ pub async fn upload_blob(
     body: Bytes,
 ) -> Result<Response, AppError> {
     let claims = xrpc_claims
-        .0
+        .identity
         .ok_or_else(|| AppError::Auth("uploadBlob requires DPoP authentication".into()))?;
     let check = if let Some(client_key) = claims.client_key() {
         let cost = state

@@ -27,7 +27,7 @@ pub async fn add_delegate(
     Json(input): Json<AddDelegateInput>,
 ) -> Result<Response, AppError> {
     let claims = xrpc_claims
-        .0
+        .identity
         .ok_or_else(|| AppError::Auth("addDelegate requires authentication".into()))?;
 
     let caller_did = claims.did().to_string();

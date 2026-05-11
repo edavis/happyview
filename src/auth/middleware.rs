@@ -220,11 +220,14 @@ pub async fn resolve_dpop_claims(
 
 /// XRPC-specific claims extractor.
 ///
-/// Only accepts DPoP auth (`Authorization: DPoP <token>` + `DPoP` proof + `X-Client-Key`).
-/// Cookie auth, Bearer API keys, and service JWTs are rejected on XRPC routes.
-/// Wraps `Option<Claims>` — `None` means anonymous (client-key-only) access.
+/// Accepts DPoP auth (`Authorization: DPoP <token>`) or Bearer space credential
+/// JWTs (`Authorization: Bearer <space_credential>`). Cookie auth, Bearer API keys,
+/// and service JWTs are rejected on XRPC routes.
 #[derive(Debug, Clone)]
-pub struct XrpcClaims(pub Option<Claims>);
+pub struct XrpcClaims {
+    pub identity: Option<Claims>,
+    pub space_credential: Option<String>,
+}
 
 impl FromRequestParts<AppState> for XrpcClaims {
     type Rejection = AppError;
@@ -242,19 +245,36 @@ impl FromRequestParts<AppState> for XrpcClaims {
             Some(h) if h.starts_with("DPoP ") => {
                 let token = &h[5..];
                 let claims = resolve_dpop_claims(state, parts, token).await?;
-                Ok(XrpcClaims(Some(claims)))
+                Ok(XrpcClaims {
+                    identity: Some(claims),
+                    space_credential: None,
+                })
             }
             Some(h) if h.starts_with("Bearer ") => {
-                Err(AppError::Auth(
-                    "XRPC routes do not accept Bearer auth. Use DPoP auth or omit the Authorization header for anonymous access.".into(),
-                ))
+                let token = &h[7..];
+                match crate::spaces::credential::peek_jwt_typ(token) {
+                    Some(typ) if typ == "space_credential" => {
+                        let sub =
+                            crate::spaces::credential::peek_credential_sub(token).ok_or_else(
+                                || AppError::Auth("invalid space credential payload".into()),
+                            )?;
+                        Ok(XrpcClaims {
+                            identity: Some(Claims::internal(sub)),
+                            space_credential: Some(token.to_string()),
+                        })
+                    }
+                    _ => Err(AppError::Auth(
+                        "XRPC routes do not accept Bearer auth. Use DPoP auth, a space credential, or omit the Authorization header for anonymous access.".into(),
+                    )),
+                }
             }
-            Some(_) => {
-                Err(AppError::Auth("invalid Authorization scheme".into()))
-            }
+            Some(_) => Err(AppError::Auth("invalid Authorization scheme".into())),
             None => {
                 // No auth header — anonymous access (client-key only)
-                Ok(XrpcClaims(None))
+                Ok(XrpcClaims {
+                    identity: None,
+                    space_credential: None,
+                })
             }
         }
     }

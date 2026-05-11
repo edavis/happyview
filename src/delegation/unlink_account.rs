@@ -24,7 +24,7 @@ pub async fn unlink_account(
     Json(input): Json<UnlinkAccountInput>,
 ) -> Result<Response, AppError> {
     let claims = xrpc_claims
-        .0
+        .identity
         .ok_or_else(|| AppError::Auth("unlinkAccount requires authentication".into()))?;
 
     let caller_did = claims.did().to_string();
