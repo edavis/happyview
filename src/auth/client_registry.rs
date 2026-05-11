@@ -91,23 +91,26 @@ impl OAuthClientRegistry {
     /// Register a domain-specific OAuth client.
     /// Inserts into both `domain_clients` (keyed by domain URL, for `get_for_domain`)
     /// and `clients` (keyed by client_id_url, for `get_or_default`).
-    pub fn register_domain_client(&self, domain_url: String, client: Arc<HappyViewOAuthClient>) {
-        let client_id_url = format!(
-            "{}/oauth-client-metadata.json",
-            domain_url.trim_end_matches('/')
-        );
+    ///
+    /// `client_id_url` must be the base-path-aware client ID
+    /// (e.g. `{domain_url}{base_path}/oauth-client-metadata.json`).
+    pub fn register_domain_client(
+        &self,
+        domain_url: String,
+        client_id_url: String,
+        client: Arc<HappyViewOAuthClient>,
+    ) {
         self.domain_clients.insert(domain_url, Arc::clone(&client));
         self.clients.insert(client_id_url, client);
     }
 
     /// Remove a domain-specific OAuth client from both maps.
-    pub fn remove_domain_client(&self, domain_url: &str) {
+    ///
+    /// `client_id_url` must be the same base-path-aware client ID that was
+    /// passed to `register_domain_client`.
+    pub fn remove_domain_client(&self, domain_url: &str, client_id_url: &str) {
         self.domain_clients.remove(domain_url);
-        let client_id_url = format!(
-            "{}/oauth-client-metadata.json",
-            domain_url.trim_end_matches('/')
-        );
-        self.clients.remove(&client_id_url);
+        self.clients.remove(client_id_url);
     }
 
     /// Look up a domain-specific OAuth client.
@@ -131,17 +134,18 @@ impl OAuthClientRegistry {
     }
 
     /// Returns true if the given `client_id_url` is already claimed by a domain
-    /// client (i.e. matches `{domain_url}/oauth-client-metadata.json` for any
-    /// registered domain).
+    /// client. Checks by comparing against the actual client instances stored by
+    /// domain registrations, so it works correctly regardless of `BASE_PATH`.
     pub fn is_domain_client_id(&self, client_id_url: &str) -> bool {
-        self.domain_clients.iter().any(|entry| {
-            let domain_url = entry.key();
-            let expected = format!(
-                "{}/oauth-client-metadata.json",
-                domain_url.trim_end_matches('/')
-            );
-            expected == client_id_url
-        })
+        // A client_id_url belongs to a domain client if any domain_clients entry
+        // has the same Arc as the one stored in `clients` under that key.
+        if let Some(candidate) = self.clients.get(client_id_url) {
+            self.domain_clients
+                .iter()
+                .any(|entry| Arc::ptr_eq(entry.value(), candidate.value()))
+        } else {
+            false
+        }
     }
 
     /// Build and register a single OAuth client from API client metadata.
@@ -363,29 +367,67 @@ mod tests {
 
     #[test]
     fn test_domain_client_id_collision_detection() {
-        let domains: DashMap<String, String> = DashMap::new();
-        domains.insert("https://example.com".to_string(), "client".to_string());
-        domains.insert(
-            "https://other.example.com/".to_string(),
-            "client".to_string(),
+        // Simulate the is_domain_client_id logic using raw DashMaps and Arc pointer equality,
+        // mirroring the real OAuthClientRegistry implementation.
+        let domain_clients: DashMap<String, Arc<String>> = DashMap::new();
+        let clients: DashMap<String, Arc<String>> = DashMap::new();
+
+        // Register domain "https://example.com" with base-path-aware client_id_url
+        let client_a = Arc::new("client_a".to_string());
+        domain_clients.insert("https://example.com".to_string(), Arc::clone(&client_a));
+        clients.insert(
+            "https://example.com/hv/oauth-client-metadata.json".to_string(),
+            client_a,
         );
 
-        let matches = |client_id_url: &str| -> bool {
-            domains.iter().any(|entry| {
-                let domain_url = entry.key();
-                let expected = format!(
-                    "{}/oauth-client-metadata.json",
-                    domain_url.trim_end_matches('/')
-                );
-                expected == client_id_url
-            })
+        // Register domain "https://other.example.com" without base path
+        let client_b = Arc::new("client_b".to_string());
+        domain_clients.insert(
+            "https://other.example.com".to_string(),
+            Arc::clone(&client_b),
+        );
+        clients.insert(
+            "https://other.example.com/oauth-client-metadata.json".to_string(),
+            client_b,
+        );
+
+        // Also register a non-domain API client
+        let api_client = Arc::new("api_client".to_string());
+        clients.insert(
+            "https://api.example.com/oauth-client-metadata.json".to_string(),
+            api_client,
+        );
+
+        let is_domain_client_id = |client_id_url: &str| -> bool {
+            if let Some(candidate) = clients.get(client_id_url) {
+                domain_clients
+                    .iter()
+                    .any(|entry| Arc::ptr_eq(entry.value(), candidate.value()))
+            } else {
+                false
+            }
         };
 
-        assert!(matches("https://example.com/oauth-client-metadata.json"));
-        assert!(matches(
+        // Base-path-aware key is detected as a domain client
+        assert!(is_domain_client_id(
+            "https://example.com/hv/oauth-client-metadata.json"
+        ));
+        // Non-base-path key is also detected
+        assert!(is_domain_client_id(
             "https://other.example.com/oauth-client-metadata.json"
         ));
-        assert!(!matches("https://unrelated.com/oauth-client-metadata.json"));
-        assert!(!matches("https://example.com/other-path.json"));
+        // Unrelated URLs are not detected
+        assert!(!is_domain_client_id(
+            "https://unrelated.com/oauth-client-metadata.json"
+        ));
+        assert!(!is_domain_client_id("https://example.com/other-path.json"));
+        // The old (wrong) key without base path is not detected
+        assert!(!is_domain_client_id(
+            "https://example.com/oauth-client-metadata.json"
+        ));
+        // API client is not detected as a domain client
+        assert!(!is_domain_client_id(
+            "https://api.example.com/oauth-client-metadata.json"
+        ));
     }
 }
