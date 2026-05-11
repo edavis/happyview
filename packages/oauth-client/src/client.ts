@@ -164,7 +164,7 @@ export class HappyViewOAuthClient {
       accessToken: params.accessToken,
       clientKey: this.clientKey,
       instanceUrl: this.instanceUrl,
-      scopes: params.scopes,
+      scopes: data.scopes,
       pdsUrl: params.pdsUrl,
       issuer: params.issuer,
     };
@@ -180,7 +180,7 @@ export class HappyViewOAuthClient {
       accessToken: params.accessToken,
       clientKey: this.clientKey,
       instanceUrl: this.instanceUrl,
-      scopes: params.scopes,
+      scopes: data.scopes,
       pdsUrl: params.pdsUrl,
       issuer: params.issuer,
       fetch: this._fetch,
