@@ -519,7 +519,15 @@ async fn main() {
 
     // Register the primary domain's OAuth client in domain_clients
     if let Some(ref pd) = domain_cache.primary().await {
-        oauth_registry.register_domain_client(pd.url.clone(), Arc::clone(&oauth_client_arc));
+        let primary_client_id_url = format!(
+            "{}/oauth-client-metadata.json",
+            config.url_with_base_path(&pd.url).trim_end_matches('/')
+        );
+        oauth_registry.register_domain_client(
+            pd.url.clone(),
+            primary_client_id_url,
+            Arc::clone(&oauth_client_arc),
+        );
     }
 
     // Build OAuth clients for all non-primary domains
@@ -553,7 +561,7 @@ async fn main() {
 
         match atrium_oauth::OAuthClient::new(OAuthClientConfig {
             client_metadata: AtprotoClientMetadata {
-                client_id: domain_client_id,
+                client_id: domain_client_id.clone(),
                 client_uri: Some(domain_base_url.clone()),
                 redirect_uris: vec![domain_callback_url],
                 token_endpoint_auth_method: AuthMethod::None,
@@ -569,7 +577,11 @@ async fn main() {
         }) {
             Ok(client) => {
                 info!(domain = %domain.url, "Registered domain OAuth client");
-                oauth_registry.register_domain_client(domain.url.clone(), Arc::new(client));
+                oauth_registry.register_domain_client(
+                    domain.url.clone(),
+                    domain_client_id,
+                    Arc::new(client),
+                );
             }
             Err(e) => {
                 tracing::error!(domain = %domain.url, error = %e, "Failed to create domain OAuth client");
