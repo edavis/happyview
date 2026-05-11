@@ -32,6 +32,13 @@ pub(super) async fn create_api_client(
 ) -> Result<(StatusCode, Json<CreateApiClientResponse>), AppError> {
     auth.require(Permission::ApiClientsCreate).await?;
 
+    if state.oauth.is_domain_client_id(&body.client_id_url) {
+        return Err(AppError::Conflict(format!(
+            "client_id_url '{}' conflicts with a registered domain's OAuth client",
+            body.client_id_url
+        )));
+    }
+
     // Generate the client key: "hvc_" + 32 random hex chars.
     let mut random_bytes = [0u8; 16];
     rand::rng().fill(&mut random_bytes);
