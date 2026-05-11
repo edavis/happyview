@@ -114,6 +114,7 @@ pub async fn list_spaces_by_owner(
 pub struct SpaceView {
     pub uri: String,
     pub is_owner: bool,
+    pub created_at: String,
 }
 
 pub async fn list_spaces_for_user(
@@ -155,9 +156,10 @@ pub async fn list_spaces_for_user(
     Ok(rows
         .into_iter()
         .map(
-            |(space_did, owner_did, type_nsid, skey, _created_at)| SpaceView {
+            |(space_did, owner_did, type_nsid, skey, created_at)| SpaceView {
                 uri: format!("ats://{}/{}/{}", space_did, type_nsid, skey),
                 is_owner: owner_did == did,
+                created_at,
             },
         )
         .collect())

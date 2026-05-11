@@ -482,7 +482,7 @@ async fn list_spaces(
     .await?;
 
     let cursor = if views.len() as i64 == limit {
-        views.last().map(|v| v.uri.clone())
+        views.last().map(|v| v.created_at.clone())
     } else {
         None
     };
