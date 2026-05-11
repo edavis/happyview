@@ -14,7 +14,7 @@ jobs:
   # Required because workflow-level `paths` filters can't vary per job.
   # ---------------------------------------------------------------------------
   changes:
-    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request'
     runs-on: depot-ubuntu-24.04
     outputs:
       server: ${{ steps.filter.outputs.server }}
@@ -166,8 +166,7 @@ jobs:
   # ---------------------------------------------------------------------------
   release:
     if: >-
-      github.event_name == 'push'
-      && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
       && needs.changes.outputs.server == 'true'
     needs: [changes, unit-tests, e2e-tests, frontend, lint]
     runs-on: depot-ubuntu-24.04
@@ -298,8 +297,7 @@ jobs:
 
   release-oauth-client:
     if: >-
-      github.event_name == 'push'
-      && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
       && needs.changes.outputs.oauth-client == 'true'
     needs: [changes, test-oauth-client]
     runs-on: depot-ubuntu-24.04
@@ -337,8 +335,7 @@ jobs:
 
   release-oauth-client-browser:
     if: >-
-      github.event_name == 'push'
-      && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
       && needs.changes.outputs.oauth-client-browser == 'true'
     needs: [changes, test-oauth-client-browser, release-oauth-client]
     runs-on: depot-ubuntu-24.04
@@ -393,8 +390,7 @@ jobs:
 
   release-oauth-client-node:
     if: >-
-      github.event_name == 'push'
-      && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
       && needs.changes.outputs.oauth-client-node == 'true'
     needs: [changes, test-oauth-client-node, release-oauth-client]
     runs-on: depot-ubuntu-24.04
@@ -449,8 +445,7 @@ jobs:
 
   release-lex-agent:
     if: >-
-      github.event_name == 'push'
-      && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
       && needs.changes.outputs.lex-agent == 'true'
     needs: [changes, test-lex-agent, release-oauth-client]
     runs-on: depot-ubuntu-24.04
@@ -635,8 +630,7 @@ jobs:
   docker-postgres:
     needs: changes
     if: >-
-      github.event_name == 'push'
-      && needs.changes.outputs.postgres == 'true'
+      needs.changes.outputs.postgres == 'true'
     runs-on: depot-ubuntu-24.04
     permissions:
       contents: read
@@ -671,7 +665,6 @@ jobs:
   # Mirror to Tangled
   # ---------------------------------------------------------------------------
   mirror:
-    if: github.event_name == 'push' || github.event_name == 'delete'
     runs-on: depot-ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
