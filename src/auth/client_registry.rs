@@ -130,6 +130,20 @@ impl OAuthClientRegistry {
         self.primary_client.store(client);
     }
 
+    /// Returns true if the given `client_id_url` is already claimed by a domain
+    /// client (i.e. matches `{domain_url}/oauth-client-metadata.json` for any
+    /// registered domain).
+    pub fn is_domain_client_id(&self, client_id_url: &str) -> bool {
+        self.domain_clients.iter().any(|entry| {
+            let domain_url = entry.key();
+            let expected = format!(
+                "{}/oauth-client-metadata.json",
+                domain_url.trim_end_matches('/')
+            );
+            expected == client_id_url
+        })
+    }
+
     /// Build and register a single OAuth client from API client metadata.
     /// Used when creating or updating an API client via the admin UI.
     pub fn register_api_client(
@@ -140,6 +154,12 @@ impl OAuthClientRegistry {
         scopes_str: &str,
         params: &ApiClientOAuthParams,
     ) -> Result<(), String> {
+        if self.is_domain_client_id(client_id_url) {
+            return Err(format!(
+                "client_id_url '{}' conflicts with a registered domain's OAuth client",
+                client_id_url
+            ));
+        }
         let ApiClientOAuthParams {
             plc_url,
             state_store,
@@ -232,6 +252,14 @@ impl OAuthClientRegistry {
             };
 
         for (client_id_url, client_uri, redirect_uris_json, scopes_str) in rows {
+            if self.is_domain_client_id(&client_id_url) {
+                tracing::warn!(
+                    client_id = %client_id_url,
+                    "Skipping API client that conflicts with a domain OAuth client"
+                );
+                continue;
+            }
+
             let redirect_uris: Vec<String> =
                 serde_json::from_str(&redirect_uris_json).unwrap_or_default();
 
@@ -331,5 +359,33 @@ mod tests {
         map.insert("key1".to_string(), "val2".to_string());
 
         assert_eq!(map.get("key1").unwrap().value(), "val2");
+    }
+
+    #[test]
+    fn test_domain_client_id_collision_detection() {
+        let domains: DashMap<String, String> = DashMap::new();
+        domains.insert("https://example.com".to_string(), "client".to_string());
+        domains.insert(
+            "https://other.example.com/".to_string(),
+            "client".to_string(),
+        );
+
+        let matches = |client_id_url: &str| -> bool {
+            domains.iter().any(|entry| {
+                let domain_url = entry.key();
+                let expected = format!(
+                    "{}/oauth-client-metadata.json",
+                    domain_url.trim_end_matches('/')
+                );
+                expected == client_id_url
+            })
+        };
+
+        assert!(matches("https://example.com/oauth-client-metadata.json"));
+        assert!(matches(
+            "https://other.example.com/oauth-client-metadata.json"
+        ));
+        assert!(!matches("https://unrelated.com/oauth-client-metadata.json"));
+        assert!(!matches("https://example.com/other-path.json"));
     }
 }
