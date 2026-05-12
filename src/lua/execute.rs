@@ -957,12 +957,13 @@ pub async fn execute_hook_script(event: &HookEvent<'_>) -> Option<Value> {
         .map(|r| serde_json::to_string(r).unwrap_or_default());
     let dead_letter_sql = adapt_sql(
         r#"
-        INSERT INTO dead_letter_hooks (lexicon_id, uri, did, collection, rkey, action, record, error, attempts, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO dead_letter_hooks (id, lexicon_id, uri, did, collection, rkey, action, record, error, attempts, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
         backend,
     );
     if let Err(e) = sqlx::query(&dead_letter_sql)
+        .bind(uuid::Uuid::new_v4().to_string())
         .bind(event.lexicon_id)
         .bind(event.uri)
         .bind(event.did)
