@@ -170,9 +170,9 @@ sequenceDiagram
     HV-->>Client: Response
 ```
 
-:::tip
+<Callout type="idea">
 The [JavaScript SDK](../sdk/overview.md) handles this entire flow for you. The raw HTTP flow below is useful for understanding the protocol or building a non-JavaScript client.
-:::
+</Callout>
 
 ### API clients: confidential vs public
 

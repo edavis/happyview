@@ -59,9 +59,9 @@ Since HappyView indexes records from the atproto network, the simplest way to po
 
 Backfill fetches all records fresh from the network, so no data transfer between databases is needed.
 
-:::tip
+<Callout type="idea">
 If you have many lexicons, you can export them from the old instance before switching. Use `GET /admin/lexicons` to list them and `POST /admin/lexicons` to re-upload after switching to Postgres.
-:::
+</Callout>
 
 ## Step 6: Re-create admin settings
 

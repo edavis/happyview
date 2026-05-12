@@ -2,9 +2,9 @@
 title: "Credentials"
 ---
 
-:::caution Experimental
+<Callout type="error" title="Experimental">
 This API is experimental and will change. See the [Permissioned Spaces overview](../spaces.md) for context.
-:::
+</Callout>
 
 Space credentials are short-lived JWTs for cross-service access to space data. A member proves their membership to get a grant, exchanges the grant for a credential JWT, then passes it to an external service that needs to read the space's records.
 

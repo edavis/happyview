@@ -2,9 +2,9 @@
 title: "Records"
 ---
 
-:::caution Experimental
+<Callout type="error" title="Experimental">
 This API is experimental and will change. See the [Permissioned Spaces overview](../spaces.md) for context.
-:::
+</Callout>
 
 Space records are stored separately from public AT Protocol records. They follow the same URI pattern but use the `ats://` scheme and include the space identity:
 

@@ -36,9 +36,9 @@ Logged when records are received from Jetstream and stored or removed from the l
 
 Logged when Lua scripts run for XRPC query or procedure endpoints. Script errors capture the full context needed to reproduce and debug the issue: the error message, the complete Lua script source, the input that triggered it, and the caller's DID.
 
-:::note
+<Callout type="info">
 For query scripts (unauthenticated), `caller_did` and `input` are omitted from the detail since queries don't have an authenticated user or request body.
-:::
+</Callout>
 
 ### User events
 

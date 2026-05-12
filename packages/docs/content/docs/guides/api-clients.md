@@ -29,9 +29,9 @@ Choose based on where your code runs:
 | **Origin validation**  | No                                         | Yes — `Origin` must match `allowed_origins` |
 | **PKCE required?**     | No                                         | Yes (S256)                                  |
 
-:::tip
+<Callout type="idea">
 If your app has a backend that can securely store the client secret, use a confidential client even if the frontend is a browser app. The backend can proxy OAuth operations.
-:::
+</Callout>
 
 ## Creating a client
 

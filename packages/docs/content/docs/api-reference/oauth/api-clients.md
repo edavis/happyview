@@ -6,9 +6,9 @@ Third-party applications can manage their own API clients via the `dev.happyview
 
 All endpoints use [DPoP authentication](../../getting-started/authentication.md#authenticating-users-for-procedures). See the [admin API client docs](../admin/api-clients.md) for managing clients through the admin API, and the [API Clients guide](../../guides/features/api-clients.md) for how API clients work.
 
-:::note
+<Callout type="info">
 Only top-level API clients can call these endpoints. Third-party (child) clients receive `401 Unauthorized` or `403 Forbidden`.
-:::
+</Callout>
 
 ## Authentication
 
