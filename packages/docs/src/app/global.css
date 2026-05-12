@@ -11,6 +11,16 @@
   }
 }
 
+#nd-docs-layout {
+  --fd-layout-width: 100vw;
+}
+
 #nd-sidebar a {
   white-space: nowrap;
+}
+
+@media (min-width: 768px) {
+  #nd-sidebar > :first-child button[aria-label="Collapse Sidebar"] {
+    display: none;
+  }
 }

@@ -3,6 +3,7 @@ import { RootProvider } from 'fumadocs-ui/provider/next';
 import { DocsLayout } from 'fumadocs-ui/layouts/docs';
 import { source } from '@/lib/source';
 import { fontVariables } from '@/lib/fonts';
+import { SidebarFooter } from '@/components/sidebar-footer';
 import type { ReactNode } from 'react';
 
 export const metadata = {
@@ -30,10 +31,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             nav={{
               title: (
                 <span className="flex items-center gap-2 text-sm tracking-tight">
-                  <img src="/img/logo.dark.png" alt="" className="h-5" />
+                  <img src="/img/logo.dark.png" alt="HappyView" className="h-14" />
                 </span>
               ),
             }}
+            sidebar={{
+              footer: <SidebarFooter key="sidebar-footer" />,
+            }}
+            themeSwitch={{ enabled: false }}
             links={[
               {
                 text: 'Docs',
