@@ -1,0 +1,10 @@
+{
+  "title": "Getting Started",
+  "pages": [
+    "quickstart",
+    "configuration",
+    "dashboard",
+    "authentication",
+    "deployment"
+  ]
+}
