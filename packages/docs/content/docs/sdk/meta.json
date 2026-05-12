@@ -1,0 +1,10 @@
+{
+  "title": "JavaScript SDKs",
+  "pages": [
+    "overview",
+    "lex-agent",
+    "oauth-client",
+    "oauth-client-browser",
+    "oauth-client-node"
+  ]
+}

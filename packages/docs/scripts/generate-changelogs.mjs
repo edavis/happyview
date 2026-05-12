@@ -6,31 +6,31 @@ const API_BASE = "https://api.github.com";
 const CHANGELOGS = [
   {
     name: "HappyView",
-    output: "docs/reference/changelog.md",
+    output: "content/docs/reference/changelog.md",
     match: (tag) => /^v\d/.test(tag),
     formatVersion: (tag) => tag,
   },
   {
     name: "@happyview/oauth-client",
-    output: "docs/sdk/changelog-oauth-client.md",
+    output: "content/docs/sdk/changelog-oauth-client.md",
     match: (tag) => tag.startsWith("@happyview/oauth-client-v"),
     formatVersion: (tag) => tag.replace("@happyview/oauth-client-", ""),
   },
   {
     name: "@happyview/oauth-client-browser",
-    output: "docs/sdk/changelog-oauth-client-browser.md",
+    output: "content/docs/sdk/changelog-oauth-client-browser.md",
     match: (tag) => tag.startsWith("@happyview/oauth-client-browser-v"),
     formatVersion: (tag) => tag.replace("@happyview/oauth-client-browser-", ""),
   },
   {
     name: "@happyview/oauth-client-node",
-    output: "docs/sdk/changelog-oauth-client-node.md",
+    output: "content/docs/sdk/changelog-oauth-client-node.md",
     match: (tag) => tag.startsWith("@happyview/oauth-client-node-v"),
     formatVersion: (tag) => tag.replace("@happyview/oauth-client-node-", ""),
   },
   {
     name: "@happyview/lex-agent",
-    output: "docs/sdk/changelog-lex-agent.md",
+    output: "content/docs/sdk/changelog-lex-agent.md",
     match: (tag) => tag.startsWith("@happyview/lex-agent-v"),
     formatVersion: (tag) => tag.replace("@happyview/lex-agent-", ""),
   },
@@ -84,7 +84,9 @@ function buildMarkdown(changelog, releases) {
   if (matching.length === 0) return null;
 
   const lines = [
-    `# ${changelog.name}`,
+    `---`,
+    `title: "${changelog.name}"`,
+    `---`,
     "",
     `<!-- Generated automatically from GitHub releases. Do not edit by hand. -->`,
     "",
@@ -139,7 +141,9 @@ async function main() {
     let md = buildMarkdown(changelog, releases);
     if (!md) {
       md = [
-        `# ${changelog.name}`,
+        `---`,
+        `title: "${changelog.name}"`,
+        `---`,
         "",
         `<!-- Generated automatically from GitHub releases. Do not edit by hand. -->`,
         "",

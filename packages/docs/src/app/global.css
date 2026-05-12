@@ -1,0 +1,16 @@
+@import 'tailwindcss';
+@import '@happyview/design-system/globals.css';
+@import 'fumadocs-ui/css/lib/default-colors.css';
+@import 'fumadocs-ui/css/preset.css';
+
+@source "../../node_modules/fumadocs-ui/dist/**/*.js";
+
+@media (min-width: 768px) {
+  * {
+    --fd-sidebar-width: 300px !important;
+  }
+}
+
+#nd-sidebar a {
+  white-space: nowrap;
+}
