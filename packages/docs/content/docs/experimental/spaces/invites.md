@@ -114,6 +114,12 @@ curl 'https://happyview.example.com/xrpc/dev.happyview.space.listInvites?space=a
   -H 'DPoP: <proof>'
 ```
 
+**Parameters:**
+
+| Field   | Type   | Required | Description                       |
+| ------- | ------ | -------- | --------------------------------- |
+| `space` | string | Yes      | The space to list invites for     |
+
 **Response:**
 
 ```json
