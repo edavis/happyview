@@ -27,6 +27,7 @@ async fn test_state_with_pool(pool: sqlx::AnyPool, backend: DatabaseBackend) -> 
         relay_url: String::new(),
         plc_url: String::new(),
         static_dir: String::new(),
+        base_path: None,
         event_log_retention_days: 30,
         app_name: None,
         logo_uri: None,
@@ -83,7 +84,9 @@ async fn test_state_with_pool(pool: sqlx::AnyPool, backend: DatabaseBackend) -> 
             std::sync::Arc::new(oauth),
         )),
         oauth_state_store: happyview::auth::oauth_store::DbStateStore::new(pool.clone(), backend),
-        cookie_key: axum_extra::extract::cookie::Key::derive_from(b"test-secret"),
+        cookie_key: axum_extra::extract::cookie::Key::derive_from(
+            b"test-secret-that-is-at-least-32-bytes-long",
+        ),
         plugin_registry: std::sync::Arc::new(happyview::plugin::PluginRegistry::new()),
         wasm_runtime: std::sync::Arc::new(
             happyview::plugin::WasmRuntime::new().expect("wasm runtime"),
@@ -169,8 +172,8 @@ async fn seed_label(
 
 #[tokio::test]
 #[serial]
-#[ignore]
 async fn get_labels_returns_external_labels() {
+    common::require_db!();
     let pool = db::test_pool().await;
     let backend = db::test_backend();
     db::truncate_all(&pool).await;
@@ -216,8 +219,8 @@ async fn get_labels_returns_external_labels() {
 
 #[tokio::test]
 #[serial]
-#[ignore]
 async fn get_labels_filters_expired() {
+    common::require_db!();
     let pool = db::test_pool().await;
     let backend = db::test_backend();
     db::truncate_all(&pool).await;
@@ -265,8 +268,8 @@ async fn get_labels_filters_expired() {
 
 #[tokio::test]
 #[serial]
-#[ignore]
 async fn get_labels_includes_self_labels() {
+    common::require_db!();
     let pool = db::test_pool().await;
     let backend = db::test_backend();
     db::truncate_all(&pool).await;
@@ -308,8 +311,8 @@ async fn get_labels_includes_self_labels() {
 
 #[tokio::test]
 #[serial]
-#[ignore]
 async fn get_labels_empty_for_unlabeled_record() {
+    common::require_db!();
     let pool = db::test_pool().await;
     let backend = db::test_backend();
     db::truncate_all(&pool).await;
@@ -345,8 +348,8 @@ async fn get_labels_empty_for_unlabeled_record() {
 
 #[tokio::test]
 #[serial]
-#[ignore]
 async fn get_labels_batch_returns_labels_per_uri() {
+    common::require_db!();
     let pool = db::test_pool().await;
     let backend = db::test_backend();
     db::truncate_all(&pool).await;
@@ -407,8 +410,8 @@ async fn get_labels_batch_returns_labels_per_uri() {
 
 #[tokio::test]
 #[serial]
-#[ignore]
 async fn get_labels_batch_empty_for_no_labels() {
+    common::require_db!();
     let pool = db::test_pool().await;
     let backend = db::test_backend();
     db::truncate_all(&pool).await;
@@ -438,8 +441,8 @@ async fn get_labels_batch_empty_for_no_labels() {
 
 #[tokio::test]
 #[serial]
-#[ignore]
 async fn label_negation_removes_row() {
+    common::require_db!();
     let pool = db::test_pool().await;
     let backend = db::test_backend();
     db::truncate_all(&pool).await;
@@ -497,8 +500,8 @@ async fn label_negation_removes_row() {
 
 #[tokio::test]
 #[serial]
-#[ignore]
 async fn label_upsert_is_idempotent() {
+    common::require_db!();
     let pool = db::test_pool().await;
     let backend = db::test_backend();
     db::truncate_all(&pool).await;

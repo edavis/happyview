@@ -14,7 +14,7 @@ pub async fn list_accounts(
     xrpc_claims: XrpcClaims,
 ) -> Result<Response, AppError> {
     let claims = xrpc_claims
-        .0
+        .identity
         .ok_or_else(|| AppError::Auth("listAccounts requires authentication".into()))?;
 
     let caller_client_id = super::resolve_caller_client_id(&state, &claims).await?;

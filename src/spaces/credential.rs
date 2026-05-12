@@ -7,6 +7,62 @@ use crate::error::AppError;
 use crate::profile;
 
 pub const DEFAULT_CREDENTIAL_TTL_SECS: u64 = 4 * 60 * 60; // 4 hours
+pub const GRANT_TTL_SECS: u64 = 5 * 60; // 5 minutes
+
+/// Peek at a JWT's header to check its `typ` field without verifying the signature.
+pub fn peek_jwt_typ(token: &str) -> Option<String> {
+    let header_b64 = token.split('.').next()?;
+    let header_bytes = URL_SAFE_NO_PAD.decode(header_b64).ok()?;
+    let header: serde_json::Value = serde_json::from_slice(&header_bytes).ok()?;
+    header["typ"].as_str().map(|s| s.to_string())
+}
+
+/// Peek at a space credential JWT's payload to extract the `sub` (user DID) without verifying.
+pub fn peek_credential_sub(token: &str) -> Option<String> {
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let payload_bytes = URL_SAFE_NO_PAD.decode(parts[1]).ok()?;
+    let claims: SpaceCredentialClaims = serde_json::from_slice(&payload_bytes).ok()?;
+    Some(claims.sub)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemberGrantClaims {
+    pub sub: String,
+    pub space: String,
+    pub scope: String,
+    pub iat: u64,
+    pub exp: u64,
+}
+
+pub fn sign_grant(claims: &MemberGrantClaims, secret: &[u8; 32]) -> Result<String, AppError> {
+    let header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
+    let key = jsonwebtoken::EncodingKey::from_secret(secret);
+    jsonwebtoken::encode(&header, claims, &key)
+        .map_err(|e| AppError::Internal(format!("failed to sign member grant: {e}")))
+}
+
+pub fn verify_grant(token: &str, secret: &[u8; 32]) -> Result<MemberGrantClaims, AppError> {
+    let key = jsonwebtoken::DecodingKey::from_secret(secret);
+    let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
+    validation.required_spec_claims.clear();
+    validation.validate_exp = false;
+    let data = jsonwebtoken::decode::<MemberGrantClaims>(token, &key, &validation)
+        .map_err(|e| AppError::Auth(format!("invalid member grant: {e}")))?;
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    if now >= data.claims.exp {
+        return Err(AppError::Auth("member grant has expired".into()));
+    }
+
+    Ok(data.claims)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpaceCredentialClaims {
@@ -35,7 +91,7 @@ pub fn sign_credential(
 
     let header = serde_json::json!({
         "alg": "ES256",
-        "typ": "JWT",
+        "typ": "space_credential",
     });
 
     let header_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&header).unwrap());
@@ -65,6 +121,12 @@ pub fn verify_credential(
 
     if header["alg"].as_str() != Some("ES256") {
         return Err(AppError::Auth("credential alg must be ES256".into()));
+    }
+
+    if header["typ"].as_str() != Some("space_credential") {
+        return Err(AppError::Auth(
+            "credential typ must be space_credential".into(),
+        ));
     }
 
     let x_b64 = public_jwk["x"]
@@ -111,7 +173,7 @@ pub fn verify_credential(
         .unwrap()
         .as_secs();
 
-    if now > claims.exp {
+    if now >= claims.exp {
         return Err(AppError::Auth("credential has expired".into()));
     }
 
@@ -280,5 +342,131 @@ mod tests {
         let keypair = generate_dpop_keypair().unwrap();
         let result = verify_credential("not-a-jwt", &keypair.public_jwk);
         assert!(result.is_err());
+    }
+
+    fn test_secret() -> [u8; 32] {
+        [0xAB; 32]
+    }
+
+    #[test]
+    fn grant_sign_and_verify_roundtrip() {
+        let secret = test_secret();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let claims = MemberGrantClaims {
+            sub: "did:plc:member".into(),
+            space: "ats://did:plc:space/com.example.forum/main".into(),
+            scope: "read".into(),
+            iat: now,
+            exp: now + GRANT_TTL_SECS,
+        };
+
+        let token = sign_grant(&claims, &secret).unwrap();
+        let verified = verify_grant(&token, &secret).unwrap();
+
+        assert_eq!(verified.sub, claims.sub);
+        assert_eq!(verified.space, claims.space);
+        assert_eq!(verified.scope, claims.scope);
+    }
+
+    #[test]
+    fn grant_rejects_wrong_secret() {
+        let secret1 = [0xAB; 32];
+        let secret2 = [0xCD; 32];
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let claims = MemberGrantClaims {
+            sub: "did:plc:member".into(),
+            space: "ats://did:plc:space/com.example.forum/main".into(),
+            scope: "read".into(),
+            iat: now,
+            exp: now + GRANT_TTL_SECS,
+        };
+
+        let token = sign_grant(&claims, &secret1).unwrap();
+        let result = verify_grant(&token, &secret2);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn grant_rejects_expired() {
+        let secret = test_secret();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let claims = MemberGrantClaims {
+            sub: "did:plc:member".into(),
+            space: "ats://did:plc:space/com.example.forum/main".into(),
+            scope: "read".into(),
+            iat: now - 600,
+            exp: now - 300,
+        };
+
+        let token = sign_grant(&claims, &secret).unwrap();
+        let result = verify_grant(&token, &secret);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("expired"));
+    }
+
+    #[test]
+    fn credential_has_space_credential_typ() {
+        let keypair = generate_dpop_keypair().unwrap();
+        let claims = make_claims();
+        let token = sign_credential(&claims, &keypair.private_jwk).unwrap();
+        assert_eq!(peek_jwt_typ(&token).as_deref(), Some("space_credential"));
+    }
+
+    #[test]
+    fn peek_jwt_typ_returns_none_for_garbage() {
+        assert_eq!(peek_jwt_typ("not-a-jwt"), None);
+        assert_eq!(peek_jwt_typ(""), None);
+    }
+
+    #[test]
+    fn peek_credential_sub_extracts_did() {
+        let keypair = generate_dpop_keypair().unwrap();
+        let claims = make_claims();
+        let token = sign_credential(&claims, &keypair.private_jwk).unwrap();
+        assert_eq!(
+            peek_credential_sub(&token).as_deref(),
+            Some("did:plc:requester")
+        );
+    }
+
+    #[test]
+    fn peek_credential_sub_returns_none_for_garbage() {
+        assert_eq!(peek_credential_sub("not-a-jwt"), None);
+    }
+
+    #[test]
+    fn verify_rejects_wrong_typ() {
+        let keypair = generate_dpop_keypair().unwrap();
+        let claims = make_claims();
+
+        let d_b64 = keypair.private_jwk["d"].as_str().unwrap();
+        let d_bytes = URL_SAFE_NO_PAD.decode(d_b64).unwrap();
+        let signing_key = p256::ecdsa::SigningKey::from_bytes((&d_bytes[..]).into()).unwrap();
+
+        let header = serde_json::json!({ "alg": "ES256", "typ": "JWT" });
+        let header_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&header).unwrap());
+        let payload_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap());
+        let message = format!("{}.{}", header_b64, payload_b64);
+        let sig: p256::ecdsa::Signature =
+            p256::ecdsa::signature::Signer::sign(&signing_key, message.as_bytes());
+        let token = format!(
+            "{}.{}.{}",
+            header_b64,
+            payload_b64,
+            URL_SAFE_NO_PAD.encode(sig.to_bytes())
+        );
+
+        let result = verify_credential(&token, &keypair.public_jwk);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("typ"));
     }
 }

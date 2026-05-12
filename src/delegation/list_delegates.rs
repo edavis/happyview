@@ -22,7 +22,7 @@ pub async fn list_delegates(
     Query(params): Query<ListDelegatesParams>,
 ) -> Result<Response, AppError> {
     let claims = xrpc_claims
-        .0
+        .identity
         .ok_or_else(|| AppError::Auth("listDelegates requires authentication".into()))?;
 
     super::verify_client_scope(&state, &claims, &params.account_did).await?;

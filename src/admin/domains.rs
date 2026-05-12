@@ -123,17 +123,25 @@ pub(super) async fn create(
         updated_at: now,
     };
 
+    // Build the base-path-aware URLs for this domain
+    let domain_base_url = state.config.url_with_base_path(&url);
+    let client_id_url = format!(
+        "{}/oauth-client-metadata.json",
+        domain_base_url.trim_end_matches('/')
+    );
+
     // Register the OAuth client for this domain
-    state
-        .oauth
-        .register_domain_client(url.clone(), state.oauth.primary_client());
+    state.oauth.register_domain_client(
+        url.clone(),
+        client_id_url.clone(),
+        state.oauth.primary_client(),
+    );
 
     // Build a proper OAuth client if not loopback
     let domain_is_loopback =
         url.contains("127.0.0.1") || url.contains("[::1]") || url.contains("localhost");
     if !domain_is_loopback {
-        let client_id_url = format!("{}/oauth-client-metadata.json", url.trim_end_matches('/'));
-        let callback = format!("{}/auth/callback", url.trim_end_matches('/'));
+        let callback = format!("{}/auth/callback", domain_base_url.trim_end_matches('/'));
         if let Err(e) = state.oauth.register_api_client(
             &client_id_url,
             &url,
@@ -151,7 +159,9 @@ pub(super) async fn create(
             // Move from `clients` (where register_api_client puts it) to domain_clients + clients
             if let Some(client) = state.oauth.get(&client_id_url) {
                 state.oauth.remove(&client_id_url);
-                state.oauth.register_domain_client(url.clone(), client);
+                state
+                    .oauth
+                    .register_domain_client(url.clone(), client_id_url, client);
             }
         }
     }
@@ -211,7 +221,12 @@ pub(super) async fn delete(
         .map_err(|e| AppError::Internal(format!("failed to delete domain: {e}")))?;
 
     // Remove OAuth client and cache entry
-    state.oauth.remove_domain_client(&url);
+    let domain_base_url = state.config.url_with_base_path(&url);
+    let client_id_url = format!(
+        "{}/oauth-client-metadata.json",
+        domain_base_url.trim_end_matches('/')
+    );
+    state.oauth.remove_domain_client(&url, &client_id_url);
     let host = url
         .strip_prefix("https://")
         .or_else(|| url.strip_prefix("http://"))
