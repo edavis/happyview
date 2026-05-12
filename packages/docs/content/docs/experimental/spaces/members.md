@@ -2,9 +2,9 @@
 title: "Members"
 ---
 
-:::caution Experimental
+<Callout type="error" title="Experimental">
 This API is experimental and will change. See the [Permissioned Spaces overview](../spaces.md) for context.
-:::
+</Callout>
 
 Membership determines who can read and write within a space. Members have either `read` or `write` access — write implies read.
 

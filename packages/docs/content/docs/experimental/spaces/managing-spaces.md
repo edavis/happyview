@@ -2,9 +2,9 @@
 title: "Managing Spaces"
 ---
 
-:::caution Experimental
+<Callout type="error" title="Experimental">
 This API is experimental and will change. See the [Permissioned Spaces overview](../spaces.md) for context.
-:::
+</Callout>
 
 ## Creating a space
 
@@ -132,6 +132,6 @@ curl -X POST 'https://happyview.example.com/xrpc/dev.happyview.space.deleteSpace
   -d '{"space": "ats://did:plc:abc123/com.example.forum/main"}'
 ```
 
-:::warning
+<Callout type="warn">
 Deleting a space does not currently cascade to records, members, or credentials. This behavior may change.
-:::
+</Callout>

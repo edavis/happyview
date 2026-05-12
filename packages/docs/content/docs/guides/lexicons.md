@@ -25,9 +25,9 @@ For example, a query lexicon `xyz.statusphere.listStatuses` would set `target_co
 
 See the [admin API](../../reference/admin/lexicons.md#upload--upsert-a-lexicon) for how to set `target_collection` when uploading.
 
-:::note
+<Callout type="info">
 The `target_collection` is available in Lua scripts as the `collection` global, but it is not required if your endpoint uses a Lua script.
-:::
+</Callout>
 
 ## Backfill flag
 
@@ -53,9 +53,9 @@ Lexicons are stored as records themselves with the `com.atproto.lexicon.schema` 
 4. Parse the TXT record for a `did=<DID>` value.
 5. Resolve the DID to a PDS endpoint via the PLC directory.
 
-:::note
+<Callout type="info">
 The spec states that resolution must be **non-hierarchical**. Each authority requires its own explicit TXT record. If you have multiple levels of authority (e.g. `xyz.statusphere.status` and `xyz.statusphere.actor.profile`), each level must have an explicit TXT record.
-:::
+</Callout>
 
 ### Fetching
 

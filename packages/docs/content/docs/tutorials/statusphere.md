@@ -6,9 +6,9 @@ title: "Statusphere"
 
 In this tutorial, you'll set up HappyView to act as the AppView for Statusphere. By the end, you'll have indexed records and working XRPC endpoints.
 
-:::tip
+<Callout type="idea">
 This tutorial assumes you have a running HappyView instance. If you don't, start with the [Quickstart](../getting-started/deployment/railway.md) or one of the local development guides ([Docker](../getting-started/deployment/docker.md), [from source](../getting-started/deployment/other.md)).
-:::
+</Callout>
 
 ## The Statusphere lexicon
 
@@ -33,7 +33,7 @@ First, tell HappyView to start indexing Statusphere records. Since `xyz.statusph
 
 HappyView now subscribes to `xyz.statusphere.status` via Jetstream and kicks off a backfill job to index historical records.
 
-:::tip
+<Callout type="idea">
 You can also add lexicons via the [admin API](../reference/admin/lexicons.md). This is useful for automation or CI/CD workflows:
 
 ```sh
@@ -63,7 +63,7 @@ curl -X POST http://127.0.0.1:3000/admin/lexicons \
   }'
 ```
 
-:::
+</Callout>
 
 ## Step 2: Verify records are being indexed
 

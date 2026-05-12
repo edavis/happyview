@@ -2,9 +2,9 @@
 title: "Overview"
 ---
 
-:::caution Experimental
+<Callout type="error" title="Experimental">
 Permissioned Spaces are experimental and the API will change. This implementation follows Daniel Holmgren's [Permissioned Data Diaries](https://dholms.leaflet.pub/3meluqcwky22a) and aligns structurally with the `permissioned-data` branch on `bluesky-social/atproto`, but uses a `dev.happyview` namespace to allow iteration while the official spec stabilizes.
-:::
+</Callout>
 
 Spaces are containers for permissioned data in atproto. Unlike regular public records that live in a user's repo, space records are gated by membership — only members can read or write data within a space.
 

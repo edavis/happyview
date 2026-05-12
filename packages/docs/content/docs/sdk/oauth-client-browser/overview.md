@@ -46,9 +46,9 @@ const client = new HappyViewBrowserClient({
 });
 ```
 
-:::note
+<Callout type="info">
 The API client must be registered as a **public** client (no secret) with your app's origin in `allowed_origins`. See [Authentication — API clients](../getting-started/authentication.md#api-clients-confidential-vs-public).
-:::
+</Callout>
 
 ## Sign in
 
@@ -84,9 +84,9 @@ const { authorizationUrl, did, state } =
   await client.prepareLogin("alice.bsky.social");
 ```
 
-:::note
+<Callout type="info">
 `login()` still works as an alias for `signInRedirect()`.
-:::
+</Callout>
 
 ### What happens during sign in
 
@@ -135,9 +135,9 @@ const session = await client.restore("did:plc:abc123");
 
 Calling `restore()` with no arguments returns the last active session, or `null` if none is found.
 
-:::note
+<Callout type="info">
 `callback()` still works as a standalone method that processes the OAuth callback and returns a session directly.
-:::
+</Callout>
 
 ## Detecting callback params
 
@@ -191,9 +191,9 @@ Pass a relative path (prepends the HappyView instance URL) or a full URL (used a
 await client.revoke(session.did);
 ```
 
-:::note
+<Callout type="info">
 `logout()` still works as an alias for `revoke()`.
-:::
+</Callout>
 
 ## Resolution utilities
 
@@ -286,9 +286,9 @@ Or from the session itself:
 await session.signOut();
 ```
 
-:::note
+<Callout type="info">
 `logout()` still works as an alias for `revoke()`.
-:::
+</Callout>
 
 ## Identity resolution
 

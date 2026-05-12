@@ -148,9 +148,9 @@ interface StorageAdapter {
 
 If no `StorageAdapter` is provided, sessions are stored in memory and won't survive page reloads or process restarts.
 
-:::note
+<Callout type="info">
 The built-in `MemoryStorage` is exported for testing. In production, always provide a persistent storage adapter.
-:::
+</Callout>
 
 ## Error handling
 

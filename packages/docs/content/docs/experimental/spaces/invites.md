@@ -2,15 +2,15 @@
 title: "Invites"
 ---
 
-:::caution Experimental
+<Callout type="error" title="Experimental">
 This API is experimental and will change. See the [Permissioned Spaces overview](../spaces.md) for context.
-:::
+</Callout>
 
 Invites let space owners distribute membership tokens without knowing recipients' DIDs in advance.
 
-:::info HappyView Extension
+<Callout type="info" title="HappyView Extension">
 Invites are a HappyView-specific feature, not part of the AT Protocol spaces spec. They may be replaced by a different mechanism in the future.
-:::
+</Callout>
 
 ## Creating an invite
 
@@ -51,9 +51,9 @@ curl -X POST 'https://happyview.example.com/xrpc/dev.happyview.space.createInvit
 }
 ```
 
-:::warning
+<Callout type="warn">
 The `token` is only returned once. It is stored as a SHA-256 hash — HappyView cannot recover the plaintext.
-:::
+</Callout>
 
 ## Redeeming an invite
 

@@ -8,9 +8,9 @@ A single API client represents your application, not individual users. Create on
 
 Each client has an `hvc_`-prefixed client key and an `hvs_`-prefixed client secret. The secret is only returned at creation and is sha256-hashed in the database. Server-to-server callers pass the secret as `X-Client-Secret`. Browser callers use the `Origin` header, which is matched against the client's `client_uri`. Mismatches currently log warnings rather than rejecting the request, but rate limiting applies either way. See [Authentication — XRPC](../../getting-started/authentication.md#xrpc-api-client-identification) for the client-side view, and the [API Keys guide](../../guides/admin/api-keys.md) for how admin API keys differ from API clients.
 
-:::tip Third-Party API Clients
+<Callout type="idea" title="Third-Party API Clients">
 Third-party apps can also create, list, and delete their own API clients programmatically via the [XRPC API](../oauth/api-clients.md), without needing admin access.
-:::
+</Callout>
 
 ```sh
 # All examples assume $TOKEN is an API key (hv_...)
