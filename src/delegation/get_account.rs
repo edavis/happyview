@@ -21,7 +21,7 @@ pub async fn get_account(
     Query(params): Query<GetAccountParams>,
 ) -> Result<Response, AppError> {
     let claims = xrpc_claims
-        .0
+        .identity
         .ok_or_else(|| AppError::Auth("getAccount requires authentication".into()))?;
 
     super::verify_client_scope(&state, &claims, &params.did).await?;

@@ -1,6 +1,6 @@
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{Method, header};
-use axum::response::{IntoResponse, Response};
+use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use bytes::Bytes;
@@ -132,11 +132,43 @@ pub fn router(state: AppState) -> Router {
             resolve_domain,
         ));
 
-    Router::new()
-        .route("/health", get(health))
+    let app_routes = Router::new()
         .nest("/admin", admin::admin_routes(state.clone()))
         .merge(domain_routes)
-        .fallback_service(serve_dir)
+        .route("/", get(|| async { Redirect::to("/dashboard/") }))
+        .fallback_service(serve_dir);
+
+    let outer = if let Some(ref base_path) = state.config.base_path {
+        let bp = base_path.clone();
+        let rewrite_redirects =
+            axum::middleware::from_fn(move |req, next: axum::middleware::Next| {
+                let bp = bp.clone();
+                async move {
+                    let mut response: Response = next.run(req).await;
+                    if response.status().is_redirection()
+                        && let Some(loc) = response.headers().get(header::LOCATION)
+                        && let Ok(loc_str) = loc.to_str()
+                        && loc_str.starts_with('/')
+                        && !(loc_str.starts_with(&bp)
+                            && (loc_str.len() == bp.len()
+                                || loc_str.as_bytes().get(bp.len()) == Some(&b'/')))
+                        && let Ok(new_loc) = format!("{}{}", bp, loc_str).parse()
+                    {
+                        response.headers_mut().insert(header::LOCATION, new_loc);
+                    }
+                    response
+                }
+            });
+        Router::new()
+            .route("/health", get(health))
+            .nest(base_path, app_routes.layer(rewrite_redirects))
+    } else {
+        Router::new()
+            .route("/health", get(health))
+            .merge(app_routes)
+    };
+
+    outer
         .layer(TraceLayer::new_for_http())
         .layer(
             CorsLayer::new()
@@ -166,8 +198,8 @@ async fn config_endpoint(
     req: axum::extract::Request,
 ) -> Json<serde_json::Value> {
     let domain_url = crate::domain_middleware::extract_domain(&req)
-        .map(|d| d.url.clone())
-        .unwrap_or_else(|| state.config.public_url.clone());
+        .map(|d| state.config.url_with_base_path(&d.url))
+        .unwrap_or_else(|| state.config.effective_public_url());
 
     let pool = &state.db;
     let backend = state.db_backend;
@@ -223,11 +255,12 @@ async fn client_metadata(
     State(state): State<AppState>,
     req: axum::extract::Request,
 ) -> Json<serde_json::Value> {
-    let domain_url = crate::domain_middleware::extract_domain(&req)
+    let raw_domain_url = crate::domain_middleware::extract_domain(&req)
         .map(|d| d.url.clone())
         .unwrap_or_else(|| state.config.public_url.clone());
+    let domain_url = state.config.url_with_base_path(&raw_domain_url);
 
-    let oauth_client = state.oauth.get_for_domain(&domain_url);
+    let oauth_client = state.oauth.get_for_domain(&raw_domain_url);
     let mut metadata = serde_json::to_value(&oauth_client.client_metadata).unwrap_or_default();
 
     // The `client_id` field in the response must exactly match the URL the
@@ -278,7 +311,7 @@ async fn get_profile(
     xrpc_claims: XrpcClaims,
 ) -> Result<Response, AppError> {
     let claims = xrpc_claims
-        .0
+        .identity
         .ok_or_else(|| AppError::Auth("getProfile requires DPoP authentication".into()))?;
     let check = if let Some(client_key) = claims.client_key() {
         let cost = state

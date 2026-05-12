@@ -30,6 +30,7 @@ async fn test_state_with_pool(pool: sqlx::AnyPool, backend: DatabaseBackend) -> 
         relay_url: String::new(),
         plc_url: String::new(),
         static_dir: String::new(),
+        base_path: None,
         event_log_retention_days: 30,
         app_name: None,
         logo_uri: None,
@@ -86,7 +87,9 @@ async fn test_state_with_pool(pool: sqlx::AnyPool, backend: DatabaseBackend) -> 
             std::sync::Arc::new(oauth),
         )),
         oauth_state_store: happyview::auth::oauth_store::DbStateStore::new(pool.clone(), backend),
-        cookie_key: axum_extra::extract::cookie::Key::derive_from(b"test-secret"),
+        cookie_key: axum_extra::extract::cookie::Key::derive_from(
+            b"test-secret-that-is-at-least-32-bytes-long",
+        ),
         plugin_registry: std::sync::Arc::new(happyview::plugin::PluginRegistry::new()),
         wasm_runtime: std::sync::Arc::new(
             happyview::plugin::WasmRuntime::new().expect("wasm runtime"),
@@ -164,8 +167,8 @@ fn setup_lua(state: &AppState) -> Lua {
 
 #[tokio::test]
 #[serial]
-#[ignore]
 async fn db_get_returns_record() {
+    common::require_db!();
     let pool = db::test_pool().await;
     let backend = db::test_backend();
     db::truncate_all(&pool).await;
@@ -188,8 +191,8 @@ async fn db_get_returns_record() {
 
 #[tokio::test]
 #[serial]
-#[ignore]
 async fn db_get_returns_nil_for_missing() {
+    common::require_db!();
     let pool = db::test_pool().await;
     let backend = db::test_backend();
     db::truncate_all(&pool).await;
@@ -207,8 +210,8 @@ async fn db_get_returns_nil_for_missing() {
 
 #[tokio::test]
 #[serial]
-#[ignore]
 async fn db_query_returns_records() {
+    common::require_db!();
     let pool = db::test_pool().await;
     let backend = db::test_backend();
     db::truncate_all(&pool).await;
@@ -228,8 +231,8 @@ async fn db_query_returns_records() {
 
 #[tokio::test]
 #[serial]
-#[ignore]
 async fn db_query_respects_limit() {
+    common::require_db!();
     let pool = db::test_pool().await;
     let backend = db::test_backend();
     db::truncate_all(&pool).await;
@@ -253,8 +256,8 @@ async fn db_query_respects_limit() {
 
 #[tokio::test]
 #[serial]
-#[ignore]
 async fn db_count_returns_total() {
+    common::require_db!();
     let pool = db::test_pool().await;
     let backend = db::test_backend();
     db::truncate_all(&pool).await;
@@ -273,8 +276,8 @@ async fn db_count_returns_total() {
 
 #[tokio::test]
 #[serial]
-#[ignore]
 async fn db_count_with_did_filter() {
+    common::require_db!();
     let pool = db::test_pool().await;
     let backend = db::test_backend();
     db::truncate_all(&pool).await;
@@ -293,8 +296,8 @@ async fn db_count_with_did_filter() {
 
 #[tokio::test]
 #[serial]
-#[ignore]
 async fn db_search_finds_matching() {
+    common::require_db!();
     let pool = db::test_pool().await;
     let backend = db::test_backend();
     db::truncate_all(&pool).await;
@@ -317,8 +320,8 @@ async fn db_search_finds_matching() {
 
 #[tokio::test]
 #[serial]
-#[ignore]
 async fn db_raw_select_works() {
+    common::require_db!();
     let pool = db::test_pool().await;
     let backend = db::test_backend();
     db::truncate_all(&pool).await;

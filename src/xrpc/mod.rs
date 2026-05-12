@@ -258,7 +258,7 @@ pub async fn xrpc_get(
 ) -> Result<Response, AppError> {
     let raw_query = raw_query.unwrap_or_default();
     let mut params = parse_query_params(&raw_query);
-    let claims = xrpc_claims.0;
+    let claims = xrpc_claims.identity;
 
     let rate_key = resolve_client_key(&state, claims.as_ref(), &parts, &params)?;
 
@@ -348,11 +348,15 @@ pub async fn xrpc_post(
 ) -> Result<Response, AppError> {
     let raw_query = raw_query.unwrap_or_default();
     let mut params = parse_query_params(&raw_query);
-    let claims = xrpc_claims
-        .0
-        .ok_or_else(|| AppError::Auth("XRPC procedures require DPoP authentication".into()))?;
+    let claims = xrpc_claims.identity;
 
-    let rate_key = resolve_client_key(&state, Some(&claims), &parts, &params)?;
+    let rate_key = resolve_client_key(&state, claims.as_ref(), &parts, &params)?;
+
+    if claims.is_none() && xrpc_claims.space_credential.is_none() {
+        return Err(AppError::Auth(
+            "XRPC procedures require DPoP authentication".into(),
+        ));
+    }
 
     let lexicon = state.lexicons.get(&method).await;
 
@@ -415,6 +419,9 @@ pub async fn xrpc_post(
     if let Some(ref param_schema) = lexicon.parameters {
         coerce_params(&mut params, param_schema);
     }
+
+    let claims = claims
+        .ok_or_else(|| AppError::Auth("XRPC procedures require DPoP authentication".into()))?;
 
     let mut response =
         procedure::handle_procedure(&state, &method, &claims, &body, &params, &lexicon).await?;

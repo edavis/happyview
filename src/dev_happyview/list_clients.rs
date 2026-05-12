@@ -14,7 +14,7 @@ pub async fn list_api_clients(
     xrpc_claims: XrpcClaims,
 ) -> Result<Response, AppError> {
     let claims = xrpc_claims
-        .0
+        .identity
         .ok_or_else(|| AppError::Auth("listApiClients requires DPoP authentication".into()))?;
 
     let check = if let Some(client_key) = claims.client_key() {

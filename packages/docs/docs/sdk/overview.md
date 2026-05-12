@@ -6,18 +6,20 @@ HappyView provides JavaScript packages for building third-party apps that authen
 | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | [`@happyview/lex-agent`](https://npmx.dev/package/@happyview/lex-agent)                       | Recommended — type-safe XRPC via [`@atproto/lex`](https://npmx.dev/package/@atproto/lex) `Client` with HappyView DPoP auth |
 | [`@happyview/oauth-client`](https://npmx.dev/package/@happyview/oauth-client)                 | Platform-agnostic core — DPoP key provisioning, session management, authenticated fetch                                    |
-| [`@happyview/oauth-client-browser`](https://npmx.dev/package/@happyview/oauth-client-browser) | Browser OAuth wrapper with Web Crypto, localStorage, and redirect/popup flows                                              |
-| [`@happyview/oauth-client-node`](https://npmx.dev/package/@happyview/oauth-client-node)       | Node.js server wrapper with handle/DID resolution and server-friendly authorize/callback API                               |
+| [`@happyview/oauth-client-browser`](https://npmx.dev/package/@happyview/oauth-client-browser) | Browser OAuth wrapper for apps already using `@atproto/oauth-client-browser`                                               |
+| [`@happyview/oauth-client-node`](https://npmx.dev/package/@happyview/oauth-client-node)       | Node.js OAuth client for server-side apps, matching `@atproto/oauth-client-node`                                           |
 
 ## Which package do I need?
 
 **Starting a new app?** Use `@happyview/lex-agent` with `@atproto/lex`. It gives you type-safe XRPC calls through a `Client` that routes requests to your HappyView instance with DPoP authentication. This is the recommended way to interact with HappyView from JavaScript.
 
+**Already using `@atproto/api`?** `HappyViewSession` works directly as a session manager for `@atproto/api`'s `Agent` — just pass it to `new Agent(session)`. See [Using with @atproto/api](./oauth-client-browser.md#using-with-atprotoapi).
+
 **Already using `@atproto/oauth-client-browser`?** Add `@happyview/oauth-client-browser` to get a `HappyViewBrowserClient` that handles the HappyView-specific DPoP key provisioning and session registration on top of the standard atproto OAuth flow.
 
-**Building a server-side Node.js app?** Use `@happyview/oauth-client-node`. It provides `authorize()` and `callback()` methods designed for server request handlers, plus built-in handle and DID resolution.
+**Building a server-side (Node.js) app?** Use `@happyview/oauth-client-node` — it handles handle resolution, DID resolution, PDS discovery, and the full OAuth flow server-side. Matches the API surface of `@atproto/oauth-client-node`.
 
-**Need something more custom?** Use `@happyview/oauth-client` directly and provide your own `StorageAdapter`.
+**Building something more custom?** Use `@happyview/oauth-client` directly and provide your own `CryptoAdapter` and `StorageAdapter`.
 
 ## How it works
 
@@ -68,5 +70,5 @@ const result = await lex.xrpc(myLexicons.com.example.getGame, {
 - [Lex Agent](./lex-agent.md): type-safe XRPC with `@atproto/lex`
 - [OAuth Client](./oauth-client.md): platform-agnostic core client
 - [Browser Client](./oauth-client-browser.md): browser OAuth redirect flow
-- [Node Client](./oauth-client-node.md): server-side authorize/callback flow
+- [Node Client](./oauth-client-node.md): server-side OAuth flow
 - [Authentication](../getting-started/authentication.md): full details on DPoP key provisioning and API client types
