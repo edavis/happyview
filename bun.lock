@@ -8,9 +8,6 @@
     "packages/design-system": {
       "name": "@happyview/design-system",
       "version": "0.0.0",
-      "dependencies": {
-        "geist": "^1.4.1",
-      },
     },
     "packages/docs": {
       "name": "@happyview/docs",
@@ -22,6 +19,7 @@
         "fumadocs-core": "^16.8.10",
         "fumadocs-mdx": "^15.0.4",
         "fumadocs-ui": "^16.8.10",
+        "lucide-react": "^1.14.0",
         "mermaid": "^11.6.0",
         "next": "^16.1.6",
         "next-themes": "^0.4.6",
@@ -1029,8 +1027,6 @@
     "function-bind": ["function-bind@1.1.2", "", {}, "sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA=="],
 
     "function-timeout": ["function-timeout@1.0.2", "", {}, "sha512-939eZS4gJ3htTHAldmyyuzlrD58P03fHG49v2JfFXbV6OhvZKRC9j2yAtdHw/zrp2zXHuv05zMIy40F0ge7spA=="],
-
-    "geist": ["geist@1.7.0", "", { "peerDependencies": { "next": ">=13.2.0" } }, "sha512-ZaoiZwkSf0DwwB1ncdLKp+ggAldqxl5L1+SXaNIBGkPAqcu+xjVJLxlf3/S8vLt9UHx1xu5fz3lbzKCj5iOVdQ=="],
 
     "get-caller-file": ["get-caller-file@2.0.5", "", {}, "sha512-DyFP3BM/3YHTQOCUL/w0OZHR0lpKeGrxotcHWcqNEdnltqFwXVfhEBQ94eIo34AfQpo0rGki4cyIiftY06h2Fg=="],
 
