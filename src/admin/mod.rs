@@ -126,4 +126,5 @@ pub fn admin_routes(_state: AppState) -> Router<AppState> {
         .route("/dead-letters/{id}/dismiss", post(dead_letters::dismiss))
         .route("/dead-letters/{id}/retry", post(dead_letters::retry))
         .route("/dead-letters/{id}/reindex", post(dead_letters::reindex))
+        .route("/permissions", get(users::list_permissions))
 }
