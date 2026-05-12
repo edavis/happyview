@@ -53,7 +53,7 @@ curl -X POST 'https://happyview.example.com/xrpc/dev.happyview.space.createRecor
 
 `createRecord` always inserts a new record. If a record with the generated URI already exists, it returns `409 Conflict`.
 
-## Writing a record (put)
+## Updating a record
 
 Requires `write` membership in the space.
 
@@ -108,6 +108,14 @@ curl 'https://happyview.example.com/xrpc/dev.happyview.space.getRecord?space=ats
   -H 'Authorization: DPoP <token>' \
   -H 'DPoP: <proof>'
 ```
+
+**Parameters:**
+
+| Field        | Type          | Required | Description                     |
+| ------------ | ------------- | -------- | ------------------------------- |
+| `space`      | string        | Yes      | The space containing the record |
+| `collection` | string (NSID) | Yes      | The record collection           |
+| `rkey`       | string        | Yes      | The record key                  |
 
 **Response:**
 
