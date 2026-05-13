@@ -23,7 +23,28 @@ These endpoints are always available regardless of which lexicons are loaded.
 GET /health
 ```
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/health");
+const text = await response.text(); // "ok"
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/health");
+const text = await response.text(); // "ok"
+```
+```rust tab="Rust" tab-group="language"
+let client = reqwest::Client::new();
+
+let response = client
+    .get("http://127.0.0.1:3000/health")
+    .send()
+    .await?;
+
+let text = response.text().await?; // "ok"
+```
+```go tab="Go" tab-group="language"
+resp, err := http.Get("http://127.0.0.1:3000/health")
+```
+```sh tab="cURL" tab-group="language"
 curl http://127.0.0.1:3000/health
 ```
 
@@ -37,7 +58,71 @@ GET /xrpc/app.bsky.actor.getProfile
 
 Returns the authenticated user's profile, resolved from their PDS via PLC directory lookup.
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const CLIENT_KEY = "hvc_..."; // your API client key
+const TOKEN = "..."; // your access token
+
+interface ProfileResponse {
+  did: string;
+  handle: string;
+  displayName: string;
+  description: string;
+  avatarURL: string;
+}
+
+const response = await fetch(
+  "http://127.0.0.1:3000/xrpc/app.bsky.actor.getProfile",
+  {
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      Authorization: `Bearer ${TOKEN}`,
+    },
+  },
+);
+
+const profile: ProfileResponse = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const CLIENT_KEY = "hvc_..."; // your API client key
+const TOKEN = "..."; // your access token
+
+const response = await fetch(
+  "http://127.0.0.1:3000/xrpc/app.bsky.actor.getProfile",
+  {
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      Authorization: `Bearer ${TOKEN}`,
+    },
+  },
+);
+
+const profile = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let client_key = "hvc_..."; // your API client key
+let token = "..."; // your access token
+
+let response = client
+    .get("http://127.0.0.1:3000/xrpc/app.bsky.actor.getProfile")
+    .header("X-Client-Key", client_key)
+    .bearer_auth(token)
+    .send()
+    .await?;
+
+let profile: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+clientKey := "hvc_..." // your API client key
+token := "..."         // your access token
+
+req, _ := http.NewRequest("GET",
+  "http://127.0.0.1:3000/xrpc/app.bsky.actor.getProfile", nil)
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("Authorization", "Bearer "+token)
+
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl http://127.0.0.1:3000/xrpc/app.bsky.actor.getProfile \
   -H "X-Client-Key: $CLIENT_KEY" \
   -H "Authorization: Bearer $TOKEN"
@@ -63,7 +148,67 @@ POST /xrpc/com.atproto.repo.uploadBlob
 
 Proxies a blob upload to the authenticated user's PDS. Maximum size: 50MB.
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+import { readFile } from "node:fs/promises";
+
+const imageData = await readFile("image.png");
+
+const response = await fetch(
+  "http://127.0.0.1:3000/xrpc/com.atproto.repo.uploadBlob",
+  {
+    method: "POST",
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      Authorization: `Bearer ${TOKEN}`,
+      "Content-Type": "image/png",
+    },
+    body: imageData,
+  },
+);
+```
+```js tab="JavaScript" tab-group="language"
+import { readFile } from "node:fs/promises";
+
+const imageData = await readFile("image.png");
+
+const response = await fetch(
+  "http://127.0.0.1:3000/xrpc/com.atproto.repo.uploadBlob",
+  {
+    method: "POST",
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      Authorization: `Bearer ${TOKEN}`,
+      "Content-Type": "image/png",
+    },
+    body: imageData,
+  },
+);
+```
+```rust tab="Rust" tab-group="language"
+let image_data = std::fs::read("image.png")?;
+
+let response = client
+    .post("http://127.0.0.1:3000/xrpc/com.atproto.repo.uploadBlob")
+    .header("X-Client-Key", client_key)
+    .bearer_auth(token)
+    .header("Content-Type", "image/png")
+    .body(image_data)
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+imageData, _ := os.ReadFile("image.png")
+
+req, _ := http.NewRequest("POST",
+  "http://127.0.0.1:3000/xrpc/com.atproto.repo.uploadBlob",
+  bytes.NewReader(imageData))
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("Authorization", "Bearer "+token)
+req.Header.Set("Content-Type", "image/png")
+
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST http://127.0.0.1:3000/xrpc/com.atproto.repo.uploadBlob \
   -H "X-Client-Key: $CLIENT_KEY" \
   -H "Authorization: Bearer $TOKEN" \
@@ -83,7 +228,66 @@ Query endpoints are generated from lexicons with `type: "query"`. Without a [Lua
 GET /xrpc/{method}?uri={at-uri}
 ```
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const CLIENT_KEY = "hvc_..."; // your API client key
+
+const params = new URLSearchParams({
+  uri: "at://did:plc:abc/xyz.statusphere.status/abc123",
+});
+
+interface RecordResponse {
+  record: {
+    uri: string;
+    $type: string;
+    status: string;
+    createdAt: string;
+  };
+}
+
+const response = await fetch(
+  `http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses?${params}`,
+  { headers: { "X-Client-Key": CLIENT_KEY } },
+);
+
+const data: RecordResponse = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const CLIENT_KEY = "hvc_..."; // your API client key
+
+const params = new URLSearchParams({
+  uri: "at://did:plc:abc/xyz.statusphere.status/abc123",
+});
+
+const response = await fetch(
+  `http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses?${params}`,
+  { headers: { "X-Client-Key": CLIENT_KEY } },
+);
+
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let client_key = "hvc_..."; // your API client key
+
+let response = client
+    .get("http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses")
+    .query(&[("uri", "at://did:plc:abc/xyz.statusphere.status/abc123")])
+    .header("X-Client-Key", client_key)
+    .send()
+    .await?;
+
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+clientKey := "hvc_..." // your API client key
+
+req, _ := http.NewRequest("GET",
+  "http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses?uri=at%3A%2F%2Fdid%3Aplc%3Aabc%2Fxyz.statusphere.status%2Fabc123",
+  nil)
+req.Header.Set("X-Client-Key", clientKey)
+
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl "http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses?uri=at%3A%2F%2Fdid%3Aplc%3Aabc%2Fxyz.statusphere.status%2Fabc123" \
   -H "X-Client-Key: $CLIENT_KEY"
 ```
@@ -115,7 +319,54 @@ GET /xrpc/{method}?limit=20&cursor=<opaque>&did=optional
 | `cursor` | string | --- | Opaque pagination cursor from a previous response |
 | `did` | string | --- | Filter records by DID |
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const params = new URLSearchParams({ limit: "10", did: "did:plc:abc" });
+
+interface ListResponse {
+  records: Array<{
+    uri: string;
+    status: string;
+    createdAt: string;
+  }>;
+  cursor?: string;
+}
+
+const response = await fetch(
+  `http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses?${params}`,
+  { headers: { "X-Client-Key": CLIENT_KEY } },
+);
+
+const data: ListResponse = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const params = new URLSearchParams({ limit: "10", did: "did:plc:abc" });
+
+const response = await fetch(
+  `http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses?${params}`,
+  { headers: { "X-Client-Key": CLIENT_KEY } },
+);
+
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .get("http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses")
+    .query(&[("limit", "10"), ("did", "did:plc:abc")])
+    .header("X-Client-Key", client_key)
+    .send()
+    .await?;
+
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+req, _ := http.NewRequest("GET",
+  "http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses?limit=10&did=did:plc:abc",
+  nil)
+req.Header.Set("X-Client-Key", clientKey)
+
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl "http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses?limit=10&did=did:plc:abc" \
   -H "X-Client-Key: $CLIENT_KEY"
 ```
@@ -149,10 +400,88 @@ POST /xrpc/{method}
 
 When the body does **not** contain a `uri` field, a new record is created.
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const CLIENT_KEY = "hvc_..."; // your API client key
+const ACCESS_TOKEN = "..."; // DPoP access token
+const DPOP_PROOF = "..."; // DPoP proof JWT
+
+const response = await fetch(
+  "http://127.0.0.1:3000/xrpc/xyz.statusphere.setStatus",
+  {
+    method: "POST",
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      Authorization: `DPoP ${ACCESS_TOKEN}`,
+      DPoP: DPOP_PROOF,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      status: "\ud83d\ude0a",
+      createdAt: "2025-01-01T12:00:00Z",
+    }),
+  },
+);
+```
+```js tab="JavaScript" tab-group="language"
+const CLIENT_KEY = "hvc_..."; // your API client key
+const ACCESS_TOKEN = "..."; // DPoP access token
+const DPOP_PROOF = "..."; // DPoP proof JWT
+
+const response = await fetch(
+  "http://127.0.0.1:3000/xrpc/xyz.statusphere.setStatus",
+  {
+    method: "POST",
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      Authorization: `DPoP ${ACCESS_TOKEN}`,
+      DPoP: DPOP_PROOF,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      status: "\ud83d\ude0a",
+      createdAt: "2025-01-01T12:00:00Z",
+    }),
+  },
+);
+```
+```rust tab="Rust" tab-group="language"
+let client_key = "hvc_..."; // your API client key
+let access_token = "..."; // DPoP access token
+let dpop_proof = "..."; // DPoP proof JWT
+
+let response = client
+    .post("http://127.0.0.1:3000/xrpc/xyz.statusphere.setStatus")
+    .header("X-Client-Key", client_key)
+    .header("Authorization", format!("DPoP {}", access_token))
+    .header("DPoP", dpop_proof)
+    .json(&serde_json::json!({
+        "status": "\ud83d\ude0a",
+        "createdAt": "2025-01-01T12:00:00Z"
+    }))
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+clientKey := "hvc_..."  // your API client key
+accessToken := "..."    // DPoP access token
+dpopProof := "..."      // DPoP proof JWT
+
+body := bytes.NewBufferString(`{"status": "\ud83d\ude0a", "createdAt": "2025-01-01T12:00:00Z"}`)
+
+req, _ := http.NewRequest("POST",
+  "http://127.0.0.1:3000/xrpc/xyz.statusphere.setStatus", body)
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("Authorization", "DPoP "+accessToken)
+req.Header.Set("DPoP", dpopProof)
+req.Header.Set("Content-Type", "application/json")
+
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST http://127.0.0.1:3000/xrpc/xyz.statusphere.setStatus \
   -H "X-Client-Key: $CLIENT_KEY" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: DPoP $ACCESS_TOKEN" \
+  -H "DPoP: $DPOP_PROOF" \
   -H "Content-Type: application/json" \
   -d '{ "status": "\ud83d\ude0a", "createdAt": "2025-01-01T12:00:00Z" }'
 ```
@@ -163,10 +492,79 @@ HappyView proxies this to the user's PDS as `com.atproto.repo.createRecord`, the
 
 When the body **contains** a `uri` field, the existing record is updated.
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch(
+  "http://127.0.0.1:3000/xrpc/xyz.statusphere.setStatus",
+  {
+    method: "POST",
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      Authorization: `DPoP ${ACCESS_TOKEN}`,
+      DPoP: DPOP_PROOF,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      uri: "at://did:plc:abc/xyz.statusphere.status/abc123",
+      status: "\ud83c\udf1f",
+      createdAt: "2025-01-01T13:00:00Z",
+    }),
+  },
+);
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch(
+  "http://127.0.0.1:3000/xrpc/xyz.statusphere.setStatus",
+  {
+    method: "POST",
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      Authorization: `DPoP ${ACCESS_TOKEN}`,
+      DPoP: DPOP_PROOF,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      uri: "at://did:plc:abc/xyz.statusphere.status/abc123",
+      status: "\ud83c\udf1f",
+      createdAt: "2025-01-01T13:00:00Z",
+    }),
+  },
+);
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .post("http://127.0.0.1:3000/xrpc/xyz.statusphere.setStatus")
+    .header("X-Client-Key", client_key)
+    .header("Authorization", format!("DPoP {}", access_token))
+    .header("DPoP", dpop_proof)
+    .json(&serde_json::json!({
+        "uri": "at://did:plc:abc/xyz.statusphere.status/abc123",
+        "status": "\ud83c\udf1f",
+        "createdAt": "2025-01-01T13:00:00Z"
+    }))
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+body := bytes.NewBufferString(`{
+  "uri": "at://did:plc:abc/xyz.statusphere.status/abc123",
+  "status": "\ud83c\udf1f",
+  "createdAt": "2025-01-01T13:00:00Z"
+}`)
+
+req, _ := http.NewRequest("POST",
+  "http://127.0.0.1:3000/xrpc/xyz.statusphere.setStatus", body)
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("Authorization", "DPoP "+accessToken)
+req.Header.Set("DPoP", dpopProof)
+req.Header.Set("Content-Type", "application/json")
+
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST http://127.0.0.1:3000/xrpc/xyz.statusphere.setStatus \
   -H "X-Client-Key: $CLIENT_KEY" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: DPoP $ACCESS_TOKEN" \
+  -H "DPoP: $DPOP_PROOF" \
   -H "Content-Type: application/json" \
   -d '{
     "uri": "at://did:plc:abc/xyz.statusphere.status/abc123",

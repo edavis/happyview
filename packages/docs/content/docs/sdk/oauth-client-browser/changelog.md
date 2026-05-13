@@ -1,5 +1,5 @@
 ---
-title: "Changelog"
+title: "@happyview/oauth-client-browser"
 ---
 
 <!-- Generated automatically from GitHub releases. Do not edit by hand. -->

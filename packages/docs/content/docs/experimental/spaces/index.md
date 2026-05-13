@@ -28,7 +28,43 @@ ats://<space-did>/<type-nsid>/<skey>/<author-did>/<collection>/<rkey>
 
 In HappyView, spaces are gated behind the `feature.spaces_enabled` instance setting. Enable it in the dashboard under **Settings** or via the admin API:
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/admin/settings/feature.spaces_enabled", {
+  method: "PUT",
+  headers: {
+    "Authorization": `Bearer ${TOKEN}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ value: "true" }),
+});
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/admin/settings/feature.spaces_enabled", {
+  method: "PUT",
+  headers: {
+    "Authorization": `Bearer ${TOKEN}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ value: "true" }),
+});
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .put("http://127.0.0.1:3000/admin/settings/feature.spaces_enabled")
+    .header("Authorization", format!("Bearer {}", token))
+    .json(&serde_json::json!({ "value": "true" }))
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+body := bytes.NewBufferString(`{"value": "true"}`)
+req, _ := http.NewRequest("PUT",
+  "http://127.0.0.1:3000/admin/settings/feature.spaces_enabled", body)
+req.Header.Set("Authorization", "Bearer "+token)
+req.Header.Set("Content-Type", "application/json")
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X PUT http://127.0.0.1:3000/admin/settings/feature.spaces_enabled \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \

@@ -31,7 +31,68 @@ end
 
 ## Usage
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/xrpc/xyz.statusphere.batchCreate", {
+  method: "POST",
+  headers: {
+    "X-Client-Key": CLIENT_KEY,
+    Authorization: `Bearer ${TOKEN}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    items: [
+      { text: "First", createdAt: "2025-01-01T00:00:00Z" },
+      { text: "Second", createdAt: "2025-01-01T00:01:00Z" },
+    ],
+  }),
+});
+const data = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/xrpc/xyz.statusphere.batchCreate", {
+  method: "POST",
+  headers: {
+    "X-Client-Key": CLIENT_KEY,
+    Authorization: `Bearer ${TOKEN}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    items: [
+      { text: "First", createdAt: "2025-01-01T00:00:00Z" },
+      { text: "Second", createdAt: "2025-01-01T00:01:00Z" },
+    ],
+  }),
+});
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .post("http://127.0.0.1:3000/xrpc/xyz.statusphere.batchCreate")
+    .header("X-Client-Key", client_key)
+    .header("Authorization", format!("Bearer {}", token))
+    .json(&serde_json::json!({
+        "items": [
+            { "text": "First", "createdAt": "2025-01-01T00:00:00Z" },
+            { "text": "Second", "createdAt": "2025-01-01T00:01:00Z" }
+        ]
+    }))
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+body := `{
+  "items": [
+    { "text": "First", "createdAt": "2025-01-01T00:00:00Z" },
+    { "text": "Second", "createdAt": "2025-01-01T00:01:00Z" }
+  ]
+}`
+req, _ := http.NewRequest("POST", "http://127.0.0.1:3000/xrpc/xyz.statusphere.batchCreate", bytes.NewBufferString(body))
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("Authorization", "Bearer "+token)
+req.Header.Set("Content-Type", "application/json")
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST http://127.0.0.1:3000/xrpc/xyz.statusphere.batchCreate \
   -H "X-Client-Key: $CLIENT_KEY" \
   -H "Authorization: Bearer $TOKEN" \

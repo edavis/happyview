@@ -4,7 +4,21 @@ title: "Plugins"
 
 Plugins extend HappyView with WebAssembly modules sourced from the [official plugin registry](../../guides/plugins.md) or any URL serving a `manifest.json`. Most endpoints take a plugin manifest URL and load (or reload) the plugin in place — no restart needed. Encrypted plugin secrets require `TOKEN_ENCRYPTION_KEY` to be configured.
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const TOKEN = "hv_..."; // your API key
+const headers = { Authorization: `Bearer ${TOKEN}` };
+```
+```js tab="JavaScript" tab-group="language"
+const TOKEN = "hv_..."; // your API key
+const headers = { Authorization: `Bearer ${TOKEN}` };
+```
+```rust tab="Rust" tab-group="language"
+let token = "hv_..."; // your API key
+```
+```go tab="Go" tab-group="language"
+token := "hv_..." // your API key
+```
+```sh tab="cURL" tab-group="language"
 # All examples assume $TOKEN is an API key (hv_...)
 AUTH="Authorization: Bearer $TOKEN"
 ```
@@ -17,7 +31,60 @@ GET /admin/plugins
 
 Requires `plugins:read`. Returns every loaded plugin with its source, required secrets, configuration status, and any pending updates from the official registry cache.
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+interface RequiredSecret {
+  key: string;
+  name: string;
+  description: string;
+}
+
+interface PluginSummary {
+  id: string;
+  name: string;
+  version: string;
+  source: string;
+  url: string;
+  sha256: string | null;
+  enabled: boolean;
+  auth_type: string;
+  required_secrets: RequiredSecret[];
+  secrets_configured: boolean;
+  loaded_at: string | null;
+  update_available: boolean;
+  latest_version: string;
+  pending_releases: string[];
+}
+
+interface PluginsResponse {
+  encryption_configured: boolean;
+  plugins: PluginSummary[];
+}
+
+const response = await fetch("http://127.0.0.1:3000/admin/plugins", {
+  headers,
+});
+const data: PluginsResponse = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/admin/plugins", {
+  headers,
+});
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .get("http://127.0.0.1:3000/admin/plugins")
+    .bearer_auth(token)
+    .send()
+    .await?;
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+req, _ := http.NewRequest("GET", "http://127.0.0.1:3000/admin/plugins", nil)
+req.Header.Set("Authorization", "Bearer "+token)
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl http://127.0.0.1:3000/admin/plugins -H "$AUTH"
 ```
 
@@ -63,7 +130,63 @@ POST /admin/plugins/preview
 
 Requires `plugins:create`. Fetches and parses a manifest without installing the plugin, so the dashboard can show what it would register.
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+interface PluginPreview {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  icon_url: string;
+  auth_type: string;
+  required_secrets: RequiredSecret[];
+  manifest_url: string;
+  wasm_url: string;
+}
+
+const response = await fetch("http://127.0.0.1:3000/admin/plugins/preview", {
+  method: "POST",
+  headers: {
+    ...headers,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    url: "https://example.com/plugins/steam/manifest.json",
+  }),
+});
+const data: PluginPreview = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/admin/plugins/preview", {
+  method: "POST",
+  headers: {
+    ...headers,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    url: "https://example.com/plugins/steam/manifest.json",
+  }),
+});
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .post("http://127.0.0.1:3000/admin/plugins/preview")
+    .bearer_auth(token)
+    .json(&serde_json::json!({
+        "url": "https://example.com/plugins/steam/manifest.json"
+    }))
+    .send()
+    .await?;
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+body := bytes.NewBufferString(`{ "url": "https://example.com/plugins/steam/manifest.json" }`)
+req, _ := http.NewRequest("POST", "http://127.0.0.1:3000/admin/plugins/preview", body)
+req.Header.Set("Authorization", "Bearer "+token)
+req.Header.Set("Content-Type", "application/json")
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST http://127.0.0.1:3000/admin/plugins/preview \
   -H "$AUTH" \
   -H "Content-Type: application/json" \
@@ -98,7 +221,57 @@ POST /admin/plugins
 
 Requires `plugins:create`. Fetches the manifest, downloads the WASM, registers the plugin, and persists it.
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/admin/plugins", {
+  method: "POST",
+  headers: {
+    ...headers,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    url: "https://example.com/plugins/steam/manifest.json",
+    sha256: "abc123...",
+  }),
+});
+const data: PluginSummary = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/admin/plugins", {
+  method: "POST",
+  headers: {
+    ...headers,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    url: "https://example.com/plugins/steam/manifest.json",
+    sha256: "abc123...",
+  }),
+});
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .post("http://127.0.0.1:3000/admin/plugins")
+    .bearer_auth(token)
+    .json(&serde_json::json!({
+        "url": "https://example.com/plugins/steam/manifest.json",
+        "sha256": "abc123..."
+    }))
+    .send()
+    .await?;
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+body := bytes.NewBufferString(`{
+  "url": "https://example.com/plugins/steam/manifest.json",
+  "sha256": "abc123..."
+}`)
+req, _ := http.NewRequest("POST", "http://127.0.0.1:3000/admin/plugins", body)
+req.Header.Set("Authorization", "Bearer "+token)
+req.Header.Set("Content-Type", "application/json")
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST http://127.0.0.1:3000/admin/plugins \
   -H "$AUTH" \
   -H "Content-Type: application/json" \
@@ -206,7 +379,58 @@ PUT /admin/plugins/{id}/secrets
 
 Requires `plugins:create`. Encrypts the provided secret values with `TOKEN_ENCRYPTION_KEY` (AES-256-GCM) and upserts them into `plugin_configs`.
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/admin/plugins/steam/secrets", {
+  method: "PUT",
+  headers: {
+    ...headers,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    secrets: {
+      PLUGIN_STEAM_API_KEY: "your-new-api-key",
+    },
+  }),
+});
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/admin/plugins/steam/secrets", {
+  method: "PUT",
+  headers: {
+    ...headers,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    secrets: {
+      PLUGIN_STEAM_API_KEY: "your-new-api-key",
+    },
+  }),
+});
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .put("http://127.0.0.1:3000/admin/plugins/steam/secrets")
+    .bearer_auth(token)
+    .json(&serde_json::json!({
+        "secrets": {
+            "PLUGIN_STEAM_API_KEY": "your-new-api-key"
+        }
+    }))
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+body := bytes.NewBufferString(`{
+  "secrets": {
+    "PLUGIN_STEAM_API_KEY": "your-new-api-key"
+  }
+}`)
+req, _ := http.NewRequest("PUT", "http://127.0.0.1:3000/admin/plugins/steam/secrets", body)
+req.Header.Set("Authorization", "Bearer "+token)
+req.Header.Set("Content-Type", "application/json")
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X PUT http://127.0.0.1:3000/admin/plugins/steam/secrets \
   -H "$AUTH" \
   -H "Content-Type: application/json" \

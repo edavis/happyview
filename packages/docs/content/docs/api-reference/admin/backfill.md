@@ -4,7 +4,21 @@ title: "Backfill"
 
 Create and monitor historical backfill jobs. See the [Backfill guide](../../guides/backfill.md) for background.
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const TOKEN = "hv_..."; // your API key
+const headers = { Authorization: `Bearer ${TOKEN}` };
+```
+```js tab="JavaScript" tab-group="language"
+const TOKEN = "hv_..."; // your API key
+const headers = { Authorization: `Bearer ${TOKEN}` };
+```
+```rust tab="Rust" tab-group="language"
+let token = "hv_..."; // your API key
+```
+```go tab="Go" tab-group="language"
+token := "hv_..." // your API key
+```
+```sh tab="cURL" tab-group="language"
 # All examples assume $TOKEN is an API key (hv_...)
 AUTH="Authorization: Bearer $TOKEN"
 ```
@@ -15,7 +29,57 @@ AUTH="Authorization: Bearer $TOKEN"
 POST /admin/backfill
 ```
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+interface BackfillJob {
+  id: string;
+  status: string;
+}
+
+const response = await fetch("http://127.0.0.1:3000/admin/backfill", {
+  method: "POST",
+  headers: {
+    ...headers,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    collection: "xyz.statusphere.status",
+  }),
+});
+const data: BackfillJob = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/admin/backfill", {
+  method: "POST",
+  headers: {
+    ...headers,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    collection: "xyz.statusphere.status",
+  }),
+});
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let client = reqwest::Client::new();
+let response = client
+    .post("http://127.0.0.1:3000/admin/backfill")
+    .bearer_auth(token)
+    .json(&serde_json::json!({
+        "collection": "xyz.statusphere.status"
+    }))
+    .send()
+    .await?;
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+body := bytes.NewBufferString(`{"collection": "xyz.statusphere.status"}`)
+req, _ := http.NewRequest("POST", "http://127.0.0.1:3000/admin/backfill", body)
+req.Header.Set("Authorization", "Bearer "+token)
+req.Header.Set("Content-Type", "application/json")
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST http://127.0.0.1:3000/admin/backfill \
   -H "$AUTH" \
   -H "Content-Type: application/json" \
@@ -42,7 +106,46 @@ curl -X POST http://127.0.0.1:3000/admin/backfill \
 GET /admin/backfill/status
 ```
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+interface BackfillJob {
+  id: string;
+  collection: string | null;
+  did: string | null;
+  status: string;
+  total_repos: number;
+  processed_repos: number;
+  total_records: number;
+  error: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
+const response = await fetch("http://127.0.0.1:3000/admin/backfill/status", {
+  headers,
+});
+const data: BackfillJob[] = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/admin/backfill/status", {
+  headers,
+});
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .get("http://127.0.0.1:3000/admin/backfill/status")
+    .bearer_auth(token)
+    .send()
+    .await?;
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+req, _ := http.NewRequest("GET", "http://127.0.0.1:3000/admin/backfill/status", nil)
+req.Header.Set("Authorization", "Bearer "+token)
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl http://127.0.0.1:3000/admin/backfill/status -H "$AUTH"
 ```
 

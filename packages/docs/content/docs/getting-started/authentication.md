@@ -36,14 +36,91 @@ Both checks currently log warnings on mismatch rather than rejecting the request
 
 ### Calling a query
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const CLIENT_KEY = "hvc_a1b2c3..."; // your API client key
+
+const response = await fetch(
+  "https://happyview.example.com/xrpc/com.example.feed.getHot",
+  { headers: { "X-Client-Key": CLIENT_KEY } },
+);
+```
+```js tab="JavaScript" tab-group="language"
+const CLIENT_KEY = "hvc_a1b2c3..."; // your API client key
+
+const response = await fetch(
+  "https://happyview.example.com/xrpc/com.example.feed.getHot",
+  { headers: { "X-Client-Key": CLIENT_KEY } },
+);
+```
+```rust tab="Rust" tab-group="language"
+let client = reqwest::Client::new();
+let client_key = "hvc_a1b2c3..."; // your API client key
+
+let response = client
+    .get("https://happyview.example.com/xrpc/com.example.feed.getHot")
+    .header("X-Client-Key", client_key)
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+clientKey := "hvc_a1b2c3..." // your API client key
+
+req, _ := http.NewRequest("GET",
+  "https://happyview.example.com/xrpc/com.example.feed.getHot", nil)
+req.Header.Set("X-Client-Key", clientKey)
+
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl 'https://happyview.example.com/xrpc/com.example.feed.getHot' \
   -H 'X-Client-Key: hvc_a1b2c3...'
 ```
 
 For a server-to-server integration, add the secret:
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch(
+  "https://happyview.example.com/xrpc/com.example.feed.getHot",
+  {
+    headers: {
+      "X-Client-Key": "hvc_a1b2c3...",
+      "X-Client-Secret": "hvs_d4e5f6...",
+    },
+  },
+);
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch(
+  "https://happyview.example.com/xrpc/com.example.feed.getHot",
+  {
+    headers: {
+      "X-Client-Key": "hvc_a1b2c3...",
+      "X-Client-Secret": "hvs_d4e5f6...",
+    },
+  },
+);
+```
+```rust tab="Rust" tab-group="language"
+let client_secret = "hvs_d4e5f6..."; // your API client secret
+
+let response = client
+    .get("https://happyview.example.com/xrpc/com.example.feed.getHot")
+    .header("X-Client-Key", client_key)
+    .header("X-Client-Secret", client_secret)
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+clientSecret := "hvs_d4e5f6..." // your API client secret
+
+req, _ := http.NewRequest("GET",
+  "https://happyview.example.com/xrpc/com.example.feed.getHot", nil)
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("X-Client-Secret", clientSecret)
+
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl 'https://happyview.example.com/xrpc/com.example.feed.getHot' \
   -H 'X-Client-Key: hvc_a1b2c3...' \
   -H 'X-Client-Secret: hvs_d4e5f6...'
@@ -96,7 +173,38 @@ Admin endpoints don't use API clients. They require a real HappyView user, ident
 
 For automation — CI/CD, monitoring, cron jobs — create an [admin API key](../guides/api-keys.md) at **Settings > API Keys** or via `POST /admin/api-keys` and pass it as a bearer token:
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const TOKEN = "hv_your-api-key-here";
+
+const response = await fetch("http://127.0.0.1:3000/admin/lexicons", {
+  headers: { Authorization: `Bearer ${TOKEN}` },
+});
+```
+```js tab="JavaScript" tab-group="language"
+const TOKEN = "hv_your-api-key-here";
+
+const response = await fetch("http://127.0.0.1:3000/admin/lexicons", {
+  headers: { Authorization: `Bearer ${TOKEN}` },
+});
+```
+```rust tab="Rust" tab-group="language"
+let token = "hv_your-api-key-here";
+
+let response = client
+    .get("http://127.0.0.1:3000/admin/lexicons")
+    .bearer_auth(token)
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+token := "hv_your-api-key-here"
+
+req, _ := http.NewRequest("GET", "http://127.0.0.1:3000/admin/lexicons", nil)
+req.Header.Set("Authorization", "Bearer "+token)
+
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 export TOKEN="hv_your-api-key-here"
 curl http://127.0.0.1:3000/admin/lexicons \
   -H "Authorization: Bearer $TOKEN"
@@ -277,7 +385,75 @@ Response:
 
 With a registered session, send XRPC requests using DPoP auth:
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const CLIENT_KEY = "hvc_..."; // your API client key
+const ACCESS_TOKEN = "..."; // DPoP access token
+const DPOP_PROOF = "..."; // DPoP proof JWT
+
+const response = await fetch(
+  "https://happyview.example.com/xrpc/com.example.feed.createPost",
+  {
+    method: "POST",
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      Authorization: `DPoP ${ACCESS_TOKEN}`,
+      DPoP: DPOP_PROOF,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ text: "Hello world" }),
+  },
+);
+```
+```js tab="JavaScript" tab-group="language"
+const CLIENT_KEY = "hvc_..."; // your API client key
+const ACCESS_TOKEN = "..."; // DPoP access token
+const DPOP_PROOF = "..."; // DPoP proof JWT
+
+const response = await fetch(
+  "https://happyview.example.com/xrpc/com.example.feed.createPost",
+  {
+    method: "POST",
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      Authorization: `DPoP ${ACCESS_TOKEN}`,
+      DPoP: DPOP_PROOF,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ text: "Hello world" }),
+  },
+);
+```
+```rust tab="Rust" tab-group="language"
+let client_key = "hvc_..."; // your API client key
+let access_token = "..."; // DPoP access token
+let dpop_proof = "..."; // DPoP proof JWT
+
+let response = client
+    .post("https://happyview.example.com/xrpc/com.example.feed.createPost")
+    .header("X-Client-Key", client_key)
+    .header("Authorization", format!("DPoP {}", access_token))
+    .header("DPoP", dpop_proof)
+    .json(&serde_json::json!({ "text": "Hello world" }))
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+clientKey := "hvc_..."  // your API client key
+accessToken := "..."    // DPoP access token
+dpopProof := "..."      // DPoP proof JWT
+
+body := bytes.NewBufferString(`{"text": "Hello world"}`)
+
+req, _ := http.NewRequest("POST",
+  "https://happyview.example.com/xrpc/com.example.feed.createPost", body)
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("Authorization", "DPoP "+accessToken)
+req.Header.Set("DPoP", dpopProof)
+req.Header.Set("Content-Type", "application/json")
+
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST 'https://happyview.example.com/xrpc/com.example.feed.createPost' \
   -H 'X-Client-Key: hvc_...' \
   -H 'Authorization: DPoP <access_token>' \

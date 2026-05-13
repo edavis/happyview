@@ -106,7 +106,154 @@ Logged when the WebSocket connection to [Jetstream](https://github.com/bluesky-s
 
 Use the admin API to query event logs with filters:
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const TOKEN = "hv_..."; // your API key
+const headers = { Authorization: `Bearer ${TOKEN}` };
+
+interface Event {
+  id: string;
+  event_type: string;
+  severity: string;
+  actor_did?: string;
+  subject?: string;
+  detail: Record<string, unknown>;
+  created_at: string;
+}
+
+interface EventsResponse {
+  events: Event[];
+  cursor?: string;
+}
+
+// Get all errors
+const errors: EventsResponse = await fetch(
+  "http://127.0.0.1:3000/admin/events?severity=error",
+  { headers },
+).then((r) => r.json());
+
+// Get script errors for a specific lexicon
+const scriptErrors: EventsResponse = await fetch(
+  "http://127.0.0.1:3000/admin/events?event_type=script.error&subject=com.example.feed.like",
+  { headers },
+).then((r) => r.json());
+
+// Get all lexicon-related events
+const lexiconEvents: EventsResponse = await fetch(
+  "http://127.0.0.1:3000/admin/events?category=lexicon",
+  { headers },
+).then((r) => r.json());
+
+// Paginate through results
+const page: EventsResponse = await fetch(
+  "http://127.0.0.1:3000/admin/events?limit=20&cursor=2026-03-01T11:59:00Z",
+  { headers },
+).then((r) => r.json());
+```
+```js tab="JavaScript" tab-group="language"
+const TOKEN = "hv_..."; // your API key
+const headers = { Authorization: `Bearer ${TOKEN}` };
+
+// Get all errors
+const errors = await fetch(
+  "http://127.0.0.1:3000/admin/events?severity=error",
+  { headers },
+).then((r) => r.json());
+
+// Get script errors for a specific lexicon
+const scriptErrors = await fetch(
+  "http://127.0.0.1:3000/admin/events?event_type=script.error&subject=com.example.feed.like",
+  { headers },
+).then((r) => r.json());
+
+// Get all lexicon-related events
+const lexiconEvents = await fetch(
+  "http://127.0.0.1:3000/admin/events?category=lexicon",
+  { headers },
+).then((r) => r.json());
+
+// Paginate through results
+const page = await fetch(
+  "http://127.0.0.1:3000/admin/events?limit=20&cursor=2026-03-01T11:59:00Z",
+  { headers },
+).then((r) => r.json());
+```
+```rust tab="Rust" tab-group="language"
+let client = reqwest::Client::new();
+let token = "hv_..."; // your API key
+
+// Get all errors
+let errors: serde_json::Value = client
+    .get("http://127.0.0.1:3000/admin/events")
+    .query(&[("severity", "error")])
+    .bearer_auth(token)
+    .send()
+    .await?
+    .json()
+    .await?;
+
+// Get script errors for a specific lexicon
+let script_errors: serde_json::Value = client
+    .get("http://127.0.0.1:3000/admin/events")
+    .query(&[
+        ("event_type", "script.error"),
+        ("subject", "com.example.feed.like"),
+    ])
+    .bearer_auth(token)
+    .send()
+    .await?
+    .json()
+    .await?;
+
+// Get all lexicon-related events
+let lexicon_events: serde_json::Value = client
+    .get("http://127.0.0.1:3000/admin/events")
+    .query(&[("category", "lexicon")])
+    .bearer_auth(token)
+    .send()
+    .await?
+    .json()
+    .await?;
+
+// Paginate through results
+let page: serde_json::Value = client
+    .get("http://127.0.0.1:3000/admin/events")
+    .query(&[("limit", "20"), ("cursor", "2026-03-01T11:59:00Z")])
+    .bearer_auth(token)
+    .send()
+    .await?
+    .json()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+token := "hv_..." // your API key
+
+// Get all errors
+req, _ := http.NewRequest("GET",
+	"http://127.0.0.1:3000/admin/events?severity=error", nil)
+req.Header.Set("Authorization", "Bearer "+token)
+errors, err := http.DefaultClient.Do(req)
+
+// Get script errors for a specific lexicon
+req, _ = http.NewRequest("GET",
+	"http://127.0.0.1:3000/admin/events?event_type=script.error&subject=com.example.feed.like", nil)
+req.Header.Set("Authorization", "Bearer "+token)
+scriptErrors, err := http.DefaultClient.Do(req)
+
+// Get all lexicon-related events
+req, _ = http.NewRequest("GET",
+	"http://127.0.0.1:3000/admin/events?category=lexicon", nil)
+req.Header.Set("Authorization", "Bearer "+token)
+lexiconEvents, err := http.DefaultClient.Do(req)
+
+// Paginate through results
+req, _ = http.NewRequest("GET",
+	"http://127.0.0.1:3000/admin/events?limit=20&cursor=2026-03-01T11:59:00Z", nil)
+req.Header.Set("Authorization", "Bearer "+token)
+page, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
+AUTH="Authorization: Bearer hv_..." # your API key
+
 # Get all errors
 curl "http://127.0.0.1:3000/admin/events?severity=error" -H "$AUTH"
 
