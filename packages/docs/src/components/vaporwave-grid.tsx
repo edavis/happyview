@@ -1,9 +1,18 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export function VaporwaveGrid() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [reducedMotion, setReducedMotion] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setReducedMotion(mq.matches);
+    const onChange = () => setReducedMotion(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -33,20 +42,14 @@ export function VaporwaveGrid() {
     const observer = new ResizeObserver(resize);
     observer.observe(canvas);
 
-    function draw(time: number) {
-      const elapsed = time / 1000;
+    function render(opts: {
+      elapsed: number;
+      faceReveal: number;
+      scrollOffset: number;
+      glitch: boolean;
+    }) {
+      const { elapsed, faceReveal, scrollOffset, glitch } = opts;
 
-      const scrollY = window.scrollY;
-      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-      const scrollProgress = maxScroll > 0 ? scrollY / maxScroll : 0;
-      const scrollOffset = scrollY * 0.01;
-
-      // Face rises in the last 30% of the scroll
-      const faceThreshold = 0.7;
-      const faceProgress = Math.max(0, (scrollProgress - faceThreshold) / (1 - faceThreshold));
-      const faceReveal = Math.min(faceProgress, 1);
-
-      // Dim the whole canvas, brightening as the face rises
       canvas!.style.opacity = String(0.4 + 0.6 * faceReveal);
 
       ctx!.clearRect(0, 0, w, h);
@@ -66,7 +69,7 @@ export function VaporwaveGrid() {
       const bgRgb = `rgb(${br}, ${bg}, ${bb})`;
       const bgRgba = (a: number) => `rgba(${br}, ${bg}, ${bb}, ${a})`;
 
-      // --- 1. Sky fade (background, drawn first) ---
+      // --- 1. Sky fade ---
       const skyGrad = ctx!.createLinearGradient(0, 0, 0, horizonY);
       skyGrad.addColorStop(0, bgRgb);
       skyGrad.addColorStop(0.4, bgRgb);
@@ -76,12 +79,10 @@ export function VaporwaveGrid() {
 
       const sunSize = Math.min(w * 0.15, 150);
 
-      // --- 2. Logo glow + face (only when scrolled near bottom) ---
+      // --- 2. Logo glow + face ---
       if (logo.complete && logo.naturalWidth > 0 && faceReveal > 0) {
-        // Face starts fully behind horizon and rises to 80% visible
         const faceY = horizonY - sunSize * 0.8 * faceReveal;
 
-        // Glow (clipped above horizon)
         ctx!.save();
         ctx!.beginPath();
         ctx!.rect(0, 0, w, horizonY);
@@ -100,7 +101,6 @@ export function VaporwaveGrid() {
 
         ctx!.restore();
 
-        // Ground glow (below horizon)
         const groundGlow = ctx!.createRadialGradient(
           centerX, horizonY, 0,
           centerX, horizonY + gridHeight * 0.4, w * 0.5,
@@ -111,7 +111,6 @@ export function VaporwaveGrid() {
         ctx!.fillStyle = groundGlow;
         ctx!.fillRect(0, horizonY, w, gridHeight);
 
-        // Face (clipped at horizon, with glitch)
         ctx!.save();
         ctx!.beginPath();
         ctx!.rect(0, 0, w, horizonY);
@@ -119,7 +118,7 @@ export function VaporwaveGrid() {
 
         const glitchInterval = 8;
         const glitchPhase = elapsed % glitchInterval;
-        const isGlitching = glitchPhase < 0.5 || (glitchPhase > 3.8 && glitchPhase < 4.15);
+        const isGlitching = glitch && (glitchPhase < 0.5 || (glitchPhase > 3.8 && glitchPhase < 4.15));
 
         if (isGlitching) {
           const numSlices = 12;
@@ -152,7 +151,6 @@ export function VaporwaveGrid() {
             );
           }
 
-          // RGB channel separation — tween the offset
           const rgbShift = 3 + Math.sin(elapsed * 6) * 2;
           ctx!.globalCompositeOperation = 'lighter';
           ctx!.globalAlpha = 0.12 + Math.sin(elapsed * 9) * 0.05;
@@ -167,7 +165,7 @@ export function VaporwaveGrid() {
         ctx!.restore();
       }
 
-      // --- 3. Horizontal grid lines (scroll-synced) ---
+      // --- 3. Horizontal grid lines ---
       const lineSpacing = 0.07;
       const maxDepth = 60;
       const minDepth = 0.1;
@@ -211,14 +209,39 @@ export function VaporwaveGrid() {
 
       ctx!.globalAlpha = 1;
 
-      // --- 6. Horizon glow ---
+      // --- 5. Horizon glow ---
       const horizonGlowGrad = ctx!.createLinearGradient(0, horizonY - 4, 0, horizonY + 12);
       horizonGlowGrad.addColorStop(0, aquaRgba(0));
       horizonGlowGrad.addColorStop(0.4, aquaRgba(0.3));
       horizonGlowGrad.addColorStop(1, aquaRgba(0));
       ctx!.fillStyle = horizonGlowGrad;
       ctx!.fillRect(0, horizonY - 4, w, 16);
+    }
 
+    if (reducedMotion) {
+      function drawStatic() {
+        if (logo.complete && logo.naturalWidth > 0) {
+          render({ elapsed: 0, faceReveal: 1, scrollOffset: 0, glitch: false });
+        } else {
+          logo.addEventListener('load', drawStatic, { once: true });
+        }
+      }
+      drawStatic();
+      return () => observer.disconnect();
+    }
+
+    function draw(time: number) {
+      const elapsed = time / 1000;
+      const scrollY = window.scrollY;
+      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+      const scrollProgress = maxScroll > 0 ? scrollY / maxScroll : 0;
+      const scrollOffset = scrollY * 0.01;
+
+      const faceThreshold = 0.7;
+      const faceProgress = Math.max(0, (scrollProgress - faceThreshold) / (1 - faceThreshold));
+      const faceReveal = Math.min(faceProgress, 1);
+
+      render({ elapsed, faceReveal, scrollOffset, glitch: true });
       animationId = requestAnimationFrame(draw);
     }
 
@@ -228,7 +251,7 @@ export function VaporwaveGrid() {
       cancelAnimationFrame(animationId);
       observer.disconnect();
     };
-  }, []);
+  }, [reducedMotion]);
 
   return (
     <canvas
@@ -241,8 +264,8 @@ export function VaporwaveGrid() {
         marginLeft: 'calc(-50vw + 50%)',
         height: '100vh',
         marginTop: '-60vh',
-        position: 'sticky',
-        bottom: 0,
+        position: reducedMotion ? 'relative' : 'sticky',
+        bottom: reducedMotion ? undefined : 0,
         pointerEvents: 'none',
         zIndex: -1,
       }}
