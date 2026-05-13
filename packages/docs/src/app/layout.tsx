@@ -1,10 +1,9 @@
 import './global.css';
 import { RootProvider } from 'fumadocs-ui/provider/next';
-import { DocsLayout } from 'fumadocs-ui/layouts/docs';
-import { source } from '@/lib/source';
+import { HomeLayout } from 'fumadocs-ui/layouts/home';
 import { fontVariables } from '@/lib/fonts';
 import { ReducedMotionProvider } from '@/lib/reduced-motion';
-import { SidebarFooter } from '@/components/sidebar-footer';
+import { navTitle, navLinks } from '@/lib/nav';
 import type { ReactNode } from 'react';
 
 export const metadata = {
@@ -28,43 +27,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body>
         <RootProvider theme={{ defaultTheme: 'dark' }}>
           <ReducedMotionProvider>
-            <DocsLayout
-            tree={source.getPageTree()}
-            nav={{
-              title: (
-                <span className="flex items-center gap-2 text-sm tracking-tight">
-                  <img
-                    src="/img/logo.dark.png"
-                    alt="HappyView"
-                    className="h-14 hidden dark:block"
-                  />
-                  <img
-                    src="/img/logo.light.png"
-                    alt="HappyView"
-                    className="h-14 block dark:hidden"
-                  />
-                </span>
-              ),
-            }}
-            sidebar={{
-              footer: <SidebarFooter key="sidebar-footer" />,
-            }}
-            themeSwitch={{ enabled: false }}
-            links={[
-              {
-                text: 'Docs',
-                url: '/',
-                active: 'nested-url',
-              },
-              {
-                text: 'Source',
-                url: 'https://tangled.org/gamesgamesgamesgames.games/happyview',
-                external: true,
-              },
-            ]}
-          >
-            {children}
-            </DocsLayout>
+            <HomeLayout
+              nav={{ title: navTitle }}
+              themeSwitch={{ enabled: false }}
+              links={navLinks}
+            >
+              {children}
+            </HomeLayout>
           </ReducedMotionProvider>
         </RootProvider>
       </body>
