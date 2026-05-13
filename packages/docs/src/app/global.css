@@ -24,7 +24,9 @@
 }
 
 #nd-page > .prose :is(h2, h3, h4),
-#nd-page > .prose :is(h2, h3, h4) > a {
+#nd-page > .prose :is(h2, h3, h4) > a,
+.prose :is(h2, h3, h4),
+.prose :is(h2, h3, h4) > a {
   color: rgb(var(--color-magenta)) !important;
 }
 
@@ -101,13 +103,102 @@
   border-radius: 8px !important;
 }
 
+/* --- Nav bar --- */
+
+#nd-nav {
+  height: auto;
+}
+
+#nd-nav > div {
+  background: rgb(var(--color-surface)) !important;
+  border-color: rgb(var(--color-border));
+}
+
+#nd-nav > div > * {
+  max-width: none !important;
+  margin: 0 !important;
+}
+
+#nd-nav nav {
+  height: auto;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
+/* Nav links (exclude logo) */
+#nd-nav nav ul a,
+#nd-nav nav > div a {
+  color: rgb(var(--color-fg));
+  padding-left: 1rem;
+  padding-right: 1rem;
+  border-radius: 9999px;
+  transition: color 0.2s, background-color 0.2s;
+}
+
+#nd-nav nav ul a:hover,
+#nd-nav nav > div a:hover {
+  color: rgb(var(--color-aqua)) !important;
+  background-color: rgb(var(--color-bg)) !important;
+  border-radius: 9999px;
+}
+
+#nd-nav nav ul a[data-active="true"] {
+  color: rgb(var(--color-aqua)) !important;
+  background: rgb(var(--color-bg)) !important;
+  border-radius: 9999px;
+}
+
+#nd-nav [data-search-full] {
+  color: rgb(var(--color-fg-muted));
+  border-color: rgb(var(--color-border));
+  background: rgb(var(--color-bg)) !important;
+}
+
+#nd-nav [data-search-full]:hover {
+  border-color: rgb(var(--color-aqua));
+  color: rgb(var(--color-aqua));
+  background: rgb(var(--color-bg)) !important;
+}
+
+#nd-nav [data-search] {
+  color: rgb(var(--color-fg-muted));
+}
+
+#nd-nav [data-search]:hover {
+  color: rgb(var(--color-aqua)) !important;
+  background: rgb(var(--color-bg)) !important;
+}
+
+/* --- Blog layout --- */
+
+#nd-home-layout {
+  background: transparent;
+}
+
+#nd-home-layout article > canvas {
+  margin-bottom: -40vh;
+}
+
+/* --- Blog card hover --- */
+
+.group:hover {
+  border-color: rgb(var(--color-aqua)) !important;
+  box-shadow: 0 0 20px rgb(var(--color-aqua) / 0.15);
+}
+
+.group:hover h2 {
+  color: rgb(var(--color-aqua)) !important;
+}
+
 /* Reduced motion */
-html[data-reduced-motion="true"] #nd-sidebar [data-active="true"] {
+html[data-reduced-motion="true"] #nd-sidebar [data-active="true"],
+html[data-reduced-motion="true"] #nd-nav nav a[data-active="true"] {
   animation: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #nd-sidebar [data-active="true"] {
+  #nd-sidebar [data-active="true"],
+  #nd-nav nav a[data-active="true"] {
     animation: none;
   }
 }
