@@ -23,17 +23,12 @@
   isolation: isolate;
 }
 
+#nd-page > .prose :is(h2, h3, h4),
+#nd-page > .prose :is(h2, h3, h4) > a {
+  color: rgb(var(--color-magenta)) !important;
+}
+
 /* --- Sidebar --- */
-
-#nd-sidebar a {
-  white-space: nowrap;
-}
-
-#nd-sidebar [data-active="true"] {
-  border-left: 2px solid rgb(var(--color-aqua));
-  background: rgb(var(--color-aqua) / 0.08) !important;
-  box-shadow: inset 0 0 16px rgb(var(--color-aqua) / 0.04);
-}
 
 @media (min-width: 768px) {
   #nd-sidebar > :first-child button[aria-label="Collapse Sidebar"] {
@@ -43,25 +38,77 @@
 
 /* --- Sidebar section labels --- */
 
-#nd-sidebar [role="separator"] {
+#nd-sidebar p {
   color: rgb(var(--color-magenta));
-  font-weight: 600;
-  letter-spacing: 0.5px;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
-/* --- Sidebar links — muted by default, aqua on hover --- */
+/* --- Sidebar links --- */
+
+@keyframes sidebar-gradient {
+  to { background-position: 200% center; }
+}
 
 #nd-sidebar a {
+  white-space: nowrap;
   color: rgb(var(--color-fg-muted));
-  transition: color 0.2s;
+  transition: color 0.2s, text-shadow 0.2s, transform 0.2s, box-shadow 0.2s, border-radius 0.2s;
 }
 
-#nd-sidebar a:hover {
-  color: rgb(var(--color-aqua));
+/* Open folder sections */
+#nd-sidebar div[data-state="open"]:not([class]) {
+  background: rgb(var(--color-bg));
+  border-radius: 12px;
+  padding: 4px;
+  margin: 2px 0;
 }
 
-#nd-sidebar [data-active="true"] a {
-  color: rgb(var(--color-aqua));
+/* Active — animated gradient pill */
+#nd-sidebar [data-active="true"] {
+  color: rgb(var(--color-bg)) !important;
+  border-radius: 9999px !important;
+  background-image: linear-gradient(90deg, rgb(var(--color-aqua)), rgb(var(--color-magenta)), rgb(var(--color-aqua))) !important;
+  background-size: 200% 100% !important;
+  background-color: transparent !important;
+  animation: sidebar-gradient 6s linear infinite;
+  text-shadow: none;
+}
+
+/* Active inside expandable sections — partial radius */
+#nd-sidebar div[data-state="open"]:not([class]) [data-active="true"] {
+  border-radius: 8px !important;
+}
+
+#nd-sidebar [data-active="true"]::before {
+  display: none !important;
+}
+
+/* Hover */
+#nd-sidebar a:not([data-active="true"]):hover,
+#nd-sidebar button:not([aria-label]):hover {
+  color: rgb(var(--color-aqua)) !important;
+  border-radius: 9999px !important;
+  background-color: rgb(var(--color-bg)) !important;
+  text-shadow: none;
+}
+
+#nd-sidebar div[data-state="open"]:not([class]) a:not([data-active="true"]):hover,
+#nd-sidebar div[data-state="open"]:not([class]) button:not([aria-label]):hover {
+  background-color: rgb(var(--color-surface)) !important;
+  border-radius: 8px !important;
+}
+
+/* Reduced motion */
+html[data-reduced-motion="true"] #nd-sidebar [data-active="true"] {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #nd-sidebar [data-active="true"] {
+    animation: none;
+  }
 }
 
 /* --- Prev/Next navigation cards --- */
