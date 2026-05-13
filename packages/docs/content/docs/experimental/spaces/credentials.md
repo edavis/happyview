@@ -38,7 +38,64 @@ Credentials are ES256 JWTs signed with a P-256 keypair unique to each space. The
 
 The caller must be an authenticated member of the space. The grant is a short-lived token (5 minutes) that proves membership.
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch("https://happyview.example.com/xrpc/dev.happyview.space.getMemberGrant", {
+  method: "POST",
+  headers: {
+    "X-Client-Key": CLIENT_KEY,
+    "Authorization": `DPoP ${ACCESS_TOKEN}`,
+    "DPoP": DPOP_PROOF,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    space: "ats://did:plc:abc123/com.example.forum/main",
+  }),
+});
+interface GrantResponse {
+  grant: string;
+  expiresAt: string;
+}
+const data: GrantResponse = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch("https://happyview.example.com/xrpc/dev.happyview.space.getMemberGrant", {
+  method: "POST",
+  headers: {
+    "X-Client-Key": CLIENT_KEY,
+    "Authorization": `DPoP ${ACCESS_TOKEN}`,
+    "DPoP": DPOP_PROOF,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    space: "ats://did:plc:abc123/com.example.forum/main",
+  }),
+});
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .post("https://happyview.example.com/xrpc/dev.happyview.space.getMemberGrant")
+    .header("X-Client-Key", client_key)
+    .header("Authorization", format!("DPoP {}", access_token))
+    .header("DPoP", &dpop_proof)
+    .json(&serde_json::json!({
+        "space": "ats://did:plc:abc123/com.example.forum/main"
+    }))
+    .send()
+    .await?;
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+body := bytes.NewBufferString(`{"space": "ats://did:plc:abc123/com.example.forum/main"}`)
+req, _ := http.NewRequest("POST",
+  "https://happyview.example.com/xrpc/dev.happyview.space.getMemberGrant", body)
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("Authorization", "DPoP "+accessToken)
+req.Header.Set("DPoP", dpopProof)
+req.Header.Set("Content-Type", "application/json")
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST 'https://happyview.example.com/xrpc/dev.happyview.space.getMemberGrant' \
   -H 'X-Client-Key: hvc_...' \
   -H 'Authorization: DPoP <token>' \
@@ -62,7 +119,64 @@ curl -X POST 'https://happyview.example.com/xrpc/dev.happyview.space.getMemberGr
 
 Exchange the grant for a space credential JWT. The credential is signed by the space's keypair and has a 4-hour TTL.
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch("https://happyview.example.com/xrpc/dev.happyview.space.getSpaceCredential", {
+  method: "POST",
+  headers: {
+    "X-Client-Key": CLIENT_KEY,
+    "Authorization": `DPoP ${ACCESS_TOKEN}`,
+    "DPoP": DPOP_PROOF,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    grant: "eyJhbGciOiJIUzI1NiJ9...",
+  }),
+});
+interface CredentialResponse {
+  credential: string;
+  expiresAt: string;
+}
+const data: CredentialResponse = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch("https://happyview.example.com/xrpc/dev.happyview.space.getSpaceCredential", {
+  method: "POST",
+  headers: {
+    "X-Client-Key": CLIENT_KEY,
+    "Authorization": `DPoP ${ACCESS_TOKEN}`,
+    "DPoP": DPOP_PROOF,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    grant: "eyJhbGciOiJIUzI1NiJ9...",
+  }),
+});
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .post("https://happyview.example.com/xrpc/dev.happyview.space.getSpaceCredential")
+    .header("X-Client-Key", client_key)
+    .header("Authorization", format!("DPoP {}", access_token))
+    .header("DPoP", &dpop_proof)
+    .json(&serde_json::json!({
+        "grant": "eyJhbGciOiJIUzI1NiJ9..."
+    }))
+    .send()
+    .await?;
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+body := bytes.NewBufferString(`{"grant": "eyJhbGciOiJIUzI1NiJ9..."}`)
+req, _ := http.NewRequest("POST",
+  "https://happyview.example.com/xrpc/dev.happyview.space.getSpaceCredential", body)
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("Authorization", "DPoP "+accessToken)
+req.Header.Set("DPoP", dpopProof)
+req.Header.Set("Content-Type", "application/json")
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST 'https://happyview.example.com/xrpc/dev.happyview.space.getSpaceCredential' \
   -H 'X-Client-Key: hvc_...' \
   -H 'Authorization: DPoP <token>' \
@@ -99,7 +213,45 @@ The JWT payload contains:
 
 Pass the credential as a standard Bearer token in the `Authorization` header. HappyView distinguishes space credentials from other tokens by checking the JWT header's `typ` field (`space_credential`).
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch(
+  "https://happyview.example.com/xrpc/dev.happyview.space.getRecord?space=...&collection=...&rkey=...",
+  {
+    headers: {
+      "Authorization": `Bearer ${SPACE_CREDENTIAL}`,
+    },
+  },
+);
+const data = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch(
+  "https://happyview.example.com/xrpc/dev.happyview.space.getRecord?space=...&collection=...&rkey=...",
+  {
+    headers: {
+      "Authorization": `Bearer ${SPACE_CREDENTIAL}`,
+    },
+  },
+);
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .get("https://happyview.example.com/xrpc/dev.happyview.space.getRecord")
+    .query(&[("space", "..."), ("collection", "..."), ("rkey", "...")])
+    .header("Authorization", format!("Bearer {}", space_credential))
+    .send()
+    .await?;
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+req, _ := http.NewRequest("GET",
+  "https://happyview.example.com/xrpc/dev.happyview.space.getRecord?space=...&collection=...&rkey=...",
+  nil)
+req.Header.Set("Authorization", "Bearer "+spaceCredential)
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl 'https://happyview.example.com/xrpc/dev.happyview.space.getRecord?space=...&collection=...&rkey=...' \
   -H 'Authorization: Bearer eyJhbGciOiJFUzI1NiIsInR5cCI6InNwYWNlX2NyZWRlbnRpYWwifQ...'
 ```

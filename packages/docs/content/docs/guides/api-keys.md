@@ -28,7 +28,53 @@ Each API key has its own set of **scoped permissions**. When you create a key, y
 
 Pass the key as a Bearer token in the `Authorization` header:
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const TOKEN = "hv_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4";
+
+const response = await fetch("http://127.0.0.1:3000/admin/lexicons", {
+  headers: { Authorization: `Bearer ${TOKEN}` },
+});
+
+interface LexiconsResponse {
+  lexicons: Array<{
+    id: string;
+    nsid: string;
+    revision: number;
+  }>;
+}
+
+const data: LexiconsResponse = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const TOKEN = "hv_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4";
+
+const response = await fetch("http://127.0.0.1:3000/admin/lexicons", {
+  headers: { Authorization: `Bearer ${TOKEN}` },
+});
+
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let client = reqwest::Client::new();
+let token = "hv_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4";
+
+let response = client
+    .get("http://127.0.0.1:3000/admin/lexicons")
+    .bearer_auth(token)
+    .send()
+    .await?;
+
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+token := "hv_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+
+req, _ := http.NewRequest("GET", "http://127.0.0.1:3000/admin/lexicons", nil)
+req.Header.Set("Authorization", "Bearer "+token)
+
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl http://127.0.0.1:3000/admin/lexicons \
   -H "Authorization: Bearer hv_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
 ```

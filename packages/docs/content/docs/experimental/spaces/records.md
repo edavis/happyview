@@ -17,7 +17,90 @@ ats:// did:plc:abcdefghijklmnop1234567890 / com.example.forum / main        / di
 
 Requires `write` membership in the space. The rkey is auto-generated using a TID.
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch("https://happyview.example.com/xrpc/dev.happyview.space.createRecord", {
+  method: "POST",
+  headers: {
+    "X-Client-Key": CLIENT_KEY,
+    "Authorization": `DPoP ${ACCESS_TOKEN}`,
+    "DPoP": DPOP_PROOF,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    space: "ats://did:plc:abc123/com.example.forum/main",
+    collection: "com.example.forum.post",
+    record: {
+      $type: "com.example.forum.post",
+      text: "Hello from the forum!",
+      createdAt: "2026-05-09T12:00:00Z",
+    },
+  }),
+});
+interface CreateRecordResponse {
+  uri: string;
+  cid: string;
+}
+const data: CreateRecordResponse = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch("https://happyview.example.com/xrpc/dev.happyview.space.createRecord", {
+  method: "POST",
+  headers: {
+    "X-Client-Key": CLIENT_KEY,
+    "Authorization": `DPoP ${ACCESS_TOKEN}`,
+    "DPoP": DPOP_PROOF,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    space: "ats://did:plc:abc123/com.example.forum/main",
+    collection: "com.example.forum.post",
+    record: {
+      $type: "com.example.forum.post",
+      text: "Hello from the forum!",
+      createdAt: "2026-05-09T12:00:00Z",
+    },
+  }),
+});
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .post("https://happyview.example.com/xrpc/dev.happyview.space.createRecord")
+    .header("X-Client-Key", client_key)
+    .header("Authorization", format!("DPoP {}", access_token))
+    .header("DPoP", &dpop_proof)
+    .json(&serde_json::json!({
+        "space": "ats://did:plc:abc123/com.example.forum/main",
+        "collection": "com.example.forum.post",
+        "record": {
+            "$type": "com.example.forum.post",
+            "text": "Hello from the forum!",
+            "createdAt": "2026-05-09T12:00:00Z"
+        }
+    }))
+    .send()
+    .await?;
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+body := bytes.NewBufferString(`{
+  "space": "ats://did:plc:abc123/com.example.forum/main",
+  "collection": "com.example.forum.post",
+  "record": {
+    "$type": "com.example.forum.post",
+    "text": "Hello from the forum!",
+    "createdAt": "2026-05-09T12:00:00Z"
+  }
+}`)
+req, _ := http.NewRequest("POST",
+  "https://happyview.example.com/xrpc/dev.happyview.space.createRecord", body)
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("Authorization", "DPoP "+accessToken)
+req.Header.Set("DPoP", dpopProof)
+req.Header.Set("Content-Type", "application/json")
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST 'https://happyview.example.com/xrpc/dev.happyview.space.createRecord' \
   -H 'X-Client-Key: hvc_...' \
   -H 'Authorization: DPoP <token>' \
@@ -57,7 +140,94 @@ curl -X POST 'https://happyview.example.com/xrpc/dev.happyview.space.createRecor
 
 Requires `write` membership in the space.
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch("https://happyview.example.com/xrpc/dev.happyview.space.putRecord", {
+  method: "POST",
+  headers: {
+    "X-Client-Key": CLIENT_KEY,
+    "Authorization": `DPoP ${ACCESS_TOKEN}`,
+    "DPoP": DPOP_PROOF,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    space: "ats://did:plc:abc123/com.example.forum/main",
+    collection: "com.example.forum.post",
+    rkey: "3k2abc",
+    record: {
+      $type: "com.example.forum.post",
+      text: "Hello from the forum!",
+      createdAt: "2026-05-09T12:00:00Z",
+    },
+  }),
+});
+interface PutRecordResponse {
+  uri: string;
+  cid: string;
+}
+const data: PutRecordResponse = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch("https://happyview.example.com/xrpc/dev.happyview.space.putRecord", {
+  method: "POST",
+  headers: {
+    "X-Client-Key": CLIENT_KEY,
+    "Authorization": `DPoP ${ACCESS_TOKEN}`,
+    "DPoP": DPOP_PROOF,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    space: "ats://did:plc:abc123/com.example.forum/main",
+    collection: "com.example.forum.post",
+    rkey: "3k2abc",
+    record: {
+      $type: "com.example.forum.post",
+      text: "Hello from the forum!",
+      createdAt: "2026-05-09T12:00:00Z",
+    },
+  }),
+});
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .post("https://happyview.example.com/xrpc/dev.happyview.space.putRecord")
+    .header("X-Client-Key", client_key)
+    .header("Authorization", format!("DPoP {}", access_token))
+    .header("DPoP", &dpop_proof)
+    .json(&serde_json::json!({
+        "space": "ats://did:plc:abc123/com.example.forum/main",
+        "collection": "com.example.forum.post",
+        "rkey": "3k2abc",
+        "record": {
+            "$type": "com.example.forum.post",
+            "text": "Hello from the forum!",
+            "createdAt": "2026-05-09T12:00:00Z"
+        }
+    }))
+    .send()
+    .await?;
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+body := bytes.NewBufferString(`{
+  "space": "ats://did:plc:abc123/com.example.forum/main",
+  "collection": "com.example.forum.post",
+  "rkey": "3k2abc",
+  "record": {
+    "$type": "com.example.forum.post",
+    "text": "Hello from the forum!",
+    "createdAt": "2026-05-09T12:00:00Z"
+  }
+}`)
+req, _ := http.NewRequest("POST",
+  "https://happyview.example.com/xrpc/dev.happyview.space.putRecord", body)
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("Authorization", "DPoP "+accessToken)
+req.Header.Set("DPoP", dpopProof)
+req.Header.Set("Content-Type", "application/json")
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST 'https://happyview.example.com/xrpc/dev.happyview.space.putRecord' \
   -H 'X-Client-Key: hvc_...' \
   -H 'Authorization: DPoP <token>' \
@@ -102,7 +272,72 @@ The author DID is taken from the authenticated user. You can only write records 
 
 Requires `read` membership (or a valid [space credential](credentials.md)).
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const params = new URLSearchParams({
+  space: "ats://did:plc:abc123/com.example.forum/main",
+  collection: "com.example.forum.post",
+  rkey: "3k2abc",
+});
+const response = await fetch(
+  `https://happyview.example.com/xrpc/dev.happyview.space.getRecord?${params}`,
+  {
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      "Authorization": `DPoP ${ACCESS_TOKEN}`,
+      "DPoP": DPOP_PROOF,
+    },
+  },
+);
+interface GetRecordResponse {
+  uri: string;
+  cid: string;
+  value: Record<string, unknown>;
+}
+const data: GetRecordResponse = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const params = new URLSearchParams({
+  space: "ats://did:plc:abc123/com.example.forum/main",
+  collection: "com.example.forum.post",
+  rkey: "3k2abc",
+});
+const response = await fetch(
+  `https://happyview.example.com/xrpc/dev.happyview.space.getRecord?${params}`,
+  {
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      "Authorization": `DPoP ${ACCESS_TOKEN}`,
+      "DPoP": DPOP_PROOF,
+    },
+  },
+);
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .get("https://happyview.example.com/xrpc/dev.happyview.space.getRecord")
+    .query(&[
+        ("space", "ats://did:plc:abc123/com.example.forum/main"),
+        ("collection", "com.example.forum.post"),
+        ("rkey", "3k2abc"),
+    ])
+    .header("X-Client-Key", client_key)
+    .header("Authorization", format!("DPoP {}", access_token))
+    .header("DPoP", &dpop_proof)
+    .send()
+    .await?;
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+req, _ := http.NewRequest("GET",
+  "https://happyview.example.com/xrpc/dev.happyview.space.getRecord?space=ats://did:plc:abc123/com.example.forum/main&collection=com.example.forum.post&rkey=3k2abc",
+  nil)
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("Authorization", "DPoP "+accessToken)
+req.Header.Set("DPoP", dpopProof)
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl 'https://happyview.example.com/xrpc/dev.happyview.space.getRecord?space=ats://did:plc:abc123/com.example.forum/main&collection=com.example.forum.post&rkey=3k2abc' \
   -H 'X-Client-Key: hvc_...' \
   -H 'Authorization: DPoP <token>' \
@@ -133,7 +368,76 @@ curl 'https://happyview.example.com/xrpc/dev.happyview.space.getRecord?space=ats
 
 ## Listing records
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const params = new URLSearchParams({
+  space: "ats://did:plc:abc123/com.example.forum/main",
+  collection: "com.example.forum.post",
+  limit: "20",
+});
+const response = await fetch(
+  `https://happyview.example.com/xrpc/dev.happyview.space.listRecords?${params}`,
+  {
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      "Authorization": `DPoP ${ACCESS_TOKEN}`,
+      "DPoP": DPOP_PROOF,
+    },
+  },
+);
+interface RecordEntry {
+  collection: string;
+  rkey: string;
+  cid: string;
+}
+interface ListRecordsResponse {
+  records: RecordEntry[];
+  cursor?: string;
+}
+const data: ListRecordsResponse = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const params = new URLSearchParams({
+  space: "ats://did:plc:abc123/com.example.forum/main",
+  collection: "com.example.forum.post",
+  limit: "20",
+});
+const response = await fetch(
+  `https://happyview.example.com/xrpc/dev.happyview.space.listRecords?${params}`,
+  {
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      "Authorization": `DPoP ${ACCESS_TOKEN}`,
+      "DPoP": DPOP_PROOF,
+    },
+  },
+);
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .get("https://happyview.example.com/xrpc/dev.happyview.space.listRecords")
+    .query(&[
+        ("space", "ats://did:plc:abc123/com.example.forum/main"),
+        ("collection", "com.example.forum.post"),
+        ("limit", "20"),
+    ])
+    .header("X-Client-Key", client_key)
+    .header("Authorization", format!("DPoP {}", access_token))
+    .header("DPoP", &dpop_proof)
+    .send()
+    .await?;
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+req, _ := http.NewRequest("GET",
+  "https://happyview.example.com/xrpc/dev.happyview.space.listRecords?space=ats://did:plc:abc123/com.example.forum/main&collection=com.example.forum.post&limit=20",
+  nil)
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("Authorization", "DPoP "+accessToken)
+req.Header.Set("DPoP", dpopProof)
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl 'https://happyview.example.com/xrpc/dev.happyview.space.listRecords?space=ats://did:plc:abc123/com.example.forum/main&collection=com.example.forum.post&limit=20' \
   -H 'X-Client-Key: hvc_...' \
   -H 'Authorization: DPoP <token>' \
@@ -170,7 +474,67 @@ curl 'https://happyview.example.com/xrpc/dev.happyview.space.listRecords?space=a
 
 You can only delete your own records. Requires `write` membership.
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch("https://happyview.example.com/xrpc/dev.happyview.space.deleteRecord", {
+  method: "POST",
+  headers: {
+    "X-Client-Key": CLIENT_KEY,
+    "Authorization": `DPoP ${ACCESS_TOKEN}`,
+    "DPoP": DPOP_PROOF,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    space: "ats://did:plc:abc123/com.example.forum/main",
+    collection: "com.example.forum.post",
+    rkey: "3k2abc",
+  }),
+});
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch("https://happyview.example.com/xrpc/dev.happyview.space.deleteRecord", {
+  method: "POST",
+  headers: {
+    "X-Client-Key": CLIENT_KEY,
+    "Authorization": `DPoP ${ACCESS_TOKEN}`,
+    "DPoP": DPOP_PROOF,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    space: "ats://did:plc:abc123/com.example.forum/main",
+    collection: "com.example.forum.post",
+    rkey: "3k2abc",
+  }),
+});
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .post("https://happyview.example.com/xrpc/dev.happyview.space.deleteRecord")
+    .header("X-Client-Key", client_key)
+    .header("Authorization", format!("DPoP {}", access_token))
+    .header("DPoP", &dpop_proof)
+    .json(&serde_json::json!({
+        "space": "ats://did:plc:abc123/com.example.forum/main",
+        "collection": "com.example.forum.post",
+        "rkey": "3k2abc"
+    }))
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+body := bytes.NewBufferString(`{
+  "space": "ats://did:plc:abc123/com.example.forum/main",
+  "collection": "com.example.forum.post",
+  "rkey": "3k2abc"
+}`)
+req, _ := http.NewRequest("POST",
+  "https://happyview.example.com/xrpc/dev.happyview.space.deleteRecord", body)
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("Authorization", "DPoP "+accessToken)
+req.Header.Set("DPoP", dpopProof)
+req.Header.Set("Content-Type", "application/json")
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST 'https://happyview.example.com/xrpc/dev.happyview.space.deleteRecord' \
   -H 'X-Client-Key: hvc_...' \
   -H 'Authorization: DPoP <token>' \
@@ -198,7 +562,142 @@ Attempting to delete another user's record returns `403 Forbidden`.
 
 `applyWrites` performs multiple create, update, and delete operations in a single request. Requires `write` membership.
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch("https://happyview.example.com/xrpc/dev.happyview.space.applyWrites", {
+  method: "POST",
+  headers: {
+    "X-Client-Key": CLIENT_KEY,
+    "Authorization": `DPoP ${ACCESS_TOKEN}`,
+    "DPoP": DPOP_PROOF,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    space: "ats://did:plc:abc123/com.example.forum/main",
+    writes: [
+      {
+        action: "create",
+        collection: "com.example.forum.post",
+        value: { $type: "com.example.forum.post", text: "First post" },
+      },
+      {
+        action: "update",
+        collection: "com.example.forum.post",
+        rkey: "3k2abc",
+        value: { $type: "com.example.forum.post", text: "Edited post" },
+        swapRecord: "bafyrei...",
+      },
+      {
+        action: "delete",
+        collection: "com.example.forum.post",
+        rkey: "old-post",
+      },
+    ],
+  }),
+});
+interface ApplyWritesResult {
+  uri?: string;
+  cid?: string;
+}
+const data: { results: ApplyWritesResult[] } = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch("https://happyview.example.com/xrpc/dev.happyview.space.applyWrites", {
+  method: "POST",
+  headers: {
+    "X-Client-Key": CLIENT_KEY,
+    "Authorization": `DPoP ${ACCESS_TOKEN}`,
+    "DPoP": DPOP_PROOF,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    space: "ats://did:plc:abc123/com.example.forum/main",
+    writes: [
+      {
+        action: "create",
+        collection: "com.example.forum.post",
+        value: { $type: "com.example.forum.post", text: "First post" },
+      },
+      {
+        action: "update",
+        collection: "com.example.forum.post",
+        rkey: "3k2abc",
+        value: { $type: "com.example.forum.post", text: "Edited post" },
+        swapRecord: "bafyrei...",
+      },
+      {
+        action: "delete",
+        collection: "com.example.forum.post",
+        rkey: "old-post",
+      },
+    ],
+  }),
+});
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .post("https://happyview.example.com/xrpc/dev.happyview.space.applyWrites")
+    .header("X-Client-Key", client_key)
+    .header("Authorization", format!("DPoP {}", access_token))
+    .header("DPoP", &dpop_proof)
+    .json(&serde_json::json!({
+        "space": "ats://did:plc:abc123/com.example.forum/main",
+        "writes": [
+            {
+                "action": "create",
+                "collection": "com.example.forum.post",
+                "value": { "$type": "com.example.forum.post", "text": "First post" }
+            },
+            {
+                "action": "update",
+                "collection": "com.example.forum.post",
+                "rkey": "3k2abc",
+                "value": { "$type": "com.example.forum.post", "text": "Edited post" },
+                "swapRecord": "bafyrei..."
+            },
+            {
+                "action": "delete",
+                "collection": "com.example.forum.post",
+                "rkey": "old-post"
+            }
+        ]
+    }))
+    .send()
+    .await?;
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+body := bytes.NewBufferString(`{
+  "space": "ats://did:plc:abc123/com.example.forum/main",
+  "writes": [
+    {
+      "action": "create",
+      "collection": "com.example.forum.post",
+      "value": { "$type": "com.example.forum.post", "text": "First post" }
+    },
+    {
+      "action": "update",
+      "collection": "com.example.forum.post",
+      "rkey": "3k2abc",
+      "value": { "$type": "com.example.forum.post", "text": "Edited post" },
+      "swapRecord": "bafyrei..."
+    },
+    {
+      "action": "delete",
+      "collection": "com.example.forum.post",
+      "rkey": "old-post"
+    }
+  ]
+}`)
+req, _ := http.NewRequest("POST",
+  "https://happyview.example.com/xrpc/dev.happyview.space.applyWrites", body)
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("Authorization", "DPoP "+accessToken)
+req.Header.Set("DPoP", dpopProof)
+req.Header.Set("Content-Type", "application/json")
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST 'https://happyview.example.com/xrpc/dev.happyview.space.applyWrites' \
   -H 'X-Client-Key: hvc_...' \
   -H 'Authorization: DPoP <token>' \
@@ -294,7 +793,45 @@ The space's current revision is available as `revision` in the space object retu
 
 Records can also be read using a [space credential](credentials.md) instead of direct membership. Pass the credential as a Bearer token:
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch(
+  "https://happyview.example.com/xrpc/dev.happyview.space.getRecord?space=...&collection=...&rkey=...",
+  {
+    headers: {
+      "Authorization": `Bearer ${SPACE_CREDENTIAL}`,
+    },
+  },
+);
+const data = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch(
+  "https://happyview.example.com/xrpc/dev.happyview.space.getRecord?space=...&collection=...&rkey=...",
+  {
+    headers: {
+      "Authorization": `Bearer ${SPACE_CREDENTIAL}`,
+    },
+  },
+);
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .get("https://happyview.example.com/xrpc/dev.happyview.space.getRecord")
+    .query(&[("space", "..."), ("collection", "..."), ("rkey", "...")])
+    .header("Authorization", format!("Bearer {}", space_credential))
+    .send()
+    .await?;
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+req, _ := http.NewRequest("GET",
+  "https://happyview.example.com/xrpc/dev.happyview.space.getRecord?space=...&collection=...&rkey=...",
+  nil)
+req.Header.Set("Authorization", "Bearer "+spaceCredential)
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl 'https://happyview.example.com/xrpc/dev.happyview.space.getRecord?...' \
   -H 'Authorization: Bearer eyJhbGciOiJFUzI1NiIsInR5cCI6InNwYWNlX2NyZWRlbnRpYWwifQ...'
 ```

@@ -12,7 +12,21 @@ Each client has an `hvc_`-prefixed client key and an `hvs_`-prefixed client secr
 Third-party apps can also create, list, and delete their own API clients programmatically via the [XRPC API](../oauth/api-clients.md), without needing admin access.
 </Callout>
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const TOKEN = "hv_..."; // your API key
+const headers = { Authorization: `Bearer ${TOKEN}` };
+```
+```js tab="JavaScript" tab-group="language"
+const TOKEN = "hv_..."; // your API key
+const headers = { Authorization: `Bearer ${TOKEN}` };
+```
+```rust tab="Rust" tab-group="language"
+let token = "hv_..."; // your API key
+```
+```go tab="Go" tab-group="language"
+token := "hv_..." // your API key
+```
+```sh tab="cURL" tab-group="language"
 # All examples assume $TOKEN is an API key (hv_...)
 AUTH="Authorization: Bearer $TOKEN"
 ```
@@ -25,7 +39,49 @@ GET /admin/api-clients
 
 Requires `api-clients:view`. Returns clients ordered by `created_at` descending. Secrets are never returned.
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+interface ApiClient {
+  id: string;
+  client_key: string;
+  name: string;
+  client_id_url: string;
+  client_uri: string;
+  redirect_uris: string[];
+  scopes: string;
+  rate_limit_capacity: number;
+  rate_limit_refill_rate: number;
+  is_active: boolean;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+const response = await fetch("http://127.0.0.1:3000/admin/api-clients", {
+  headers,
+});
+const data: ApiClient[] = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/admin/api-clients", {
+  headers,
+});
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let client = reqwest::Client::new();
+let response = client
+    .get("http://127.0.0.1:3000/admin/api-clients")
+    .bearer_auth(token)
+    .send()
+    .await?;
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+req, _ := http.NewRequest("GET", "http://127.0.0.1:3000/admin/api-clients", nil)
+req.Header.Set("Authorization", "Bearer "+token)
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl http://127.0.0.1:3000/admin/api-clients -H "$AUTH"
 ```
 
@@ -61,7 +117,85 @@ POST /admin/api-clients
 
 Requires `api-clients:create`. Generates a `client_key` and `client_secret`. Store the secret — it won't be shown again.
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+interface ApiClient {
+  id: string;
+  client_key: string;
+  client_secret: string;
+  name: string;
+  client_id_url: string;
+}
+
+const response = await fetch("http://127.0.0.1:3000/admin/api-clients", {
+  method: "POST",
+  headers: {
+    ...headers,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    name: "My Game Client",
+    client_id_url: "https://example.com/client-metadata.json",
+    client_uri: "https://example.com",
+    redirect_uris: ["https://example.com/callback"],
+    scopes: "atproto",
+    rate_limit_capacity: 200,
+    rate_limit_refill_rate: 5.0,
+  }),
+});
+const data: ApiClient = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/admin/api-clients", {
+  method: "POST",
+  headers: {
+    ...headers,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    name: "My Game Client",
+    client_id_url: "https://example.com/client-metadata.json",
+    client_uri: "https://example.com",
+    redirect_uris: ["https://example.com/callback"],
+    scopes: "atproto",
+    rate_limit_capacity: 200,
+    rate_limit_refill_rate: 5.0,
+  }),
+});
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .post("http://127.0.0.1:3000/admin/api-clients")
+    .bearer_auth(token)
+    .json(&serde_json::json!({
+        "name": "My Game Client",
+        "client_id_url": "https://example.com/client-metadata.json",
+        "client_uri": "https://example.com",
+        "redirect_uris": ["https://example.com/callback"],
+        "scopes": "atproto",
+        "rate_limit_capacity": 200,
+        "rate_limit_refill_rate": 5.0
+    }))
+    .send()
+    .await?;
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+body := bytes.NewBufferString(`{
+  "name": "My Game Client",
+  "client_id_url": "https://example.com/client-metadata.json",
+  "client_uri": "https://example.com",
+  "redirect_uris": ["https://example.com/callback"],
+  "scopes": "atproto",
+  "rate_limit_capacity": 200,
+  "rate_limit_refill_rate": 5.0
+}`)
+req, _ := http.NewRequest("POST", "http://127.0.0.1:3000/admin/api-clients", body)
+req.Header.Set("Authorization", "Bearer "+token)
+req.Header.Set("Content-Type", "application/json")
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST http://127.0.0.1:3000/admin/api-clients \
   -H "$AUTH" \
   -H "Content-Type: application/json" \
@@ -116,6 +250,63 @@ PUT /admin/api-clients/{id}
 
 Requires `api-clients:edit`. All fields are optional — only provided fields are changed. Updating either rate-limit field re-registers the client with the rate limiter using the new values.
 
+```ts tab="TypeScript" tab-group="language"
+await fetch("http://127.0.0.1:3000/admin/api-clients/01J9...", {
+  method: "PUT",
+  headers: {
+    ...headers,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    name: "Renamed Client",
+    rate_limit_capacity: 500,
+  }),
+});
+```
+```js tab="JavaScript" tab-group="language"
+await fetch("http://127.0.0.1:3000/admin/api-clients/01J9...", {
+  method: "PUT",
+  headers: {
+    ...headers,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    name: "Renamed Client",
+    rate_limit_capacity: 500,
+  }),
+});
+```
+```rust tab="Rust" tab-group="language"
+client
+    .put("http://127.0.0.1:3000/admin/api-clients/01J9...")
+    .bearer_auth(token)
+    .json(&serde_json::json!({
+        "name": "Renamed Client",
+        "rate_limit_capacity": 500
+    }))
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+body := bytes.NewBufferString(`{
+  "name": "Renamed Client",
+  "rate_limit_capacity": 500
+}`)
+req, _ := http.NewRequest("PUT", "http://127.0.0.1:3000/admin/api-clients/01J9...", body)
+req.Header.Set("Authorization", "Bearer "+token)
+req.Header.Set("Content-Type", "application/json")
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
+curl -X PUT http://127.0.0.1:3000/admin/api-clients/01J9... \
+  -H "$AUTH" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Renamed Client",
+    "rate_limit_capacity": 500
+  }'
+```
+
 | Field                    | Type     | Description                                                            |
 | ------------------------ | -------- | ---------------------------------------------------------------------- |
 | `name`                   | string   | New display name                                                       |
@@ -137,5 +328,33 @@ DELETE /admin/api-clients/{id}
 ```
 
 Requires `api-clients:delete`. Removes the client from the OAuth registry, the rate limiter, and the client identity store.
+
+```ts tab="TypeScript" tab-group="language"
+await fetch("http://127.0.0.1:3000/admin/api-clients/01J9...", {
+  method: "DELETE",
+  headers,
+});
+```
+```js tab="JavaScript" tab-group="language"
+await fetch("http://127.0.0.1:3000/admin/api-clients/01J9...", {
+  method: "DELETE",
+  headers,
+});
+```
+```rust tab="Rust" tab-group="language"
+client
+    .delete("http://127.0.0.1:3000/admin/api-clients/01J9...")
+    .bearer_auth(token)
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+req, _ := http.NewRequest("DELETE", "http://127.0.0.1:3000/admin/api-clients/01J9...", nil)
+req.Header.Set("Authorization", "Bearer "+token)
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
+curl -X DELETE http://127.0.0.1:3000/admin/api-clients/01J9... -H "$AUTH"
+```
 
 **Response**: `204 No Content`

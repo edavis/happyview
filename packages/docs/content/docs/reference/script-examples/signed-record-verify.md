@@ -34,7 +34,33 @@ end
 
 ## Usage
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch(
+  "http://127.0.0.1:3000/xrpc/xyz.example.getPost?uri=at://did:plc:abc/xyz.example.post/3abc123&did=did:plc:abc",
+);
+const data = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch(
+  "http://127.0.0.1:3000/xrpc/xyz.example.getPost?uri=at://did:plc:abc/xyz.example.post/3abc123&did=did:plc:abc",
+);
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .get("http://127.0.0.1:3000/xrpc/xyz.example.getPost")
+    .query(&[
+        ("uri", "at://did:plc:abc/xyz.example.post/3abc123"),
+        ("did", "did:plc:abc"),
+    ])
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+req, _ := http.NewRequest("GET", "http://127.0.0.1:3000/xrpc/xyz.example.getPost?uri=at://did:plc:abc/xyz.example.post/3abc123&did=did:plc:abc", nil)
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl "http://127.0.0.1:3000/xrpc/xyz.example.getPost?uri=at://did:plc:abc/xyz.example.post/3abc123&did=did:plc:abc"
 ```
 

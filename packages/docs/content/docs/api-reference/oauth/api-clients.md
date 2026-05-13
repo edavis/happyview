@@ -90,7 +90,123 @@ Returns `404` if the client doesn't exist or isn't owned by the authenticated us
 POST /xrpc/dev.happyview.createApiClient
 ```
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const CLIENT_KEY = "hvc_parent_key"; // parent API client key
+const ACCESS_TOKEN = "eyJhbG..."; // DPoP access token
+const DPOP_PROOF = "eyJhbG..."; // DPoP proof JWT
+
+interface CreateClientResponse {
+  client: {
+    id: string;
+    clientKey: string;
+    name: string;
+    clientIdUrl: string;
+    clientUri: string;
+    redirectUris: string[];
+    clientType: string;
+    scopes: string;
+    allowedOrigins: string[];
+    isActive: boolean;
+    createdAt: string;
+  };
+  clientSecret?: string;
+}
+
+const response = await fetch(
+  "https://happyview.example.com/xrpc/dev.happyview.createApiClient",
+  {
+    method: "POST",
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      Authorization: `DPoP ${ACCESS_TOKEN}`,
+      DPoP: DPOP_PROOF,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      name: "My Third-Party App",
+      clientIdUrl: "https://myapp.example.com/client-metadata.json",
+      clientUri: "https://myapp.example.com",
+      redirectUris: ["https://myapp.example.com/callback"],
+      clientType: "confidential",
+    }),
+  },
+);
+
+const data: CreateClientResponse = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const CLIENT_KEY = "hvc_parent_key"; // parent API client key
+const ACCESS_TOKEN = "eyJhbG..."; // DPoP access token
+const DPOP_PROOF = "eyJhbG..."; // DPoP proof JWT
+
+const response = await fetch(
+  "https://happyview.example.com/xrpc/dev.happyview.createApiClient",
+  {
+    method: "POST",
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      Authorization: `DPoP ${ACCESS_TOKEN}`,
+      DPoP: DPOP_PROOF,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      name: "My Third-Party App",
+      clientIdUrl: "https://myapp.example.com/client-metadata.json",
+      clientUri: "https://myapp.example.com",
+      redirectUris: ["https://myapp.example.com/callback"],
+      clientType: "confidential",
+    }),
+  },
+);
+
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let client = reqwest::Client::new();
+let client_key = "hvc_parent_key"; // parent API client key
+let access_token = "eyJhbG..."; // DPoP access token
+let dpop_proof = "eyJhbG..."; // DPoP proof JWT
+
+let response = client
+    .post("https://happyview.example.com/xrpc/dev.happyview.createApiClient")
+    .header("X-Client-Key", client_key)
+    .header("Authorization", format!("DPoP {}", access_token))
+    .header("DPoP", dpop_proof)
+    .json(&serde_json::json!({
+        "name": "My Third-Party App",
+        "clientIdUrl": "https://myapp.example.com/client-metadata.json",
+        "clientUri": "https://myapp.example.com",
+        "redirectUris": ["https://myapp.example.com/callback"],
+        "clientType": "confidential"
+    }))
+    .send()
+    .await?;
+
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+clientKey := "hvc_parent_key" // parent API client key
+accessToken := "eyJhbG..."    // DPoP access token
+dpopProof := "eyJhbG..."      // DPoP proof JWT
+
+body := bytes.NewBufferString(`{
+  "name": "My Third-Party App",
+  "clientIdUrl": "https://myapp.example.com/client-metadata.json",
+  "clientUri": "https://myapp.example.com",
+  "redirectUris": ["https://myapp.example.com/callback"],
+  "clientType": "confidential"
+}`)
+
+req, _ := http.NewRequest("POST",
+  "https://happyview.example.com/xrpc/dev.happyview.createApiClient", body)
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("Authorization", "DPoP "+accessToken)
+req.Header.Set("DPoP", dpopProof)
+req.Header.Set("Content-Type", "application/json")
+
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST https://happyview.example.com/xrpc/dev.happyview.createApiClient \
   -H "X-Client-Key: hvc_parent_key" \
   -H "Authorization: DPoP eyJhbG..." \
@@ -144,7 +260,65 @@ The `clientSecret` is only present for confidential clients and is only returned
 POST /xrpc/dev.happyview.deleteApiClient
 ```
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch(
+  "https://happyview.example.com/xrpc/dev.happyview.deleteApiClient",
+  {
+    method: "POST",
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      Authorization: `DPoP ${ACCESS_TOKEN}`,
+      DPoP: DPOP_PROOF,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      id: "550e8400-e29b-41d4-a716-446655440000",
+    }),
+  },
+);
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch(
+  "https://happyview.example.com/xrpc/dev.happyview.deleteApiClient",
+  {
+    method: "POST",
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      Authorization: `DPoP ${ACCESS_TOKEN}`,
+      DPoP: DPOP_PROOF,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      id: "550e8400-e29b-41d4-a716-446655440000",
+    }),
+  },
+);
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .post("https://happyview.example.com/xrpc/dev.happyview.deleteApiClient")
+    .header("X-Client-Key", client_key)
+    .header("Authorization", format!("DPoP {}", access_token))
+    .header("DPoP", dpop_proof)
+    .json(&serde_json::json!({
+        "id": "550e8400-e29b-41d4-a716-446655440000"
+    }))
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+body := bytes.NewBufferString(`{"id": "550e8400-e29b-41d4-a716-446655440000"}`)
+
+req, _ := http.NewRequest("POST",
+  "https://happyview.example.com/xrpc/dev.happyview.deleteApiClient", body)
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("Authorization", "DPoP "+accessToken)
+req.Header.Set("DPoP", dpopProof)
+req.Header.Set("Content-Type", "application/json")
+
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST https://happyview.example.com/xrpc/dev.happyview.deleteApiClient \
   -H "X-Client-Key: hvc_parent_key" \
   -H "Authorization: DPoP eyJhbG..." \

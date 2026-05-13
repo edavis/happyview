@@ -51,7 +51,99 @@ Go to **Settings > API Clients > New client** and fill in:
 
 ### From the API
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const TOKEN = "hv_..."; // your API key
+
+interface ClientResponse {
+  id: string;
+  client_key: string;
+  client_secret?: string;
+  name: string;
+  client_id_url: string;
+  client_uri: string;
+  redirect_uris: string[];
+  client_type: string;
+  allowed_origins: string[];
+}
+
+const response = await fetch("http://127.0.0.1:3000/admin/api-clients", {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${TOKEN}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    name: "My atproto Client",
+    client_id_url: "https://example.com/client-metadata.json",
+    client_uri: "https://example.com",
+    redirect_uris: ["https://example.com/oauth/callback"],
+    client_type: "public",
+    allowed_origins: ["https://example.com"],
+  }),
+});
+
+const client: ClientResponse = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const TOKEN = "hv_..."; // your API key
+
+const response = await fetch("http://127.0.0.1:3000/admin/api-clients", {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${TOKEN}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    name: "My atproto Client",
+    client_id_url: "https://example.com/client-metadata.json",
+    client_uri: "https://example.com",
+    redirect_uris: ["https://example.com/oauth/callback"],
+    client_type: "public",
+    allowed_origins: ["https://example.com"],
+  }),
+});
+
+const client = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let client = reqwest::Client::new();
+let token = "hv_..."; // your API key
+
+let response = client
+    .post("http://127.0.0.1:3000/admin/api-clients")
+    .bearer_auth(token)
+    .json(&serde_json::json!({
+        "name": "My atproto Client",
+        "client_id_url": "https://example.com/client-metadata.json",
+        "client_uri": "https://example.com",
+        "redirect_uris": ["https://example.com/oauth/callback"],
+        "client_type": "public",
+        "allowed_origins": ["https://example.com"]
+    }))
+    .send()
+    .await?;
+
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+token := "hv_..." // your API key
+
+body := bytes.NewBufferString(`{
+  "name": "My atproto Client",
+  "client_id_url": "https://example.com/client-metadata.json",
+  "client_uri": "https://example.com",
+  "redirect_uris": ["https://example.com/oauth/callback"],
+  "client_type": "public",
+  "allowed_origins": ["https://example.com"]
+}`)
+
+req, _ := http.NewRequest("POST", "http://127.0.0.1:3000/admin/api-clients", body)
+req.Header.Set("Authorization", "Bearer "+token)
+req.Header.Set("Content-Type", "application/json")
+
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST http://127.0.0.1:3000/admin/api-clients \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -78,14 +170,95 @@ Every XRPC request must include the client key. HappyView looks for it in this o
 
 For public queries that don't need a user identity:
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const CLIENT_KEY = "hvc_a1b2c3..."; // your API client key
+
+const response = await fetch(
+  "https://happyview.example.com/xrpc/com.example.feed.getHot",
+  { headers: { "X-Client-Key": CLIENT_KEY } },
+);
+```
+```js tab="JavaScript" tab-group="language"
+const CLIENT_KEY = "hvc_a1b2c3..."; // your API client key
+
+const response = await fetch(
+  "https://happyview.example.com/xrpc/com.example.feed.getHot",
+  { headers: { "X-Client-Key": CLIENT_KEY } },
+);
+```
+```rust tab="Rust" tab-group="language"
+let client = reqwest::Client::new();
+let client_key = "hvc_a1b2c3..."; // your API client key
+
+let response = client
+    .get("https://happyview.example.com/xrpc/com.example.feed.getHot")
+    .header("X-Client-Key", client_key)
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+clientKey := "hvc_a1b2c3..." // your API client key
+
+req, _ := http.NewRequest("GET",
+  "https://happyview.example.com/xrpc/com.example.feed.getHot", nil)
+req.Header.Set("X-Client-Key", clientKey)
+
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl 'https://happyview.example.com/xrpc/com.example.feed.getHot' \
   -H 'X-Client-Key: hvc_a1b2c3...'
 ```
 
 Server-side callers should also include the secret (since there's no origin to authenticate):
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const CLIENT_SECRET = "hvs_d4e5f6..."; // your API client secret
+
+const response = await fetch(
+  "https://happyview.example.com/xrpc/com.example.feed.getHot",
+  {
+    headers: {
+      "X-Client-Key": "hvc_a1b2c3...",
+      "X-Client-Secret": CLIENT_SECRET,
+    },
+  },
+);
+```
+```js tab="JavaScript" tab-group="language"
+const CLIENT_SECRET = "hvs_d4e5f6..."; // your API client secret
+
+const response = await fetch(
+  "https://happyview.example.com/xrpc/com.example.feed.getHot",
+  {
+    headers: {
+      "X-Client-Key": "hvc_a1b2c3...",
+      "X-Client-Secret": CLIENT_SECRET,
+    },
+  },
+);
+```
+```rust tab="Rust" tab-group="language"
+let client_secret = "hvs_d4e5f6..."; // your API client secret
+
+let response = client
+    .get("https://happyview.example.com/xrpc/com.example.feed.getHot")
+    .header("X-Client-Key", client_key)
+    .header("X-Client-Secret", client_secret)
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+clientSecret := "hvs_d4e5f6..." // your API client secret
+
+req, _ := http.NewRequest("GET",
+  "https://happyview.example.com/xrpc/com.example.feed.getHot", nil)
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("X-Client-Secret", clientSecret)
+
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl 'https://happyview.example.com/xrpc/com.example.feed.getHot' \
   -H 'X-Client-Key: hvc_a1b2c3...' \
   -H 'X-Client-Secret: hvs_d4e5f6...'
@@ -95,7 +268,75 @@ curl 'https://happyview.example.com/xrpc/com.example.feed.getHot' \
 
 Procedures — and queries whose scripts need to know who the caller is — require a user's OAuth session. This uses [DPoP authentication](../getting-started/authentication.md#dpop-key-provisioning-for-third-party-apps), where each request includes a cryptographic proof that the caller holds the right key.
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const CLIENT_KEY = "hvc_..."; // your API client key
+const ACCESS_TOKEN = "..."; // DPoP access token
+const DPOP_PROOF = "..."; // DPoP proof JWT
+
+const response = await fetch(
+  "https://happyview.example.com/xrpc/com.example.createPost",
+  {
+    method: "POST",
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      Authorization: `DPoP ${ACCESS_TOKEN}`,
+      DPoP: DPOP_PROOF,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ text: "Hello world" }),
+  },
+);
+```
+```js tab="JavaScript" tab-group="language"
+const CLIENT_KEY = "hvc_..."; // your API client key
+const ACCESS_TOKEN = "..."; // DPoP access token
+const DPOP_PROOF = "..."; // DPoP proof JWT
+
+const response = await fetch(
+  "https://happyview.example.com/xrpc/com.example.createPost",
+  {
+    method: "POST",
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      Authorization: `DPoP ${ACCESS_TOKEN}`,
+      DPoP: DPOP_PROOF,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ text: "Hello world" }),
+  },
+);
+```
+```rust tab="Rust" tab-group="language"
+let client_key = "hvc_..."; // your API client key
+let access_token = "..."; // DPoP access token
+let dpop_proof = "..."; // DPoP proof JWT
+
+let response = client
+    .post("https://happyview.example.com/xrpc/com.example.createPost")
+    .header("X-Client-Key", client_key)
+    .header("Authorization", format!("DPoP {}", access_token))
+    .header("DPoP", dpop_proof)
+    .json(&serde_json::json!({ "text": "Hello world" }))
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+clientKey := "hvc_..."  // your API client key
+accessToken := "..."    // DPoP access token
+dpopProof := "..."      // DPoP proof JWT
+
+body := bytes.NewBufferString(`{"text": "Hello world"}`)
+
+req, _ := http.NewRequest("POST",
+  "https://happyview.example.com/xrpc/com.example.createPost", body)
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("Authorization", "DPoP "+accessToken)
+req.Header.Set("DPoP", dpopProof)
+req.Header.Set("Content-Type", "application/json")
+
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST 'https://happyview.example.com/xrpc/com.example.createPost' \
   -H 'X-Client-Key: hvc_...' \
   -H 'Authorization: DPoP <access_token>' \
@@ -244,7 +485,75 @@ Content-Type: application/json
 
 With a registered session, sign each request with a DPoP proof:
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const CLIENT_KEY = "hvc_..."; // your API client key
+const ACCESS_TOKEN = "..."; // DPoP access token
+const DPOP_PROOF = "..."; // DPoP proof JWT
+
+const response = await fetch(
+  "https://happyview.example.com/xrpc/com.example.createPost",
+  {
+    method: "POST",
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      Authorization: `DPoP ${ACCESS_TOKEN}`,
+      DPoP: DPOP_PROOF,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ text: "Hello world" }),
+  },
+);
+```
+```js tab="JavaScript" tab-group="language"
+const CLIENT_KEY = "hvc_..."; // your API client key
+const ACCESS_TOKEN = "..."; // DPoP access token
+const DPOP_PROOF = "..."; // DPoP proof JWT
+
+const response = await fetch(
+  "https://happyview.example.com/xrpc/com.example.createPost",
+  {
+    method: "POST",
+    headers: {
+      "X-Client-Key": CLIENT_KEY,
+      Authorization: `DPoP ${ACCESS_TOKEN}`,
+      DPoP: DPOP_PROOF,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ text: "Hello world" }),
+  },
+);
+```
+```rust tab="Rust" tab-group="language"
+let client_key = "hvc_..."; // your API client key
+let access_token = "..."; // DPoP access token
+let dpop_proof = "..."; // DPoP proof JWT
+
+let response = client
+    .post("https://happyview.example.com/xrpc/com.example.createPost")
+    .header("X-Client-Key", client_key)
+    .header("Authorization", format!("DPoP {}", access_token))
+    .header("DPoP", dpop_proof)
+    .json(&serde_json::json!({ "text": "Hello world" }))
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+clientKey := "hvc_..."  // your API client key
+accessToken := "..."    // DPoP access token
+dpopProof := "..."      // DPoP proof JWT
+
+body := bytes.NewBufferString(`{"text": "Hello world"}`)
+
+req, _ := http.NewRequest("POST",
+  "https://happyview.example.com/xrpc/com.example.createPost", body)
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("Authorization", "DPoP "+accessToken)
+req.Header.Set("DPoP", dpopProof)
+req.Header.Set("Content-Type", "application/json")
+
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST 'https://happyview.example.com/xrpc/com.example.createPost' \
   -H 'X-Client-Key: hvc_...' \
   -H 'Authorization: DPoP <access_token>' \

@@ -41,7 +41,60 @@ end
 
 ## Usage
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/xrpc/xyz.statusphere.createPost", {
+  method: "POST",
+  headers: {
+    "X-Client-Key": CLIENT_KEY,
+    Authorization: `Bearer ${TOKEN}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    text: "Hello world",
+    lang: "en",
+    source: "web",
+  }),
+});
+const data = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/xrpc/xyz.statusphere.createPost", {
+  method: "POST",
+  headers: {
+    "X-Client-Key": CLIENT_KEY,
+    Authorization: `Bearer ${TOKEN}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    text: "Hello world",
+    lang: "en",
+    source: "web",
+  }),
+});
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .post("http://127.0.0.1:3000/xrpc/xyz.statusphere.createPost")
+    .header("X-Client-Key", client_key)
+    .header("Authorization", format!("Bearer {}", token))
+    .json(&serde_json::json!({
+        "text": "Hello world",
+        "lang": "en",
+        "source": "web"
+    }))
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+body := `{ "text": "Hello world", "lang": "en", "source": "web" }`
+req, _ := http.NewRequest("POST", "http://127.0.0.1:3000/xrpc/xyz.statusphere.createPost", bytes.NewBufferString(body))
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("Authorization", "Bearer "+token)
+req.Header.Set("Content-Type", "application/json")
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST http://127.0.0.1:3000/xrpc/xyz.statusphere.createPost \
   -H "X-Client-Key: $CLIENT_KEY" \
   -H "Authorization: Bearer $TOKEN" \

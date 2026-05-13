@@ -36,7 +36,122 @@ HappyView now subscribes to `xyz.statusphere.status` via Jetstream and kicks off
 <Callout type="idea">
 You can also add lexicons via the [admin API](../api-reference/admin/lexicons.md). This is useful for automation or CI/CD workflows:
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/admin/lexicons", {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${TOKEN}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    lexicon_json: {
+      lexicon: 1,
+      id: "xyz.statusphere.status",
+      defs: {
+        main: {
+          type: "record",
+          key: "tid",
+          record: {
+            type: "object",
+            required: ["status", "createdAt"],
+            properties: {
+              status: { type: "string", maxGraphemes: 1 },
+              createdAt: { type: "string", format: "datetime" },
+            },
+          },
+        },
+      },
+    },
+    backfill: true,
+  }),
+});
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/admin/lexicons", {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${TOKEN}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    lexicon_json: {
+      lexicon: 1,
+      id: "xyz.statusphere.status",
+      defs: {
+        main: {
+          type: "record",
+          key: "tid",
+          record: {
+            type: "object",
+            required: ["status", "createdAt"],
+            properties: {
+              status: { type: "string", maxGraphemes: 1 },
+              createdAt: { type: "string", format: "datetime" },
+            },
+          },
+        },
+      },
+    },
+    backfill: true,
+  }),
+});
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .post("http://127.0.0.1:3000/admin/lexicons")
+    .header("Authorization", format!("Bearer {}", token))
+    .json(&serde_json::json!({
+        "lexicon_json": {
+            "lexicon": 1,
+            "id": "xyz.statusphere.status",
+            "defs": {
+                "main": {
+                    "type": "record",
+                    "key": "tid",
+                    "record": {
+                        "type": "object",
+                        "required": ["status", "createdAt"],
+                        "properties": {
+                            "status": { "type": "string", "maxGraphemes": 1 },
+                            "createdAt": { "type": "string", "format": "datetime" }
+                        }
+                    }
+                }
+            }
+        },
+        "backfill": true
+    }))
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+body := `{
+  "lexicon_json": {
+    "lexicon": 1,
+    "id": "xyz.statusphere.status",
+    "defs": {
+      "main": {
+        "type": "record",
+        "key": "tid",
+        "record": {
+          "type": "object",
+          "required": ["status", "createdAt"],
+          "properties": {
+            "status": { "type": "string", "maxGraphemes": 1 },
+            "createdAt": { "type": "string", "format": "datetime" }
+          }
+        }
+      }
+    }
+  },
+  "backfill": true
+}`
+req, _ := http.NewRequest("POST", "http://127.0.0.1:3000/admin/lexicons", bytes.NewBufferString(body))
+req.Header.Set("Authorization", "Bearer "+token)
+req.Header.Set("Content-Type", "application/json")
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST http://127.0.0.1:3000/admin/lexicons \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -135,7 +250,34 @@ The `collection` variable at the top tells the script which record collection to
 
 Try it out:
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch(
+  "http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses?limit=5",
+  { headers: { "X-Client-Key": CLIENT_KEY } },
+);
+const data = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch(
+  "http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses?limit=5",
+  { headers: { "X-Client-Key": CLIENT_KEY } },
+);
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .get("http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses")
+    .query(&[("limit", "5")])
+    .header("X-Client-Key", client_key)
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+req, _ := http.NewRequest("GET", "http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses?limit=5", nil)
+req.Header.Set("X-Client-Key", clientKey)
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl "http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses?limit=5" \
   -H "X-Client-Key: $CLIENT_KEY"
 ```
@@ -160,14 +302,68 @@ curl "http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses?limit=5" \
 
 Filter by a specific user:
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch(
+  "http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses?did=did:plc:abc&limit=1",
+  { headers: { "X-Client-Key": CLIENT_KEY } },
+);
+const data = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch(
+  "http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses?did=did:plc:abc&limit=1",
+  { headers: { "X-Client-Key": CLIENT_KEY } },
+);
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .get("http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses")
+    .query(&[("did", "did:plc:abc"), ("limit", "1")])
+    .header("X-Client-Key", client_key)
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+req, _ := http.NewRequest("GET", "http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses?did=did:plc:abc&limit=1", nil)
+req.Header.Set("X-Client-Key", clientKey)
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl "http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses?did=did:plc:abc&limit=1" \
   -H "X-Client-Key: $CLIENT_KEY"
 ```
 
 Fetch a single record by URI:
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch(
+  "http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses?uri=at://did:plc:abc/xyz.statusphere.status/3abc123",
+  { headers: { "X-Client-Key": CLIENT_KEY } },
+);
+const data = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch(
+  "http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses?uri=at://did:plc:abc/xyz.statusphere.status/3abc123",
+  { headers: { "X-Client-Key": CLIENT_KEY } },
+);
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .get("http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses")
+    .query(&[("uri", "at://did:plc:abc/xyz.statusphere.status/3abc123")])
+    .header("X-Client-Key", client_key)
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+req, _ := http.NewRequest("GET", "http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses?uri=at://did:plc:abc/xyz.statusphere.status/3abc123", nil)
+req.Header.Set("X-Client-Key", clientKey)
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl "http://127.0.0.1:3000/xrpc/xyz.statusphere.listStatuses?uri=at://did:plc:abc/xyz.statusphere.status/3abc123" \
   -H "X-Client-Key: $CLIENT_KEY"
 ```
@@ -214,7 +410,52 @@ This creates a `POST /xrpc/xyz.statusphere.setStatus` endpoint that creates reco
 
 Set a status. This requires DPoP authentication — the [JavaScript SDK](../sdk/overview.md) handles this for you, but you can test with curl if you have a token:
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/xrpc/xyz.statusphere.setStatus", {
+  method: "POST",
+  headers: {
+    "X-Client-Key": CLIENT_KEY,
+    Authorization: `DPoP ${ACCESS_TOKEN}`,
+    DPoP: DPOP_PROOF,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ status: "🚀" }),
+});
+const data = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch("http://127.0.0.1:3000/xrpc/xyz.statusphere.setStatus", {
+  method: "POST",
+  headers: {
+    "X-Client-Key": CLIENT_KEY,
+    Authorization: `DPoP ${ACCESS_TOKEN}`,
+    DPoP: DPOP_PROOF,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ status: "🚀" }),
+});
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let response = client
+    .post("http://127.0.0.1:3000/xrpc/xyz.statusphere.setStatus")
+    .header("X-Client-Key", client_key)
+    .header("Authorization", format!("DPoP {}", access_token))
+    .header("DPoP", dpop_proof)
+    .json(&serde_json::json!({ "status": "🚀" }))
+    .send()
+    .await?;
+```
+```go tab="Go" tab-group="language"
+body := `{ "status": "🚀" }`
+req, _ := http.NewRequest("POST", "http://127.0.0.1:3000/xrpc/xyz.statusphere.setStatus", bytes.NewBufferString(body))
+req.Header.Set("X-Client-Key", clientKey)
+req.Header.Set("Authorization", "DPoP "+accessToken)
+req.Header.Set("DPoP", dpopProof)
+req.Header.Set("Content-Type", "application/json")
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl -X POST http://127.0.0.1:3000/xrpc/xyz.statusphere.setStatus \
   -H "X-Client-Key: $CLIENT_KEY" \
   -H "Authorization: DPoP $TOKEN" \

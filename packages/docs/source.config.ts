@@ -1,5 +1,5 @@
 import { defineDocs, defineConfig } from 'fumadocs-mdx/config';
-import { remarkMdxMermaid } from 'fumadocs-core/mdx-plugins';
+import { remarkMdxMermaid, remarkCodeTab } from 'fumadocs-core/mdx-plugins';
 
 const neonLagoonDark = {
   name: 'neon-lagoon-dark',
@@ -109,7 +109,7 @@ export const docs = defineDocs({
 
 export default defineConfig({
   mdxOptions: {
-    remarkPlugins: [remarkMdxMermaid],
+    remarkPlugins: [remarkMdxMermaid, remarkCodeTab],
     rehypeCodeOptions: {
       themes: {
         light: neonLagoonLight,

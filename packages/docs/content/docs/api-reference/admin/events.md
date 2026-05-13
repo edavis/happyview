@@ -4,7 +4,21 @@ title: "Event Logs"
 
 HappyView logs system events — lexicon changes, record operations, script errors, user actions, and more. See the [Event Logs guide](../../guides/event-logs.md) for details on event types and retention.
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+const TOKEN = "hv_..."; // your API key
+const headers = { Authorization: `Bearer ${TOKEN}` };
+```
+```js tab="JavaScript" tab-group="language"
+const TOKEN = "hv_..."; // your API key
+const headers = { Authorization: `Bearer ${TOKEN}` };
+```
+```rust tab="Rust" tab-group="language"
+let token = "hv_..."; // your API key
+```
+```go tab="Go" tab-group="language"
+token := "hv_..." // your API key
+```
+```sh tab="cURL" tab-group="language"
 # All examples assume $TOKEN is an API key (hv_...)
 AUTH="Authorization: Bearer $TOKEN"
 ```
@@ -15,7 +29,51 @@ AUTH="Authorization: Bearer $TOKEN"
 GET /admin/events
 ```
 
-```sh
+```ts tab="TypeScript" tab-group="language"
+interface EventLog {
+  id: string;
+  event_type: string;
+  severity: string;
+  actor_did: string;
+  subject: string;
+  detail: Record<string, unknown>;
+  created_at: string;
+}
+
+interface EventLogResponse {
+  events: EventLog[];
+  cursor: string | null;
+}
+
+const response = await fetch(
+  "http://127.0.0.1:3000/admin/events?severity=error&limit=10",
+  { headers },
+);
+const data: EventLogResponse = await response.json();
+```
+```js tab="JavaScript" tab-group="language"
+const response = await fetch(
+  "http://127.0.0.1:3000/admin/events?severity=error&limit=10",
+  { headers },
+);
+const data = await response.json();
+```
+```rust tab="Rust" tab-group="language"
+let client = reqwest::Client::new();
+let response = client
+    .get("http://127.0.0.1:3000/admin/events")
+    .query(&[("severity", "error"), ("limit", "10")])
+    .bearer_auth(token)
+    .send()
+    .await?;
+let data: serde_json::Value = response.json().await?;
+```
+```go tab="Go" tab-group="language"
+req, _ := http.NewRequest("GET", "http://127.0.0.1:3000/admin/events?severity=error&limit=10", nil)
+req.Header.Set("Authorization", "Bearer "+token)
+resp, err := http.DefaultClient.Do(req)
+```
+```sh tab="cURL" tab-group="language"
 curl "http://127.0.0.1:3000/admin/events?severity=error&limit=10" -H "$AUTH"
 ```
 
