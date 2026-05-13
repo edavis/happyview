@@ -1,0 +1,19 @@
+{
+  "title": "Guides",
+  "pages": [
+    "upgrading-to-v2",
+    "lexicons",
+    "backfill",
+    "index-hooks",
+    "lua-scripting",
+    "api-clients",
+    "attestation-signing",
+    "labelers",
+    "plugins",
+    "developing-plugins",
+    "api-keys",
+    "permissions",
+    "event-logs",
+    "database"
+  ]
+}

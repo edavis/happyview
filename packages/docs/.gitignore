@@ -1,6 +1,8 @@
 .vercel
 .env*.local
+.next
+.source
 
 # Generated changelogs (built from GitHub releases)
-docs/reference/changelog.md
-docs/sdk/changelog-*.md
+content/docs/reference/changelog.md
+content/docs/sdk/**/changelog.md
