@@ -13,7 +13,7 @@ export function VaporwaveGrid() {
     if (!ctx) return;
 
     const logo = new Image();
-    logo.src = '/img/face.png';
+    logo.src = '/img/face.webp';
 
     let animationId: number;
 
