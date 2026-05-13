@@ -44,6 +44,10 @@ export function ReducedMotionProvider({ children }: { children: ReactNode }) {
 
   const reducedMotion = override ?? systemPreference;
 
+  useEffect(() => {
+    document.documentElement.dataset.reducedMotion = String(reducedMotion);
+  }, [reducedMotion]);
+
   return (
     <ReducedMotionContext value={{ reducedMotion, override, setOverride }}>
       {children}
