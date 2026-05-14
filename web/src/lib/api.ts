@@ -170,6 +170,13 @@ export function createBackfillJob(body: { collection?: string; did?: string }) {
   });
 }
 
+export function cancelBackfillJob(id: string) {
+  return apiFetch<{ id: string; status: string }>(
+    `/admin/backfill/${id}/cancel`,
+    { method: "POST" },
+  );
+}
+
 // Users
 export function getUsers() {
   return apiFetch<UserSummary[]>("/admin/users");
