@@ -90,10 +90,19 @@ async fn set_stage(state: &AppState, job_id: &str, stage: &str) {
 }
 
 async fn update_job_counter(state: &AppState, job_id: &str, column: &str, value: i32) {
-    let sql = adapt_sql(
-        &format!("UPDATE backfill_jobs SET {column} = ? WHERE id = ?"),
-        state.db_backend,
-    );
+    let query = match column {
+        "total_repos" => "UPDATE backfill_jobs SET total_repos = ? WHERE id = ?",
+        "processed_repos" => "UPDATE backfill_jobs SET processed_repos = ? WHERE id = ?",
+        "total_records" => "UPDATE backfill_jobs SET total_records = ? WHERE id = ?",
+        other => {
+            tracing::error!(
+                column = other,
+                "update_job_counter called with unknown column"
+            );
+            return;
+        }
+    };
+    let sql = adapt_sql(query, state.db_backend);
     let _ = sqlx::query(&sql)
         .bind(value)
         .bind(job_id)
@@ -809,6 +818,9 @@ pub(super) async fn cancel_backfill(
 
     match row {
         None => Err(AppError::NotFound("backfill job not found".into())),
+        Some((ref status,)) if status == "cancelling" || status == "cancelled" => {
+            Ok(Json(serde_json::json!({ "id": job_id, "status": status })))
+        }
         Some((status,)) if status != "running" => Err(AppError::BadRequest(format!(
             "job is not running (status: {status})"
         ))),
