@@ -266,32 +266,41 @@ async fn discover_repos_from_relay(
         let page_count = body.repos.len();
 
         if !body.repos.is_empty() {
-            let base_sql = "INSERT INTO backfill_repos (job_id, did) VALUES ";
-            let placeholders: Vec<String> = body
-                .repos
-                .iter()
-                .enumerate()
-                .map(|(i, _)| {
-                    if state.db_backend == crate::db::DatabaseBackend::Postgres {
-                        format!("(${}, ${})", i * 2 + 1, i * 2 + 2)
-                    } else {
-                        "(?, ?)".to_string()
-                    }
-                })
-                .collect();
-            let sql = format!(
-                "{base_sql}{} ON CONFLICT DO NOTHING",
-                placeholders.join(", ")
-            );
+            // SQLite has a 999 bound-parameter limit; each row uses 2 params
+            let chunk_size = if state.db_backend == crate::db::DatabaseBackend::Sqlite {
+                499
+            } else {
+                1000
+            };
 
-            let mut query = sqlx::query(&sql);
-            for repo in &body.repos {
-                query = query.bind(job_id).bind(&repo.did);
+            for chunk in body.repos.chunks(chunk_size) {
+                let base_sql = "INSERT INTO backfill_repos (job_id, did) VALUES ";
+                let placeholders: Vec<String> = chunk
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| {
+                        if state.db_backend == crate::db::DatabaseBackend::Postgres {
+                            format!("(${}, ${})", i * 2 + 1, i * 2 + 2)
+                        } else {
+                            "(?, ?)".to_string()
+                        }
+                    })
+                    .collect();
+                let sql = format!(
+                    "{base_sql}{} ON CONFLICT DO NOTHING",
+                    placeholders.join(", ")
+                );
+
+                let mut query = sqlx::query(&sql);
+                for repo in chunk {
+                    query = query.bind(job_id).bind(&repo.did);
+                }
+                if let Ok(result) = query.execute(&state.db).await {
+                    running_total += result.rows_affected() as i32;
+                }
             }
-            let _ = query.execute(&state.db).await;
         }
 
-        running_total += page_count as i32;
         update_job_counter(state, job_id, "total_repos", running_total).await;
 
         if is_cancelled(state, job_id).await {
@@ -491,7 +500,7 @@ async fn run_fetching_phase(state: &AppState, job_id: &str, collections: &[Strin
 
                             let repos = processed_repos.fetch_add(1, Ordering::Relaxed) + 1;
 
-                            if repos % 100 == 0 {
+                            if repos % 10 == 0 {
                                 let records = total_records.load(Ordering::Relaxed);
                                 let backend = state.db_backend;
                                 let sql = adapt_sql(

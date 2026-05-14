@@ -53,7 +53,6 @@ import {
   SheetFooter,
   SheetHeader,
   SheetTitle,
-  SheetDescription,
 } from "@/components/ui/sheet";
 
 type BskyProfile = {
@@ -282,7 +281,19 @@ export default function UsersPage() {
                 </TableRow>
               )}
               {users.map((user) => (
-                <TableRow key={user.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setSelectedUserId(user.id)}>
+                <TableRow
+                  key={user.id}
+                  className="cursor-pointer hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  tabIndex={0}
+                  role="button"
+                  onClick={() => setSelectedUserId(user.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedUserId(user.id);
+                    }
+                  }}
+                >
                   <TableCell className="text-sm">
                     <div className="flex items-center gap-2">
                       <div className="flex flex-col">
@@ -433,7 +444,7 @@ export default function UsersPage() {
                     <hr className="mx-4" />
 
                     <div className="relative px-4">
-                      <Search className="absolute left-6.5 top-2.5 size-4 text-muted-foreground" />
+                      <Search className="absolute left-[1.625rem] top-2.5 size-4 text-muted-foreground" />
                       <Input
                         placeholder="Search permissions..."
                         value={permSearch}
