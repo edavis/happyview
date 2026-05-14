@@ -77,8 +77,7 @@ export default function BackfillPage() {
                 <TableHead>ID</TableHead>
                 <TableHead>Collection</TableHead>
                 <TableHead>DID</TableHead>
-                <TableHead>Progress</TableHead>
-                <TableHead>Records</TableHead>
+                <TableHead>Status</TableHead>
                 <TableHead>Started</TableHead>
               </TableRow>
             </TableHeader>
@@ -86,7 +85,7 @@ export default function BackfillPage() {
               {jobs.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={6}
+                    colSpan={5}
                     className="text-muted-foreground text-center"
                   >
                     No backfill jobs yet.
@@ -105,12 +104,7 @@ export default function BackfillPage() {
                     {job.did ?? "All"}
                   </TableCell>
                   <TableCell className="tabular-nums">
-                    {job.processed_repos != null && job.total_repos != null
-                      ? `${job.processed_repos} / ${job.total_repos}`
-                      : "--"}
-                  </TableCell>
-                  <TableCell className="tabular-nums">
-                    {job.total_records?.toLocaleString() ?? "--"}
+                    <StageDisplay job={job} />
                   </TableCell>
                   <TableCell>
                     {job.started_at
@@ -127,11 +121,51 @@ export default function BackfillPage() {
   );
 }
 
-function CreateDialog({
-  onSuccess,
-}: {
-  onSuccess: () => void;
-}) {
+function StageDisplay({ job }: { job: BackfillJob }) {
+  const repos = job.total_repos?.toLocaleString() ?? "0";
+  const processed = job.processed_repos?.toLocaleString() ?? "0";
+  const records = job.total_records?.toLocaleString() ?? "0";
+
+  switch (job.stage) {
+    case "pending":
+      return <span className="text-muted-foreground">Pending</span>;
+    case "discovering_repos":
+      return (
+        <span>
+          Discovering repos…
+          <br /> {repos} found
+        </span>
+      );
+    case "resolving_pds":
+      return (
+        <span>
+          Resolving PDS… ({processed} / {repos})
+        </span>
+      );
+    case "fetching_records":
+      return (
+        <span>
+          Fetching records… ({processed} / {repos} repos, {records} records)
+        </span>
+      );
+    case "completed":
+      return (
+        <span>
+          Completed — {repos} repos, {records} records
+        </span>
+      );
+    case "failed":
+      return (
+        <span className="text-destructive">
+          Failed{job.error ? ` — ${job.error}` : ""}
+        </span>
+      );
+    default:
+      return <span className="text-muted-foreground">{job.stage}</span>;
+  }
+}
+
+function CreateDialog({ onSuccess }: { onSuccess: () => void }) {
   const [collection, setCollection] = useState<string | null>(null);
   const [did, setDid] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -177,7 +211,11 @@ function CreateDialog({
       <ResponsiveDialogContent
         onInteractOutside={(e) => {
           const target = e.target as HTMLElement;
-          if (target.closest("[data-slot='combobox-item'], [data-slot='combobox-content']")) {
+          if (
+            target.closest(
+              "[data-slot='combobox-item'], [data-slot='combobox-content']",
+            )
+          ) {
             e.preventDefault();
           }
         }}

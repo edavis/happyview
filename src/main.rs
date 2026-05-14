@@ -644,6 +644,8 @@ async fn main() {
         state.db_backend,
     ));
 
+    happyview::admin::backfill::resume_backfill_jobs(&state).await;
+
     let app = server::router(state);
     let addr = config.listen_addr();
 
