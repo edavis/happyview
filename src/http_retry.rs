@@ -20,4 +20,5 @@ pub fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> u64 {
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(5)
+        .min(120)
 }

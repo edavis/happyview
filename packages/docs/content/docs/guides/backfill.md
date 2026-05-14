@@ -34,7 +34,7 @@ A backfill job has both a `status` (overall state) and a `stage` (current phase)
 | `running`    | Job is actively processing                           |
 | `cancelling` | Cancel requested, waiting for the worker to stop     |
 | `cancelled`  | Worker has stopped and cleaned up                    |
-| `completed`  | All repos processed successfully                     |
+| `completed`  | Worker finished processing all resolvable repos      |
 | `failed`     | An error occurred                                    |
 
 The `stage` field tracks which phase the job is in: `pending`, `discovering_repos`, `resolving_pds`, `fetching_records`, `completed`, `failed`, or `cancelled`.
@@ -44,7 +44,7 @@ The `stage` field tracks which phase the job is in: `pending`, `discovering_repo
 Running jobs can be cancelled via `POST /admin/backfill/{id}/cancel` or the Cancel button in the dashboard. Cancellation is two-phase:
 
 1. The endpoint sets the job status to `cancelling`.
-2. The worker checks for cancellation at natural checkpoints (between relay pages, every 100 DIDs during resolution, every 100 repos during fetching). When it detects the `cancelling` status, it stops work and sets the final status to `cancelled`.
+2. The worker checks for cancellation at natural checkpoints (between relay pages, every 100 DIDs during resolution, every 10 repos during fetching). When it detects the `cancelling` status, it stops work and sets the final status to `cancelled`.
 
 This means there may be a short delay between clicking Cancel and the job fully stopping, depending on what the worker is doing at that moment.
 
