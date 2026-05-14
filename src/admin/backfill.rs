@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use futures_util::stream::{self, StreamExt};
 use serde::Deserialize;
@@ -137,6 +137,42 @@ async fn fail_job(state: &AppState, job_id: &str, error: &str) {
     cleanup_repos(state, job_id).await;
 }
 
+async fn is_cancelled(state: &AppState, job_id: &str) -> bool {
+    let sql = adapt_sql(
+        "SELECT status FROM backfill_jobs WHERE id = ?",
+        state.db_backend,
+    );
+    sqlx::query_as::<_, (String,)>(&sql)
+        .bind(job_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .is_some_and(|(status,)| status == "cancelling")
+}
+
+async fn request_cancel(state: &AppState, job_id: &str) {
+    let sql = adapt_sql(
+        "UPDATE backfill_jobs SET status = 'cancelling' WHERE id = ? AND status = 'running'",
+        state.db_backend,
+    );
+    let _ = sqlx::query(&sql).bind(job_id).execute(&state.db).await;
+}
+
+async fn finalise_cancel(state: &AppState, job_id: &str) {
+    let now = now_rfc3339();
+    let sql = adapt_sql(
+        "UPDATE backfill_jobs SET status = 'cancelled', stage = 'cancelled', completed_at = ?, error = 'cancelled by user' WHERE id = ?",
+        state.db_backend,
+    );
+    let _ = sqlx::query(&sql)
+        .bind(&now)
+        .bind(job_id)
+        .execute(&state.db)
+        .await;
+    cleanup_repos(state, job_id).await;
+}
+
 async fn complete_job(
     state: &AppState,
     job_id: &str,
@@ -184,6 +220,9 @@ async fn run_discovery_phase(
             .await;
     } else {
         for collection in collections {
+            if is_cancelled(state, job_id).await {
+                return;
+            }
             if let Err(e) = discover_repos_from_relay(state, job_id, collection).await {
                 tracing::warn!(collection, error = %e, "failed to discover repos, skipping");
             }
@@ -254,6 +293,10 @@ async fn discover_repos_from_relay(
         let total = count_repos(state, job_id).await;
         update_job_counter(state, job_id, "total_repos", total).await;
 
+        if is_cancelled(state, job_id).await {
+            return Ok(());
+        }
+
         match body.cursor {
             Some(c) if page_count > 0 => cursor = Some(c),
             _ => break,
@@ -314,6 +357,9 @@ async fn run_resolution_phase(state: &AppState, job_id: &str) {
         resolved_count += 1;
         if resolved_count % 100 == 0 {
             update_job_counter(state, job_id, "processed_repos", resolved_count).await;
+            if is_cancelled(state, job_id).await {
+                return;
+            }
         }
     }
 
@@ -357,6 +403,7 @@ async fn run_fetching_phase(state: &AppState, job_id: &str, collections: &[Strin
 
     let processed_repos = Arc::new(AtomicI32::new(already_completed));
     let total_records = Arc::new(AtomicI32::new(0));
+    let cancelled = Arc::new(AtomicBool::new(false));
     let state = Arc::new(state.clone());
     let collections = Arc::new(collections.to_vec());
     let job_id_arc = Arc::new(job_id.to_string());
@@ -369,6 +416,7 @@ async fn run_fetching_phase(state: &AppState, job_id: &str, collections: &[Strin
             let collections = Arc::clone(&collections);
             let processed_repos = Arc::clone(&processed_repos);
             let total_records = Arc::clone(&total_records);
+            let cancelled = Arc::clone(&cancelled);
             let job_id = Arc::clone(&job_id_arc);
 
             async move {
@@ -378,10 +426,15 @@ async fn run_fetching_phase(state: &AppState, job_id: &str, collections: &[Strin
                         let collections = Arc::clone(&collections);
                         let processed_repos = Arc::clone(&processed_repos);
                         let total_records = Arc::clone(&total_records);
+                        let cancelled = Arc::clone(&cancelled);
                         let pds_endpoint = pds_endpoint.clone();
                         let job_id = Arc::clone(&job_id);
 
                         async move {
+                            if cancelled.load(Ordering::Relaxed) {
+                                return;
+                            }
+
                             for collection in collections.iter() {
                                 match fetch_records_from_pds(
                                     &state,
@@ -433,6 +486,10 @@ async fn run_fetching_phase(state: &AppState, job_id: &str, collections: &[Strin
                                     .bind(job_id.as_str())
                                     .execute(&state.db)
                                     .await;
+
+                                if is_cancelled(&state, job_id.as_str()).await {
+                                    cancelled.store(true, Ordering::Relaxed);
+                                }
                             }
                         }
                     })
@@ -581,6 +638,12 @@ async fn run_backfill_job(state: AppState, job_id: String) {
     if matches!(stage.as_str(), "pending" | "discovering_repos") {
         run_discovery_phase(&state, &job_id, &collections, did.as_deref()).await;
 
+        if is_cancelled(&state, &job_id).await {
+            tracing::info!(job_id, "backfill job cancelled");
+            finalise_cancel(&state, &job_id).await;
+            return;
+        }
+
         let total = count_repos(&state, &job_id).await;
         if total == 0 {
             complete_job(&state, &job_id, 0, 0, None).await;
@@ -609,9 +672,20 @@ async fn run_backfill_job(state: AppState, job_id: String) {
         "pending" | "discovering_repos" | "resolving_pds"
     ) {
         run_resolution_phase(&state, &job_id).await;
+
+        if is_cancelled(&state, &job_id).await {
+            tracing::info!(job_id, "backfill job cancelled");
+            finalise_cancel(&state, &job_id).await;
+            return;
+        }
     }
 
     run_fetching_phase(&state, &job_id, &collections).await;
+
+    if is_cancelled(&state, &job_id).await {
+        tracing::info!(job_id, "backfill job cancelled");
+        return;
+    }
 
     // Read final counters from backfill_repos before cleanup
     let sql = adapt_sql(
@@ -717,6 +791,50 @@ pub(super) async fn create_backfill(
     ))
 }
 
+/// POST /admin/backfill/{id}/cancel — cancel a running backfill job.
+pub(super) async fn cancel_backfill(
+    State(state): State<AppState>,
+    admin: UserAuth,
+    Path(job_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    admin.require(Permission::BackfillCreate).await?;
+
+    let sql = adapt_sql(
+        "SELECT status FROM backfill_jobs WHERE id = ?",
+        state.db_backend,
+    );
+    let row: Option<(String,)> = sqlx::query_as(&sql)
+        .bind(&job_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to query backfill job: {e}")))?;
+
+    match row {
+        None => Err(AppError::NotFound("backfill job not found".into())),
+        Some((status,)) if status != "running" => Err(AppError::BadRequest(format!(
+            "job is not running (status: {status})"
+        ))),
+        Some(_) => {
+            request_cancel(&state, &job_id).await;
+            log_event(
+                &state.db,
+                EventLog {
+                    event_type: "backfill.cancelling".to_string(),
+                    severity: Severity::Info,
+                    actor_did: Some(admin.did.clone()),
+                    subject: None,
+                    detail: serde_json::json!({ "job_id": job_id }),
+                },
+                state.db_backend,
+            )
+            .await;
+            Ok(Json(
+                serde_json::json!({ "id": job_id, "status": "cancelling" }),
+            ))
+        }
+    }
+}
+
 /// GET /admin/backfill/status — list all backfill jobs.
 pub(super) async fn backfill_status(
     State(state): State<AppState>,
@@ -791,21 +909,30 @@ pub(super) async fn backfill_status(
 // ---------------------------------------------------------------------------
 
 /// Resume any backfill jobs that were running when the server last stopped.
+/// Jobs stuck in `cancelling` are finalised immediately.
 pub async fn resume_backfill_jobs(state: &AppState) {
     let sql = adapt_sql(
-        "SELECT id FROM backfill_jobs WHERE status = 'running'",
+        "SELECT id, status FROM backfill_jobs WHERE status IN ('running', 'cancelling')",
         state.db_backend,
     );
-    let rows: Vec<(String,)> = sqlx::query_as(&sql)
+    let rows: Vec<(String, String)> = sqlx::query_as(&sql)
         .fetch_all(&state.db)
         .await
         .unwrap_or_default();
 
-    for (job_id,) in rows {
-        tracing::info!(job_id, "resuming interrupted backfill job");
-        let spawn_state = state.clone();
-        tokio::spawn(async move {
-            run_backfill_job(spawn_state, job_id).await;
-        });
+    for (job_id, status) in rows {
+        if status == "cancelling" {
+            tracing::info!(
+                job_id,
+                "finalising cancelled backfill job from previous run"
+            );
+            finalise_cancel(state, &job_id).await;
+        } else {
+            tracing::info!(job_id, "resuming interrupted backfill job");
+            let spawn_state = state.clone();
+            tokio::spawn(async move {
+                run_backfill_job(spawn_state, job_id).await;
+            });
+        }
     }
 }

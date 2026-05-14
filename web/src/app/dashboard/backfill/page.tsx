@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { useCurrentUser } from "@/hooks/use-current-user";
-import { createBackfillJob, getBackfillJobs, getLexicons } from "@/lib/api";
+import {
+  cancelBackfillJob,
+  createBackfillJob,
+  getBackfillJobs,
+  getLexicons,
+} from "@/lib/api";
 import type { BackfillJob } from "@/types/backfill";
 import { CheckCircle2, Circle, Loader2 } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
@@ -32,6 +37,7 @@ import { Label } from "@/components/ui/label";
 import {
   Sheet,
   SheetContent,
+  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
@@ -51,6 +57,8 @@ const STAGES = [
   "fetching_records",
   "completed",
   "failed",
+  "cancelled",
+  "cancelling",
 ] as const;
 
 const STAGE_LABELS: Record<string, string> = {
@@ -60,6 +68,8 @@ const STAGE_LABELS: Record<string, string> = {
   fetching_records: "Fetching records",
   completed: "Completed",
   failed: "Failed",
+  cancelled: "Cancelled",
+  cancelling: "Cancelling",
 };
 
 function stageBadge(stage: string) {
@@ -72,6 +82,18 @@ function stageBadge(stage: string) {
       );
     case "failed":
       return <Badge variant="destructive">failed</Badge>;
+    case "cancelled":
+      return (
+        <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 hover:bg-amber-500/25 border-amber-500/20">
+          cancelled
+        </Badge>
+      );
+    case "cancelling":
+      return (
+        <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 hover:bg-amber-500/25 border-amber-500/20">
+          cancelling
+        </Badge>
+      );
     case "pending":
       return <Badge variant="secondary">pending</Badge>;
     default:
@@ -180,7 +202,16 @@ export default function BackfillPage() {
           }}
         >
           <SheetContent className="sm:max-w-xl overflow-hidden flex flex-col">
-            {selectedJob && <JobDetail job={selectedJob} />}
+            {selectedJob && (
+              <JobDetail
+                job={selectedJob}
+                canCancel={hasPermission("backfill:create")}
+                onCancel={async () => {
+                  await cancelBackfillJob(selectedJob.id);
+                  load();
+                }}
+              />
+            )}
           </SheetContent>
         </Sheet>
       </div>
@@ -188,8 +219,27 @@ export default function BackfillPage() {
   );
 }
 
-function JobDetail({ job }: { job: BackfillJob }) {
+function JobDetail({
+  job,
+  canCancel,
+  onCancel,
+}: {
+  job: BackfillJob;
+  canCancel: boolean;
+  onCancel: () => Promise<void>;
+}) {
+  const [cancelling, setCancelling] = useState(false);
   const current = stageIndex(job.stage);
+  const isActive = job.status === "running" || job.status === "cancelling";
+
+  async function handleCancel() {
+    setCancelling(true);
+    try {
+      await onCancel();
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   return (
     <>
@@ -284,6 +334,18 @@ function JobDetail({ job }: { job: BackfillJob }) {
           </div>
         </div>
       </div>
+      {canCancel && isActive && (
+        <SheetFooter className="border-t flex-row justify-end">
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={cancelling || job.status === "cancelling"}
+            onClick={handleCancel}
+          >
+            {job.status === "cancelling" ? "Cancelling…" : "Cancel Job"}
+          </Button>
+        </SheetFooter>
+      )}
     </>
   );
 }
