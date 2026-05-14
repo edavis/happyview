@@ -1,0 +1,19 @@
+{
+  "title": "Admin API",
+  "pages": [
+    "admin-api",
+    "lexicons",
+    "stats",
+    "backfill",
+    "events",
+    "api-keys",
+    "users",
+    "labelers",
+    "settings",
+    "xrpc-proxy",
+    "domains",
+    "script-variables",
+    "api-clients",
+    "plugins"
+  ]
+}

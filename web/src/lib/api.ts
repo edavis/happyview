@@ -170,6 +170,13 @@ export function createBackfillJob(body: { collection?: string; did?: string }) {
   });
 }
 
+export function cancelBackfillJob(id: string) {
+  return apiFetch<{ id: string; status: string }>(
+    `/admin/backfill/${id}/cancel`,
+    { method: "POST" },
+  );
+}
+
 // Users
 export function getUsers() {
   return apiFetch<UserSummary[]>("/admin/users");
@@ -211,6 +218,29 @@ export function transferSuper(body: { target_user_id: string }) {
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+// Permissions catalog
+export type PermissionEntry = {
+  key: string;
+  name: string;
+  description: string;
+  category: string;
+};
+
+export type PermissionTemplate = {
+  key: string;
+  label: string;
+  permissions: string[];
+};
+
+export type PermissionsCatalog = {
+  permissions: PermissionEntry[];
+  templates: PermissionTemplate[];
+};
+
+export function getPermissions() {
+  return apiFetch<PermissionsCatalog>("/admin/permissions");
 }
 
 // API Keys

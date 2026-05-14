@@ -69,18 +69,19 @@ pub(super) struct CreateBackfillBody {
 }
 
 #[derive(Serialize)]
-pub(super) struct BackfillJob {
-    pub(super) id: String,
-    pub(super) collection: Option<String>,
-    pub(super) did: Option<String>,
-    pub(super) status: String,
-    pub(super) total_repos: Option<i32>,
-    pub(super) processed_repos: Option<i32>,
-    pub(super) total_records: Option<i32>,
-    pub(super) error: Option<String>,
-    pub(super) started_at: Option<String>,
-    pub(super) completed_at: Option<String>,
-    pub(super) created_at: String,
+pub(crate) struct BackfillJob {
+    pub(crate) id: String,
+    pub(crate) collection: Option<String>,
+    pub(crate) did: Option<String>,
+    pub(crate) status: String,
+    pub(crate) stage: String,
+    pub(crate) total_repos: Option<i32>,
+    pub(crate) processed_repos: Option<i32>,
+    pub(crate) total_records: Option<i32>,
+    pub(crate) error: Option<String>,
+    pub(crate) started_at: Option<String>,
+    pub(crate) completed_at: Option<String>,
+    pub(crate) created_at: String,
 }
 
 // ---------------------------------------------------------------------------
