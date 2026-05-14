@@ -1,7 +1,7 @@
 mod api_clients;
 mod api_keys;
 pub(crate) mod auth;
-mod backfill;
+pub mod backfill;
 mod dead_letters;
 mod domains;
 mod events;
@@ -37,6 +37,7 @@ pub fn admin_routes(_state: AppState) -> Router<AppState> {
         .route("/stats", get(stats::stats))
         .route("/backfill", post(backfill::create_backfill))
         .route("/backfill/status", get(backfill::backfill_status))
+        .route("/backfill/{id}/cancel", post(backfill::cancel_backfill))
         .route("/events", get(events::list_events))
         .route("/users", post(users::create_user).get(users::list_users))
         .route("/users/transfer-super", post(users::transfer_super))

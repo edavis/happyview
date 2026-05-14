@@ -62,7 +62,9 @@ type BskyProfile = {
   description?: string;
 };
 
-function buildCategories(permissions: PermissionEntry[]): Record<string, PermissionEntry[]> {
+function buildCategories(
+  permissions: PermissionEntry[],
+): Record<string, PermissionEntry[]> {
   const cats: Record<string, PermissionEntry[]> = {};
   for (const p of permissions) {
     if (!cats[p.category]) cats[p.category] = [];
@@ -80,25 +82,36 @@ export default function UsersPage() {
   const [pendingPermissions, setPendingPermissions] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [permSearch, setPermSearch] = useState("");
-  const [permissionEntries, setPermissionEntries] = useState<PermissionEntry[]>([]);
+  const [permissionEntries, setPermissionEntries] = useState<PermissionEntry[]>(
+    [],
+  );
   const [profiles, setProfiles] = useState<Record<string, BskyProfile>>({});
   const [templates, setTemplates] = useState<PermissionTemplate[]>([]);
 
-  const permissionCategories = React.useMemo(() => buildCategories(permissionEntries), [permissionEntries]);
+  const permissionCategories = React.useMemo(
+    () => buildCategories(permissionEntries),
+    [permissionEntries],
+  );
   const filteredCategories = useMemo(() => {
     if (!permSearch.trim()) return permissionCategories;
     const terms = permSearch.toLowerCase().split(/\s+/);
     const result: Record<string, PermissionEntry[]> = {};
-    for (const [category, permissions] of Object.entries(permissionCategories)) {
+    for (const [category, permissions] of Object.entries(
+      permissionCategories,
+    )) {
       const matched = permissions.filter((p) => {
-        const haystack = `${p.name} ${p.description} ${p.category} ${p.key}`.toLowerCase();
+        const haystack =
+          `${p.name} ${p.description} ${p.category} ${p.key}`.toLowerCase();
         return terms.every((term) => haystack.includes(term));
       });
       if (matched.length > 0) result[category] = matched;
     }
     return result;
   }, [permissionCategories, permSearch]);
-  const allPermissionKeys = React.useMemo(() => permissionEntries.map((p) => p.key), [permissionEntries]);
+  const allPermissionKeys = React.useMemo(
+    () => permissionEntries.map((p) => p.key),
+    [permissionEntries],
+  );
   const templatePermissions = React.useMemo(() => {
     const map: Record<string, string[]> = {};
     for (const t of templates) map[t.key] = t.permissions;
@@ -156,7 +169,9 @@ export default function UsersPage() {
     if (!selectedUserId) return;
     const user = users.find((u) => u.id === selectedUserId);
     if (!user || user.did in profiles) return;
-    fetch(`https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(user.did)}`)
+    fetch(
+      `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(user.did)}`,
+    )
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!data) return;
@@ -184,21 +199,24 @@ export default function UsersPage() {
   function handleTogglePermission(
     _user: UserSummary,
     permission: string,
-    enabled: boolean
+    enabled: boolean,
   ) {
     setPendingPermissions((prev) => {
       const perms = new Set(prev);
       const [ns, action] = permission.split(":");
 
       const nsReadPerm = allPermissionKeys.find(
-        (k) => k.startsWith(`${ns}:`) && (k.endsWith(":read") || k.endsWith(":view"))
+        (k) =>
+          k.startsWith(`${ns}:`) &&
+          (k.endsWith(":read") || k.endsWith(":view")),
       );
       const isReadAction = action === "read" || action === "view";
 
       if (enabled) {
         perms.add(permission);
         if (!isReadAction && nsReadPerm) perms.add(nsReadPerm);
-        if (permission === "records:delete-collection") perms.add("records:delete");
+        if (permission === "records:delete-collection")
+          perms.add("records:delete");
       } else {
         perms.delete(permission);
         if (isReadAction) {
@@ -206,14 +224,18 @@ export default function UsersPage() {
             if (p.startsWith(`${ns}:`) && p !== permission) perms.delete(p);
           }
         }
-        if (permission === "records:delete") perms.delete("records:delete-collection");
+        if (permission === "records:delete")
+          perms.delete("records:delete-collection");
       }
 
       return [...perms];
     });
   }
 
-  async function handleSavePermissions(userId: string, originalPermissions: string[]) {
+  async function handleSavePermissions(
+    userId: string,
+    originalPermissions: string[],
+  ) {
     const originalSet = new Set(originalPermissions);
     const pendingSet = new Set(pendingPermissions);
 
@@ -254,8 +276,13 @@ export default function UsersPage() {
 
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Users</h2>
-          {(isCurrentUserSuper || currentUser?.permissions.includes("users:create")) && (
-            <AddUserDialog onSuccess={load} templates={templates} templatePermissions={templatePermissions} />
+          {(isCurrentUserSuper ||
+            currentUser?.permissions.includes("users:create")) && (
+            <AddUserDialog
+              onSuccess={load}
+              templates={templates}
+              templatePermissions={templatePermissions}
+            />
           )}
         </div>
 
@@ -282,14 +309,22 @@ export default function UsersPage() {
                 </TableRow>
               )}
               {users.map((user) => (
-                <TableRow key={user.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setSelectedUserId(user.id)}>
+                <TableRow
+                  key={user.id}
+                  className="cursor-pointer hover:bg-muted/50"
+                  onClick={() => setSelectedUserId(user.id)}
+                >
                   <TableCell className="text-sm">
                     <div className="flex items-center gap-2">
                       <div className="flex flex-col">
                         {handles[user.did] && (
-                          <span className="font-medium">@{handles[user.did]}</span>
+                          <span className="font-medium">
+                            @{handles[user.did]}
+                          </span>
                         )}
-                        <span className="font-mono text-muted-foreground text-xs">{user.did}</span>
+                        <span className="font-mono text-muted-foreground text-xs">
+                          {user.did}
+                        </span>
                       </div>
                       {user.is_super && (
                         <Badge variant="secondary" className="text-xs">
@@ -323,27 +358,41 @@ export default function UsersPage() {
         {(() => {
           const selectedUser = users.find((u) => u.id === selectedUserId);
           return (
-            <Sheet modal={false} open={!!selectedUser} onOpenChange={(open) => {
-              if (!open) {
-                const user = users.find((u) => u.id === selectedUserId);
-                if (user) {
-                  const origSet = new Set(user.permissions);
-                  const pendSet = new Set(pendingPermissions);
-                  const unsaved = pendingPermissions.some((p) => !origSet.has(p)) || user.permissions.some((p) => !pendSet.has(p));
-                  if (unsaved) {
-                    toast.warning("You have unsaved changes. Save or cancel before closing.");
-                    return;
+            <Sheet
+              modal={false}
+              open={!!selectedUser}
+              onOpenChange={(open) => {
+                if (!open) {
+                  const user = users.find((u) => u.id === selectedUserId);
+                  if (user) {
+                    const origSet = new Set(user.permissions);
+                    const pendSet = new Set(pendingPermissions);
+                    const unsaved =
+                      pendingPermissions.some((p) => !origSet.has(p)) ||
+                      user.permissions.some((p) => !pendSet.has(p));
+                    if (unsaved) {
+                      toast.warning(
+                        "You have unsaved changes. Save or cancel before closing.",
+                      );
+                      return;
+                    }
                   }
+                  setSelectedUserId(null);
+                  setPermSearch("");
                 }
-                setSelectedUserId(null);
-                setPermSearch("");
-              }
-            }}>
-              <SheetContent className="overflow-hidden" onInteractOutside={(e) => {
-                if (e.target instanceof HTMLElement && e.target.closest("[data-sonner-toaster]")) {
-                  e.preventDefault();
-                }
-              }}>
+              }}
+            >
+              <SheetContent
+                className="overflow-hidden"
+                onInteractOutside={(e) => {
+                  if (
+                    e.target instanceof HTMLElement &&
+                    e.target.closest("[data-sonner-toaster]")
+                  ) {
+                    e.preventDefault();
+                  }
+                }}
+              >
                 {selectedUser && (
                   <>
                     <SheetHeader>
@@ -361,10 +410,13 @@ export default function UsersPage() {
                         )}
                         <div className="flex flex-col gap-0.5 min-w-0">
                           <p className="font-semibold">
-                            {profiles[selectedUser.did]?.displayName || handles[selectedUser.did] ? (
+                            {profiles[selectedUser.did]?.displayName ||
+                            handles[selectedUser.did] ? (
                               <>
                                 {profiles[selectedUser.did]?.displayName && (
-                                  <span>{profiles[selectedUser.did].displayName}</span>
+                                  <span>
+                                    {profiles[selectedUser.did].displayName}
+                                  </span>
                                 )}
                                 {handles[selectedUser.did] && (
                                   <span className="text-muted-foreground font-normal text-sm ml-1">
@@ -373,12 +425,18 @@ export default function UsersPage() {
                                 )}
                               </>
                             ) : (
-                              <span className="font-mono text-sm">{selectedUser.did}</span>
+                              <span className="font-mono text-sm">
+                                {selectedUser.did}
+                              </span>
                             )}
                           </p>
-                          <p className="font-mono text-xs text-muted-foreground break-all">{selectedUser.did}</p>
+                          <p className="font-mono text-xs text-muted-foreground break-all">
+                            {selectedUser.did}
+                          </p>
                           {profiles[selectedUser.did]?.description && (
-                            <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{profiles[selectedUser.did].description}</p>
+                            <p className="mt-1 text-xs text-muted-foreground line-clamp-2">
+                              {profiles[selectedUser.did].description}
+                            </p>
                           )}
                         </div>
                       </CardContent>
@@ -387,112 +445,177 @@ export default function UsersPage() {
                     {(() => {
                       const originalSet = new Set(selectedUser.permissions);
                       const pendingSet = new Set(pendingPermissions);
-                      const added = pendingPermissions.filter((p) => !originalSet.has(p)).length;
-                      const removed = selectedUser.permissions.filter((p) => !pendingSet.has(p)).length;
+                      const added = pendingPermissions.filter(
+                        (p) => !originalSet.has(p),
+                      ).length;
+                      const removed = selectedUser.permissions.filter(
+                        (p) => !pendingSet.has(p),
+                      ).length;
                       const hasChanges = added > 0 || removed > 0;
                       return (
-                    <>
-                    <div className="grid grid-cols-2 gap-4 text-sm px-4">
-                      <div>
-                        <span className="text-muted-foreground text-xs">Role</span>
-                        <p className="text-xs">
-                          {selectedUser.is_super ? (
-                            <Badge variant="secondary" className="text-xs">Owner</Badge>
-                          ) : "Member"}
-                        </p>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground text-xs">Permissions</span>
-                        <p className="text-xs tabular-nums">
-                          {selectedUser.is_super
-                            ? `${allPermissionKeys.length}/${allPermissionKeys.length}`
-                            : `${pendingPermissions.filter((p) => allPermissionKeys.includes(p)).length}/${allPermissionKeys.length}`}
-                          {hasChanges && (
-                            <span className="ml-1.5">
-                              {added > 0 && <span className="text-green-500">+{added}</span>}
-                              {added > 0 && removed > 0 && " "}
-                              {removed > 0 && <span className="text-red-500">-{removed}</span>}
-                            </span>
-                          )}
-                        </p>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground text-xs">Created</span>
-                        <p className="text-xs">{new Date(selectedUser.created_at).toLocaleString()}</p>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground text-xs">Last Active</span>
-                        <p className="text-xs">
-                          {selectedUser.last_used_at
-                            ? new Date(selectedUser.last_used_at).toLocaleString()
-                            : "Never"}
-                        </p>
-                      </div>
-                    </div>
+                        <>
+                          <div className="grid grid-cols-2 gap-4 text-sm px-4">
+                            <div>
+                              <span className="text-muted-foreground text-xs">
+                                Role
+                              </span>
+                              <p className="text-xs">
+                                {selectedUser.is_super ? (
+                                  <Badge
+                                    variant="secondary"
+                                    className="text-xs"
+                                  >
+                                    Owner
+                                  </Badge>
+                                ) : (
+                                  "Member"
+                                )}
+                              </p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground text-xs">
+                                Permissions
+                              </span>
+                              <p className="text-xs tabular-nums">
+                                {selectedUser.is_super
+                                  ? `${allPermissionKeys.length}/${allPermissionKeys.length}`
+                                  : `${pendingPermissions.filter((p) => allPermissionKeys.includes(p)).length}/${allPermissionKeys.length}`}
+                                {hasChanges && (
+                                  <span className="ml-1.5">
+                                    {added > 0 && (
+                                      <span className="text-green-500">
+                                        +{added}
+                                      </span>
+                                    )}
+                                    {added > 0 && removed > 0 && " "}
+                                    {removed > 0 && (
+                                      <span className="text-red-500">
+                                        -{removed}
+                                      </span>
+                                    )}
+                                  </span>
+                                )}
+                              </p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground text-xs">
+                                Created
+                              </span>
+                              <p className="text-xs">
+                                {new Date(
+                                  selectedUser.created_at,
+                                ).toLocaleString()}
+                              </p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground text-xs">
+                                Last Active
+                              </span>
+                              <p className="text-xs">
+                                {selectedUser.last_used_at
+                                  ? new Date(
+                                      selectedUser.last_used_at,
+                                    ).toLocaleString()
+                                  : "Never"}
+                              </p>
+                            </div>
+                          </div>
 
-                    <hr className="mx-4" />
+                          <hr className="mx-4" />
 
-                    <div className="relative px-4">
-                      <Search className="absolute left-6.5 top-2.5 size-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search permissions..."
-                        value={permSearch}
-                        onChange={(e) => setPermSearch(e.target.value)}
-                        className="pl-9"
-                      />
-                    </div>
+                          <div className="relative px-4">
+                            <Search className="absolute left-6.5 top-2.5 size-4 text-muted-foreground" />
+                            <Input
+                              placeholder="Search permissions..."
+                              value={permSearch}
+                              onChange={(e) => setPermSearch(e.target.value)}
+                              className="pl-9"
+                            />
+                          </div>
 
-                    <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
-                      <PermissionsPanel
-                        user={selectedUser}
-                        isSelf={selectedUser.did === currentDid}
-                        currentUserPermissions={currentUser?.permissions ?? []}
-                        isCurrentUserSuper={isCurrentUserSuper}
-                        filteredCategories={filteredCategories}
-                        pendingPermissions={pendingPermissions}
-                        originalPermissions={selectedUser.permissions}
-                        onToggle={handleTogglePermission}
-                      />
-                    </div>
+                          <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+                            <PermissionsPanel
+                              user={selectedUser}
+                              isSelf={selectedUser.did === currentDid}
+                              currentUserPermissions={
+                                currentUser?.permissions ?? []
+                              }
+                              isCurrentUserSuper={isCurrentUserSuper}
+                              filteredCategories={filteredCategories}
+                              pendingPermissions={pendingPermissions}
+                              originalPermissions={selectedUser.permissions}
+                              onToggle={handleTogglePermission}
+                            />
+                          </div>
 
-                    <SheetFooter className="border-t flex-row">
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          disabled={selectedUser.is_super || selectedUser.did === currentDid || (!isCurrentUserSuper && !currentUser?.permissions.includes("users:delete"))}
-                          onClick={() => { handleDelete(selectedUser.id); setSelectedUserId(null); }}
-                        >
-                          <Trash2 className="mr-1 size-3.5" />
-                          Delete User
-                        </Button>
-                        {isCurrentUserSuper && (
-                          <TransferOwnershipDialog
-                            user={selectedUser}
-                            disabled={selectedUser.did === currentDid}
-                            onConfirm={() => handleTransferSuper(selectedUser.id)}
-                          />
-                        )}
-                      </div>
-                      <div className="ml-auto flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={!hasChanges || saving}
-                          onClick={() => setPendingPermissions([...selectedUser.permissions])}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          size="sm"
-                          disabled={!hasChanges || saving || selectedUser.is_super || selectedUser.did === currentDid || (!isCurrentUserSuper && !currentUser?.permissions.includes("users:update"))}
-                          onClick={() => handleSavePermissions(selectedUser.id, selectedUser.permissions)}
-                        >
-                          {saving ? "Saving..." : "Save"}
-                        </Button>
-                      </div>
-                    </SheetFooter>
-                    </>
+                          <SheetFooter className="border-t flex-row">
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                disabled={
+                                  selectedUser.is_super ||
+                                  selectedUser.did === currentDid ||
+                                  (!isCurrentUserSuper &&
+                                    !currentUser?.permissions.includes(
+                                      "users:delete",
+                                    ))
+                                }
+                                onClick={() => {
+                                  handleDelete(selectedUser.id);
+                                  setSelectedUserId(null);
+                                }}
+                              >
+                                <Trash2 className="mr-1 size-3.5" />
+                                Delete User
+                              </Button>
+                              {isCurrentUserSuper && (
+                                <TransferOwnershipDialog
+                                  user={selectedUser}
+                                  disabled={selectedUser.did === currentDid}
+                                  onConfirm={() =>
+                                    handleTransferSuper(selectedUser.id)
+                                  }
+                                />
+                              )}
+                            </div>
+                            <div className="ml-auto flex items-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={!hasChanges || saving}
+                                onClick={() =>
+                                  setPendingPermissions([
+                                    ...selectedUser.permissions,
+                                  ])
+                                }
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                size="sm"
+                                disabled={
+                                  !hasChanges ||
+                                  saving ||
+                                  selectedUser.is_super ||
+                                  selectedUser.did === currentDid ||
+                                  (!isCurrentUserSuper &&
+                                    !currentUser?.permissions.includes(
+                                      "users:update",
+                                    ))
+                                }
+                                onClick={() =>
+                                  handleSavePermissions(
+                                    selectedUser.id,
+                                    selectedUser.permissions,
+                                  )
+                                }
+                              >
+                                {saving ? "Saving..." : "Save"}
+                              </Button>
+                            </div>
+                          </SheetFooter>
+                        </>
                       );
                     })()}
                   </>
@@ -525,7 +648,8 @@ function PermissionsPanel({
   originalPermissions: string[];
   onToggle: (user: UserSummary, permission: string, enabled: boolean) => void;
 }) {
-  const canUpdate = isCurrentUserSuper || currentUserPermissions.includes("users:update");
+  const canUpdate =
+    isCurrentUserSuper || currentUserPermissions.includes("users:update");
   const originalSet = new Set(originalPermissions);
 
   return (
@@ -537,7 +661,8 @@ function PermissionsPanel({
           </p>
           <div className="flex flex-col gap-3 w-full">
             {permissions.map((perm) => {
-              const enabled = user.is_super || pendingPermissions.includes(perm.key);
+              const enabled =
+                user.is_super || pendingPermissions.includes(perm.key);
               const wasEnabled = user.is_super || originalSet.has(perm.key);
               const isAdded = enabled && !wasEnabled;
               const isRemoved = !enabled && wasEnabled;
@@ -550,7 +675,8 @@ function PermissionsPanel({
                       user.is_super ||
                       isSelf ||
                       !canUpdate ||
-                      (!isCurrentUserSuper && !currentUserPermissions.includes(perm.key))
+                      (!isCurrentUserSuper &&
+                        !currentUserPermissions.includes(perm.key))
                     }
                     onCheckedChange={(checked) =>
                       onToggle(user, perm.key, checked)
@@ -563,10 +689,16 @@ function PermissionsPanel({
                   >
                     <span className="flex items-center gap-1.5">
                       {perm.name}
-                      {isAdded && <span className="inline-block size-1.5 rounded-full bg-green-500" />}
-                      {isRemoved && <span className="inline-block size-1.5 rounded-full bg-red-500" />}
+                      {isAdded && (
+                        <span className="inline-block size-1.5 rounded-full bg-green-500" />
+                      )}
+                      {isRemoved && (
+                        <span className="inline-block size-1.5 rounded-full bg-red-500" />
+                      )}
                     </span>
-                    <span className="text-muted-foreground font-normal">{perm.description}</span>
+                    <span className="text-muted-foreground font-normal">
+                      {perm.description}
+                    </span>
                   </Label>
                 </div>
               );
@@ -597,11 +729,7 @@ function TransferOwnershipDialog({
   return (
     <ResponsiveDialog open={open} onOpenChange={setOpen}>
       <ResponsiveDialogTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={disabled}
-        >
+        <Button variant="outline" size="sm" disabled={disabled}>
           <Shield className="mr-1 size-3.5" />
           Transfer Ownership
         </Button>
@@ -611,8 +739,8 @@ function TransferOwnershipDialog({
           <ResponsiveDialogTitle>Transfer Ownership</ResponsiveDialogTitle>
           <ResponsiveDialogDescription>
             Are you sure you want to transfer ownership to{" "}
-            <span className="font-mono text-sm">{user.did}</span>? You will
-            lose your owner privileges and cannot undo this action without their
+            <span className="font-mono text-sm">{user.did}</span>? You will lose
+            your owner privileges and cannot undo this action without their
             cooperation.
           </ResponsiveDialogDescription>
         </ResponsiveDialogHeader>
