@@ -157,8 +157,16 @@ export default function BackfillPage() {
               {jobs.map((job) => (
                 <TableRow
                   key={job.id}
-                  className="cursor-pointer"
+                  className="cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  tabIndex={0}
+                  role="button"
                   onClick={() => setSelectedJobId(job.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedJobId(job.id);
+                    }
+                  }}
                 >
                   <TableCell className="font-mono text-xs">
                     {job.id.slice(0, 8)}

@@ -161,21 +161,37 @@ pub async fn resolve_did_document(
         format!("{}/{did}", plc_url.trim_end_matches('/'))
     };
 
-    let resp = loop {
-        let r = http
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| AppError::Internal(format!("DID resolution failed: {e}")))?;
+    let resp = {
+        let max_retries = 5;
+        let mut attempts = 0;
+        loop {
+            let r = http
+                .get(&url)
+                .send()
+                .await
+                .map_err(|e| AppError::Internal(format!("DID resolution failed: {e}")))?;
 
-        if r.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-            let wait = parse_retry_after(r.headers());
-            tracing::warn!(did, wait, "rate limited during DID resolution, sleeping");
-            tokio::time::sleep(tokio::time::Duration::from_secs(wait)).await;
-            continue;
+            if r.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                attempts += 1;
+                if attempts >= max_retries {
+                    return Err(AppError::Internal(format!(
+                        "DID resolution for {did} rate-limited after {max_retries} retries"
+                    )));
+                }
+                let wait = parse_retry_after(r.headers());
+                tracing::warn!(
+                    did,
+                    wait,
+                    attempts,
+                    max_retries,
+                    "rate limited during DID resolution, sleeping"
+                );
+                tokio::time::sleep(tokio::time::Duration::from_secs(wait)).await;
+                continue;
+            }
+
+            break r;
         }
-
-        break r;
     };
 
     if !resp.status().is_success() {
