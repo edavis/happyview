@@ -3,6 +3,7 @@ export interface BackfillJob {
   collection: string | null
   did: string | null
   status: string
+  stage: string
   total_repos: number | null
   processed_repos: number | null
   total_records: number | null
