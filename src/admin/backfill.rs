@@ -22,7 +22,7 @@ use super::permissions::Permission;
 use super::types::{BackfillJob, CreateBackfillBody};
 
 // ---------------------------------------------------------------------------
-// Relay discovery (reused from old backfill module)
+// Response types
 // ---------------------------------------------------------------------------
 
 #[derive(Deserialize)]
@@ -35,10 +35,6 @@ struct ListReposResponse {
 struct RepoEntry {
     did: String,
 }
-
-// ---------------------------------------------------------------------------
-// PDS record types
-// ---------------------------------------------------------------------------
 
 #[derive(Deserialize)]
 struct ListRecordsResponse {
@@ -53,15 +49,133 @@ struct RecordEntry {
     value: serde_json::Value,
 }
 
-/// Discover all DIDs that have records in `collection` via the relay's
-/// `com.atproto.sync.listReposByCollection` endpoint. Paginates until done.
-async fn list_repos_by_collection(
-    http: &reqwest::Client,
-    relay_url: &str,
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async fn set_stage(state: &AppState, job_id: &str, stage: &str) {
+    let sql = adapt_sql(
+        "UPDATE backfill_jobs SET stage = ? WHERE id = ?",
+        state.db_backend,
+    );
+    let _ = sqlx::query(&sql)
+        .bind(stage)
+        .bind(job_id)
+        .execute(&state.db)
+        .await;
+}
+
+async fn update_job_counter(state: &AppState, job_id: &str, column: &str, value: i32) {
+    let sql = adapt_sql(
+        &format!("UPDATE backfill_jobs SET {column} = ? WHERE id = ?"),
+        state.db_backend,
+    );
+    let _ = sqlx::query(&sql)
+        .bind(value)
+        .bind(job_id)
+        .execute(&state.db)
+        .await;
+}
+
+async fn count_repos(state: &AppState, job_id: &str) -> i32 {
+    let sql = adapt_sql(
+        "SELECT COUNT(*) FROM backfill_repos WHERE job_id = ?",
+        state.db_backend,
+    );
+    sqlx::query_as::<_, (i32,)>(&sql)
+        .bind(job_id)
+        .fetch_one(&state.db)
+        .await
+        .map(|(c,)| c)
+        .unwrap_or(0)
+}
+
+async fn cleanup_repos(state: &AppState, job_id: &str) {
+    let sql = adapt_sql(
+        "DELETE FROM backfill_repos WHERE job_id = ?",
+        state.db_backend,
+    );
+    let _ = sqlx::query(&sql).bind(job_id).execute(&state.db).await;
+}
+
+async fn fail_job(state: &AppState, job_id: &str, error: &str) {
+    let now = now_rfc3339();
+    let sql = adapt_sql(
+        "UPDATE backfill_jobs SET status = 'failed', stage = 'failed', completed_at = ?, error = ? WHERE id = ?",
+        state.db_backend,
+    );
+    let _ = sqlx::query(&sql)
+        .bind(&now)
+        .bind(error)
+        .bind(job_id)
+        .execute(&state.db)
+        .await;
+    cleanup_repos(state, job_id).await;
+}
+
+async fn complete_job(
+    state: &AppState,
+    job_id: &str,
+    processed_repos: i32,
+    total_records: i32,
+    error: Option<&str>,
+) {
+    let now = now_rfc3339();
+    let sql = adapt_sql(
+        "UPDATE backfill_jobs SET status = 'completed', stage = 'completed', completed_at = ?, processed_repos = ?, total_records = ?, error = ? WHERE id = ?",
+        state.db_backend,
+    );
+    let _ = sqlx::query(&sql)
+        .bind(&now)
+        .bind(processed_repos)
+        .bind(total_records)
+        .bind(error)
+        .bind(job_id)
+        .execute(&state.db)
+        .await;
+    cleanup_repos(state, job_id).await;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1: Discover repos via relay
+// ---------------------------------------------------------------------------
+
+async fn run_discovery_phase(
+    state: &AppState,
+    job_id: &str,
+    collections: &[String],
+    specific_did: Option<&str>,
+) {
+    set_stage(state, job_id, "discovering_repos").await;
+
+    if let Some(did) = specific_did {
+        let sql = adapt_sql(
+            "INSERT INTO backfill_repos (job_id, did) VALUES (?, ?) ON CONFLICT DO NOTHING",
+            state.db_backend,
+        );
+        let _ = sqlx::query(&sql)
+            .bind(job_id)
+            .bind(did)
+            .execute(&state.db)
+            .await;
+    } else {
+        for collection in collections {
+            if let Err(e) = discover_repos_from_relay(state, job_id, collection).await {
+                tracing::warn!(collection, error = %e, "failed to discover repos, skipping");
+            }
+        }
+    }
+
+    let total = count_repos(state, job_id).await;
+    update_job_counter(state, job_id, "total_repos", total).await;
+}
+
+async fn discover_repos_from_relay(
+    state: &AppState,
+    job_id: &str,
     collection: &str,
-) -> Result<Vec<String>, String> {
-    let base = relay_url.trim_end_matches('/');
-    let mut dids = Vec::new();
+) -> Result<(), String> {
+    let base = state.config.relay_url.trim_end_matches('/');
     let mut cursor: Option<String> = None;
 
     loop {
@@ -72,7 +186,8 @@ async fn list_repos_by_collection(
             url.push_str(&format!("&cursor={c}"));
         }
 
-        let resp = http
+        let resp = state
+            .http
             .get(&url)
             .send()
             .await
@@ -88,94 +203,21 @@ async fn list_repos_by_collection(
             .map_err(|e| format!("invalid relay response: {e}"))?;
 
         let page_count = body.repos.len();
-        for repo in body.repos {
-            dids.push(repo.did);
-        }
 
-        match body.cursor {
-            Some(c) if page_count > 0 => cursor = Some(c),
-            _ => break,
-        }
-    }
-
-    Ok(dids)
-}
-
-// ---------------------------------------------------------------------------
-// PDS record fetching
-// ---------------------------------------------------------------------------
-
-/// Fetch all records for a given DID and collection from a PDS via
-/// `com.atproto.repo.listRecords`, paginating and handling rate limits.
-async fn fetch_records_from_pds(
-    state: &AppState,
-    pds_endpoint: &str,
-    did: &str,
-    collection: &str,
-) -> Result<u32, String> {
-    let base = pds_endpoint.trim_end_matches('/');
-    let mut cursor: Option<String> = None;
-    let mut count: u32 = 0;
-
-    loop {
-        let mut url = format!(
-            "{base}/xrpc/com.atproto.repo.listRecords?repo={did}&collection={collection}&limit=100"
-        );
-        if let Some(ref c) = cursor {
-            url.push_str(&format!("&cursor={c}"));
-        }
-
-        let resp = state
-            .http
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| format!("PDS request failed: {e}"))?;
-
-        // Handle rate limiting
-        if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-            let retry_after = resp
-                .headers()
-                .get("retry-after")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.parse::<u64>().ok())
-                .unwrap_or(5);
-            tracing::warn!(
-                did,
-                collection,
-                retry_after,
-                "rate limited by PDS, sleeping"
+        for repo in &body.repos {
+            let sql = adapt_sql(
+                "INSERT INTO backfill_repos (job_id, did) VALUES (?, ?) ON CONFLICT DO NOTHING",
+                state.db_backend,
             );
-            tokio::time::sleep(tokio::time::Duration::from_secs(retry_after)).await;
-            continue; // retry same page
+            let _ = sqlx::query(&sql)
+                .bind(job_id)
+                .bind(&repo.did)
+                .execute(&state.db)
+                .await;
         }
 
-        if !resp.status().is_success() {
-            return Err(format!("PDS returned {}", resp.status()));
-        }
-
-        let body: ListRecordsResponse = resp
-            .json()
-            .await
-            .map_err(|e| format!("invalid PDS response: {e}"))?;
-
-        let page_count = body.records.len();
-
-        for entry in &body.records {
-            let rkey = entry.uri.rsplit('/').next().unwrap_or_default().to_string();
-
-            let event = RecordEvent {
-                did: did.to_string(),
-                collection: collection.to_string(),
-                rkey,
-                action: "create".to_string(),
-                record: Some(entry.value.clone()),
-                cid: Some(entry.cid.clone()),
-            };
-
-            record_handler::handle_record_event(state, &event).await;
-            count += 1;
-        }
+        let total = count_repos(state, job_id).await;
+        update_job_counter(state, job_id, "total_repos", total).await;
 
         match body.cursor {
             Some(c) if page_count > 0 => cursor = Some(c),
@@ -183,199 +225,107 @@ async fn fetch_records_from_pds(
         }
     }
 
-    Ok(count)
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
-// Admin handlers
+// Phase 2: Resolve PDS endpoints
 // ---------------------------------------------------------------------------
 
-/// POST /admin/backfill — create a backfill job and spawn background work.
-pub(super) async fn create_backfill(
-    State(state): State<AppState>,
-    admin: UserAuth,
-    Json(body): Json<CreateBackfillBody>,
-) -> Result<(StatusCode, Json<Value>), AppError> {
-    admin.require(Permission::BackfillCreate).await?;
-    let backend = state.db_backend;
+async fn run_resolution_phase(state: &AppState, job_id: &str) {
+    set_stage(state, job_id, "resolving_pds").await;
 
-    let now = now_rfc3339();
-    let job_id = Uuid::new_v4().to_string();
     let sql = adapt_sql(
-        "INSERT INTO backfill_jobs (id, collection, did, status, started_at, created_at) VALUES (?, ?, ?, 'running', ?, ?) RETURNING id",
-        backend,
+        "SELECT did FROM backfill_repos WHERE job_id = ? AND pds_endpoint IS NULL",
+        state.db_backend,
     );
-    let row: (String,) = sqlx::query_as(&sql)
-        .bind(&job_id)
-        .bind(&body.collection)
-        .bind(&body.did)
-        .bind(&now)
-        .bind(&now)
+    let unresolved: Vec<(String,)> = sqlx::query_as(&sql)
+        .bind(job_id)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+
+    let sql = adapt_sql(
+        "SELECT COUNT(*) FROM backfill_repos WHERE job_id = ? AND pds_endpoint IS NOT NULL",
+        state.db_backend,
+    );
+    let already_resolved: i32 = sqlx::query_as::<_, (i32,)>(&sql)
+        .bind(job_id)
         .fetch_one(&state.db)
         .await
-        .map_err(|e| AppError::Internal(format!("failed to create backfill job: {e}")))?;
+        .map(|(c,)| c)
+        .unwrap_or(0);
 
-    let job_id = row.0.clone();
+    let mut resolved_count = already_resolved;
 
-    log_event(
-        &state.db,
-        EventLog {
-            event_type: "backfill.started".to_string(),
-            severity: Severity::Info,
-            actor_did: Some(admin.did.clone()),
-            subject: body.collection.clone(),
-            detail: serde_json::json!({
-                "job_id": job_id.clone(),
-            }),
-        },
-        backend,
-    )
-    .await;
-
-    // Clone what we need and spawn the background job
-    let spawn_state = state.clone();
-    let spawn_job_id = job_id.clone();
-    let spawn_body = body.clone();
-    tokio::spawn(async move {
-        run_backfill_job(spawn_state, spawn_job_id, spawn_body).await;
-    });
-
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::json!({
-            "id": job_id,
-            "status": "running",
-        })),
-    ))
-}
-
-// ---------------------------------------------------------------------------
-// Background backfill worker
-// ---------------------------------------------------------------------------
-
-async fn run_backfill_job(state: AppState, job_id: String, body: CreateBackfillBody) {
-    let backend = state.db_backend;
-
-    // Determine target collections
-    let collections: Vec<String> = if let Some(ref col) = body.collection {
-        let lexicon_exists: bool = state
-            .lexicons
-            .get(col)
-            .await
-            .is_some_and(|lex| lex.lexicon_type == crate::lexicon::LexiconType::Record);
-        if !lexicon_exists {
-            let error = format!("no record-type lexicon registered for collection '{col}'");
-            fail_job(&state, &job_id, &error).await;
-            return;
-        }
-        vec![col.clone()]
-    } else {
-        let sql = adapt_sql(
-            "SELECT id FROM lexicons WHERE json_extract(lexicon_json, '$.defs.main.type') = 'record'",
-            backend,
-        );
-        let rows: Vec<(String,)> = match sqlx::query_as(&sql).fetch_all(&state.db).await {
-            Ok(rows) => rows,
-            Err(e) => {
-                let error = format!("failed to query backfill-eligible lexicons: {e}");
-                fail_job(&state, &job_id, &error).await;
-                return;
-            }
-        };
-        rows.into_iter().map(|(id,)| id).collect()
-    };
-
-    if collections.is_empty() {
-        complete_job(
-            &state,
-            &job_id,
-            0,
-            0,
-            Some("no backfill-eligible collections"),
-        )
-        .await;
-        return;
-    }
-
-    // Discover DIDs
-    let mut all_dids = Vec::new();
-
-    for collection in &collections {
-        let dids = if let Some(ref did) = body.did {
-            vec![did.clone()]
-        } else {
-            match list_repos_by_collection(&state.http, &state.config.relay_url, collection).await {
-                Ok(dids) => dids,
-                Err(e) => {
-                    tracing::warn!(collection, error = %e, "failed to discover repos, skipping");
-                    continue;
-                }
-            }
-        };
-
-        all_dids.extend(dids);
-    }
-
-    all_dids.sort();
-    all_dids.dedup();
-
-    let total_repos = all_dids.len() as i32;
-
-    // Update total_repos in DB
-    let sql = adapt_sql(
-        "UPDATE backfill_jobs SET total_repos = ? WHERE id = ?",
-        backend,
-    );
-    let _ = sqlx::query(&sql)
-        .bind(total_repos)
-        .bind(&job_id)
-        .execute(&state.db)
-        .await;
-
-    if all_dids.is_empty() {
-        complete_job(&state, &job_id, 0, 0, None).await;
-
-        log_event(
-            &state.db,
-            EventLog {
-                event_type: "backfill.completed".to_string(),
-                severity: Severity::Info,
-                actor_did: None,
-                subject: body.collection.clone(),
-                detail: serde_json::json!({
-                    "job_id": job_id,
-                    "total_repos": 0,
-                    "total_records": 0,
-                }),
-            },
-            backend,
-        )
-        .await;
-        return;
-    }
-
-    // Resolve DIDs to PDS endpoints and group by PDS
-    let mut pds_to_dids: HashMap<String, Vec<String>> = HashMap::new();
-
-    for did in &all_dids {
+    for (did,) in &unresolved {
         match profile::resolve_pds_endpoint(&state.http, &state.config.plc_url, did).await {
             Ok(pds) => {
-                pds_to_dids.entry(pds).or_default().push(did.clone());
+                let sql = adapt_sql(
+                    "UPDATE backfill_repos SET pds_endpoint = ? WHERE job_id = ? AND did = ?",
+                    state.db_backend,
+                );
+                let _ = sqlx::query(&sql)
+                    .bind(&pds)
+                    .bind(job_id)
+                    .bind(did)
+                    .execute(&state.db)
+                    .await;
             }
             Err(e) => {
                 tracing::warn!(did, error = %e, "failed to resolve PDS endpoint, skipping DID");
             }
         }
+        resolved_count += 1;
+        if resolved_count % 100 == 0 {
+            update_job_counter(state, job_id, "processed_repos", resolved_count).await;
+        }
     }
 
-    let processed_repos = Arc::new(AtomicI32::new(0));
+    update_job_counter(state, job_id, "processed_repos", resolved_count).await;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: Fetch records from PDS instances
+// ---------------------------------------------------------------------------
+
+async fn run_fetching_phase(state: &AppState, job_id: &str, collections: &[String]) {
+    set_stage(state, job_id, "fetching_records").await;
+
+    // Load pending repos grouped by PDS
+    let sql = adapt_sql(
+        "SELECT did, pds_endpoint FROM backfill_repos WHERE job_id = ? AND status = 'pending' AND pds_endpoint IS NOT NULL",
+        state.db_backend,
+    );
+    let rows: Vec<(String, String)> = sqlx::query_as(&sql)
+        .bind(job_id)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+
+    let mut pds_to_dids: HashMap<String, Vec<String>> = HashMap::new();
+    for (did, pds) in rows {
+        pds_to_dids.entry(pds).or_default().push(did);
+    }
+
+    // Count already-completed repos for accurate progress
+    let sql = adapt_sql(
+        "SELECT COUNT(*) FROM backfill_repos WHERE job_id = ? AND status = 'completed'",
+        state.db_backend,
+    );
+    let already_completed: i32 = sqlx::query_as::<_, (i32,)>(&sql)
+        .bind(job_id)
+        .fetch_one(&state.db)
+        .await
+        .map(|(c,)| c)
+        .unwrap_or(0);
+
+    let processed_repos = Arc::new(AtomicI32::new(already_completed));
     let total_records = Arc::new(AtomicI32::new(0));
+    let state = Arc::new(state.clone());
+    let collections = Arc::new(collections.to_vec());
+    let job_id_arc = Arc::new(job_id.to_string());
 
-    let state = Arc::new(state);
-    let collections = Arc::new(collections);
-    let job_id_arc = Arc::new(job_id.clone());
-
-    // Process PDSes with nested concurrency
     let pds_entries: Vec<(String, Vec<String>)> = pds_to_dids.into_iter().collect();
 
     stream::iter(pds_entries)
@@ -422,9 +372,19 @@ async fn run_backfill_job(state: AppState, job_id: String, body: CreateBackfillB
                                 }
                             }
 
+                            // Mark DID as completed
+                            let sql = adapt_sql(
+                                "UPDATE backfill_repos SET status = 'completed' WHERE job_id = ? AND did = ?",
+                                state.db_backend,
+                            );
+                            let _ = sqlx::query(&sql)
+                                .bind(job_id.as_str())
+                                .bind(&did)
+                                .execute(&state.db)
+                                .await;
+
                             let repos = processed_repos.fetch_add(1, Ordering::Relaxed) + 1;
 
-                            // Update DB progress every 100 repos
                             if repos % 100 == 0 {
                                 let records = total_records.load(Ordering::Relaxed);
                                 let backend = state.db_backend;
@@ -445,9 +405,212 @@ async fn run_backfill_job(state: AppState, job_id: String, body: CreateBackfillB
             }
         })
         .await;
+}
 
-    let final_processed = processed_repos.load(Ordering::Relaxed);
-    let final_records = total_records.load(Ordering::Relaxed);
+/// Fetch all records for a given DID and collection from a PDS via
+/// `com.atproto.repo.listRecords`, paginating and handling rate limits.
+async fn fetch_records_from_pds(
+    state: &AppState,
+    pds_endpoint: &str,
+    did: &str,
+    collection: &str,
+) -> Result<u32, String> {
+    let base = pds_endpoint.trim_end_matches('/');
+    let mut cursor: Option<String> = None;
+    let mut count: u32 = 0;
+
+    loop {
+        let mut url = format!(
+            "{base}/xrpc/com.atproto.repo.listRecords?repo={did}&collection={collection}&limit=100"
+        );
+        if let Some(ref c) = cursor {
+            url.push_str(&format!("&cursor={c}"));
+        }
+
+        let resp = state
+            .http
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("PDS request failed: {e}"))?;
+
+        // Handle rate limiting
+        if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            let retry_after = resp
+                .headers()
+                .get("retry-after")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(5);
+            tracing::warn!(
+                did,
+                collection,
+                retry_after,
+                "rate limited by PDS, sleeping"
+            );
+            tokio::time::sleep(tokio::time::Duration::from_secs(retry_after)).await;
+            continue;
+        }
+
+        if !resp.status().is_success() {
+            return Err(format!("PDS returned {}", resp.status()));
+        }
+
+        let body: ListRecordsResponse = resp
+            .json()
+            .await
+            .map_err(|e| format!("invalid PDS response: {e}"))?;
+
+        let page_count = body.records.len();
+
+        for entry in &body.records {
+            let rkey = entry.uri.rsplit('/').next().unwrap_or_default().to_string();
+
+            let event = RecordEvent {
+                did: did.to_string(),
+                collection: collection.to_string(),
+                rkey,
+                action: "create".to_string(),
+                record: Some(entry.value.clone()),
+                cid: Some(entry.cid.clone()),
+            };
+
+            record_handler::handle_record_event(state, &event).await;
+            count += 1;
+        }
+
+        match body.cursor {
+            Some(c) if page_count > 0 => cursor = Some(c),
+            _ => break,
+        }
+    }
+
+    Ok(count)
+}
+
+// ---------------------------------------------------------------------------
+// Background backfill worker
+// ---------------------------------------------------------------------------
+
+async fn run_backfill_job(state: AppState, job_id: String) {
+    let backend = state.db_backend;
+
+    // Load job metadata
+    let sql = adapt_sql(
+        "SELECT collection, did, stage FROM backfill_jobs WHERE id = ?",
+        backend,
+    );
+    let job: Option<(Option<String>, Option<String>, String)> = sqlx::query_as(&sql)
+        .bind(&job_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+
+    let Some((collection, did, stage)) = job else {
+        tracing::error!(job_id, "backfill job not found");
+        return;
+    };
+
+    // Determine target collections
+    let collections: Vec<String> = if let Some(ref col) = collection {
+        let lexicon_exists: bool = state
+            .lexicons
+            .get(col)
+            .await
+            .is_some_and(|lex| lex.lexicon_type == crate::lexicon::LexiconType::Record);
+        if !lexicon_exists {
+            let error = format!("no record-type lexicon registered for collection '{col}'");
+            fail_job(&state, &job_id, &error).await;
+            return;
+        }
+        vec![col.clone()]
+    } else {
+        let sql = adapt_sql(
+            "SELECT id FROM lexicons WHERE json_extract(lexicon_json, '$.defs.main.type') = 'record'",
+            backend,
+        );
+        let rows: Vec<(String,)> = match sqlx::query_as(&sql).fetch_all(&state.db).await {
+            Ok(rows) => rows,
+            Err(e) => {
+                let error = format!("failed to query backfill-eligible lexicons: {e}");
+                fail_job(&state, &job_id, &error).await;
+                return;
+            }
+        };
+        rows.into_iter().map(|(id,)| id).collect()
+    };
+
+    if collections.is_empty() {
+        complete_job(
+            &state,
+            &job_id,
+            0,
+            0,
+            Some("no backfill-eligible collections"),
+        )
+        .await;
+        return;
+    }
+
+    // Run phases, skipping those already completed
+    if matches!(stage.as_str(), "pending" | "discovering_repos") {
+        run_discovery_phase(&state, &job_id, &collections, did.as_deref()).await;
+
+        let total = count_repos(&state, &job_id).await;
+        if total == 0 {
+            complete_job(&state, &job_id, 0, 0, None).await;
+            log_event(
+                &state.db,
+                EventLog {
+                    event_type: "backfill.completed".to_string(),
+                    severity: Severity::Info,
+                    actor_did: None,
+                    subject: collection.clone(),
+                    detail: serde_json::json!({
+                        "job_id": job_id,
+                        "total_repos": 0,
+                        "total_records": 0,
+                    }),
+                },
+                backend,
+            )
+            .await;
+            return;
+        }
+    }
+
+    if matches!(
+        stage.as_str(),
+        "pending" | "discovering_repos" | "resolving_pds"
+    ) {
+        run_resolution_phase(&state, &job_id).await;
+    }
+
+    run_fetching_phase(&state, &job_id, &collections).await;
+
+    // Read final counters from backfill_repos before cleanup
+    let sql = adapt_sql(
+        "SELECT COUNT(*) FROM backfill_repos WHERE job_id = ? AND status = 'completed'",
+        state.db_backend,
+    );
+    let final_processed: i32 = sqlx::query_as::<_, (i32,)>(&sql)
+        .bind(&job_id)
+        .fetch_one(&state.db)
+        .await
+        .map(|(c,)| c)
+        .unwrap_or(0);
+
+    let sql = adapt_sql(
+        "SELECT total_records FROM backfill_jobs WHERE id = ?",
+        state.db_backend,
+    );
+    let final_records: i32 = sqlx::query_as::<_, (i32,)>(&sql)
+        .bind(&job_id)
+        .fetch_one(&state.db)
+        .await
+        .map(|(c,)| c)
+        .unwrap_or(0);
 
     complete_job(&state, &job_id, final_processed, final_records, None).await;
 
@@ -457,7 +620,7 @@ async fn run_backfill_job(state: AppState, job_id: String, body: CreateBackfillB
             event_type: "backfill.completed".to_string(),
             severity: Severity::Info,
             actor_did: None,
-            subject: body.collection.clone(),
+            subject: collection,
             detail: serde_json::json!({
                 "job_id": job_id,
                 "total_repos": final_processed,
@@ -470,46 +633,64 @@ async fn run_backfill_job(state: AppState, job_id: String, body: CreateBackfillB
 }
 
 // ---------------------------------------------------------------------------
-// Helper functions
+// Admin handlers
 // ---------------------------------------------------------------------------
 
-async fn fail_job(state: &AppState, job_id: &str, error: &str) {
-    let now = now_rfc3339();
-    let backend = state.db_backend;
-    let sql = adapt_sql(
-        "UPDATE backfill_jobs SET status = 'failed', completed_at = ?, error = ? WHERE id = ?",
-        backend,
-    );
-    let _ = sqlx::query(&sql)
-        .bind(&now)
-        .bind(error)
-        .bind(job_id)
-        .execute(&state.db)
-        .await;
-}
-
-async fn complete_job(
-    state: &AppState,
-    job_id: &str,
-    processed_repos: i32,
-    total_records: i32,
-    error: Option<&str>,
-) {
-    let now = now_rfc3339();
+/// POST /admin/backfill — create a backfill job and spawn background work.
+pub(super) async fn create_backfill(
+    State(state): State<AppState>,
+    admin: UserAuth,
+    Json(body): Json<CreateBackfillBody>,
+) -> Result<(StatusCode, Json<Value>), AppError> {
+    admin.require(Permission::BackfillCreate).await?;
     let backend = state.db_backend;
 
+    let now = now_rfc3339();
+    let job_id = Uuid::new_v4().to_string();
     let sql = adapt_sql(
-        "UPDATE backfill_jobs SET status = 'completed', completed_at = ?, processed_repos = ?, total_records = ?, error = ? WHERE id = ?",
+        "INSERT INTO backfill_jobs (id, collection, did, status, stage, started_at, created_at) VALUES (?, ?, ?, 'running', 'pending', ?, ?) RETURNING id",
         backend,
     );
-    let _ = sqlx::query(&sql)
+    let row: (String,) = sqlx::query_as(&sql)
+        .bind(&job_id)
+        .bind(&body.collection)
+        .bind(&body.did)
         .bind(&now)
-        .bind(processed_repos)
-        .bind(total_records)
-        .bind(error)
-        .bind(job_id)
-        .execute(&state.db)
-        .await;
+        .bind(&now)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to create backfill job: {e}")))?;
+
+    let job_id = row.0.clone();
+
+    log_event(
+        &state.db,
+        EventLog {
+            event_type: "backfill.started".to_string(),
+            severity: Severity::Info,
+            actor_did: Some(admin.did.clone()),
+            subject: body.collection.clone(),
+            detail: serde_json::json!({
+                "job_id": job_id.clone(),
+            }),
+        },
+        backend,
+    )
+    .await;
+
+    let spawn_state = state.clone();
+    let spawn_job_id = job_id.clone();
+    tokio::spawn(async move {
+        run_backfill_job(spawn_state, spawn_job_id).await;
+    });
+
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({
+            "id": job_id,
+            "status": "running",
+        })),
+    ))
 }
 
 /// GET /admin/backfill/status — list all backfill jobs.
@@ -521,7 +702,7 @@ pub(super) async fn backfill_status(
     let backend = state.db_backend;
 
     let sql = adapt_sql(
-        "SELECT id, collection, did, status, total_repos, processed_repos, total_records, error, started_at, completed_at, created_at FROM backfill_jobs ORDER BY created_at DESC",
+        "SELECT id, collection, did, status, stage, total_repos, processed_repos, total_records, error, started_at, completed_at, created_at FROM backfill_jobs ORDER BY created_at DESC",
         backend,
     );
     #[allow(clippy::type_complexity)]
@@ -529,6 +710,7 @@ pub(super) async fn backfill_status(
         String,
         Option<String>,
         Option<String>,
+        String,
         String,
         Option<i32>,
         Option<i32>,
@@ -550,6 +732,7 @@ pub(super) async fn backfill_status(
                 collection,
                 did,
                 status,
+                stage,
                 total_repos,
                 processed_repos,
                 total_records,
@@ -563,6 +746,7 @@ pub(super) async fn backfill_status(
                     collection,
                     did,
                     status,
+                    stage,
                     total_repos,
                     processed_repos,
                     total_records,
@@ -576,4 +760,28 @@ pub(super) async fn backfill_status(
         .collect();
 
     Ok(Json(jobs))
+}
+
+// ---------------------------------------------------------------------------
+// Startup resumption
+// ---------------------------------------------------------------------------
+
+/// Resume any backfill jobs that were running when the server last stopped.
+pub async fn resume_backfill_jobs(state: &AppState) {
+    let sql = adapt_sql(
+        "SELECT id FROM backfill_jobs WHERE status = 'running'",
+        state.db_backend,
+    );
+    let rows: Vec<(String,)> = sqlx::query_as(&sql)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+
+    for (job_id,) in rows {
+        tracing::info!(job_id, "resuming interrupted backfill job");
+        let spawn_state = state.clone();
+        tokio::spawn(async move {
+            run_backfill_job(spawn_state, job_id).await;
+        });
+    }
 }

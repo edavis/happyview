@@ -1,7 +1,7 @@
 mod api_clients;
 mod api_keys;
 pub(crate) mod auth;
-mod backfill;
+pub mod backfill;
 mod dead_letters;
 mod domains;
 mod events;
