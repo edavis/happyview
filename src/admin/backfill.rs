@@ -346,6 +346,7 @@ async fn run_resolution_phase(state: &AppState, job_id: &str) {
 
     let mut resolved_count = already_resolved;
 
+    let mut attempted = already_resolved;
     for (did,) in &unresolved {
         match profile::resolve_pds_endpoint(&state.http, &state.config.plc_url, did).await {
             Ok(pds) => {
@@ -359,13 +360,14 @@ async fn run_resolution_phase(state: &AppState, job_id: &str) {
                     .bind(did)
                     .execute(&state.db)
                     .await;
+                resolved_count += 1;
             }
             Err(e) => {
                 tracing::warn!(did, error = %e, "failed to resolve PDS endpoint, skipping DID");
             }
         }
-        resolved_count += 1;
-        if resolved_count % 100 == 0 {
+        attempted += 1;
+        if attempted % 100 == 0 {
             update_job_counter(state, job_id, "processed_repos", resolved_count).await;
             if is_cancelled(state, job_id).await {
                 return;
