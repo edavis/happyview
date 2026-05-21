@@ -182,6 +182,38 @@ pub(super) async fn delete(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// GET /admin/settings/db-info — return database connection pool info.
+pub(super) async fn db_info(
+    State(state): State<AppState>,
+    auth: UserAuth,
+) -> Result<Json<serde_json::Value>, AppError> {
+    auth.require(Permission::SettingsManage).await?;
+
+    let server_max: Option<i64> = if state.db_backend == DatabaseBackend::Postgres {
+        sqlx::query_as::<_, (String,)>("SHOW max_connections")
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|(v,)| v.parse().ok())
+    } else {
+        None
+    };
+
+    let main_pool_size = state.db.size() as i64;
+    let backfill_pool_size = state.backfill_db.size() as i64;
+
+    Ok(Json(serde_json::json!({
+        "backend": match state.db_backend {
+            DatabaseBackend::Sqlite => "sqlite",
+            DatabaseBackend::Postgres => "postgres",
+        },
+        "server_max_connections": server_max,
+        "main_pool_size": main_pool_size,
+        "backfill_pool_size": backfill_pool_size,
+    })))
+}
+
 /// PUT /admin/settings/logo — upload a logo image (max 5MB).
 pub(super) async fn upload_logo(
     State(state): State<AppState>,

@@ -38,6 +38,7 @@ async fn main() {
 
     // Connect to database and run migrations.
     let db_pool = db::connect(&config.database_url, db_backend).await;
+    let backfill_db_pool = db::connect_backfill_pool(&config.database_url, db_backend).await;
 
     info!(
         backend = ?db_backend,
@@ -618,6 +619,7 @@ async fn main() {
         config: config.clone(),
         http,
         db: db_pool,
+        backfill_db: backfill_db_pool,
         db_backend,
         domain_cache: domain_cache.clone(),
         lexicons,

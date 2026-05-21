@@ -66,7 +66,7 @@ async fn set_stage(state: &AppState, job_id: &str, stage: &str) {
     let _ = sqlx::query(&sql)
         .bind(stage)
         .bind(job_id)
-        .execute(&state.db)
+        .execute(&state.backfill_db)
         .await;
     publish_event(
         state,
@@ -95,7 +95,7 @@ async fn update_job_counter(state: &AppState, job_id: &str, column: &str, value:
     let _ = sqlx::query(&sql)
         .bind(value)
         .bind(job_id)
-        .execute(&state.db)
+        .execute(&state.backfill_db)
         .await;
 }
 
@@ -106,7 +106,7 @@ async fn count_repos(state: &AppState, job_id: &str) -> i32 {
     );
     sqlx::query_as::<_, (i32,)>(&sql)
         .bind(job_id)
-        .fetch_one(&state.db)
+        .fetch_one(&state.backfill_db)
         .await
         .map(|(c,)| c)
         .unwrap_or(0)
@@ -165,7 +165,7 @@ async fn fail_job(state: &AppState, job_id: &str, error: &str) {
         .bind(&now)
         .bind(error)
         .bind(job_id)
-        .execute(&state.db)
+        .execute(&state.backfill_db)
         .await;
     publish_event(
         state,
@@ -184,7 +184,7 @@ async fn is_cancelled(state: &AppState, job_id: &str) -> bool {
     );
     sqlx::query_as::<_, (String,)>(&sql)
         .bind(job_id)
-        .fetch_optional(&state.db)
+        .fetch_optional(&state.backfill_db)
         .await
         .ok()
         .flatten()
@@ -196,7 +196,10 @@ async fn request_cancel(state: &AppState, job_id: &str) {
         "UPDATE backfill_jobs SET status = 'cancelling' WHERE id = ? AND status = 'running'",
         state.db_backend,
     );
-    let _ = sqlx::query(&sql).bind(job_id).execute(&state.db).await;
+    let _ = sqlx::query(&sql)
+        .bind(job_id)
+        .execute(&state.backfill_db)
+        .await;
 }
 
 async fn finalise_cancel(state: &AppState, job_id: &str) {
@@ -208,7 +211,7 @@ async fn finalise_cancel(state: &AppState, job_id: &str) {
     let _ = sqlx::query(&sql)
         .bind(&now)
         .bind(job_id)
-        .execute(&state.db)
+        .execute(&state.backfill_db)
         .await;
     publish_event(
         state,
@@ -238,7 +241,7 @@ async fn complete_job(
         .bind(total_records)
         .bind(error)
         .bind(job_id)
-        .execute(&state.db)
+        .execute(&state.backfill_db)
         .await;
     publish_event(
         state,
@@ -270,7 +273,7 @@ async fn run_discovery_phase(
         let _ = sqlx::query(&sql)
             .bind(job_id)
             .bind(did)
-            .execute(&state.db)
+            .execute(&state.backfill_db)
             .await;
         publish_event(
             state,
@@ -370,7 +373,7 @@ async fn discover_repos_from_relay(
                 for repo in chunk {
                     query = query.bind(job_id).bind(&repo.did);
                 }
-                if let Ok(result) = query.execute(&state.db).await {
+                if let Ok(result) = query.execute(&state.backfill_db).await {
                     running_total += result.rows_affected() as i32;
                 }
                 for repo in chunk {
@@ -420,7 +423,7 @@ async fn run_pipelined_resolve_and_fetch(
         );
         sqlx::query_as::<_, (i32,)>(&sql)
             .bind(job_id)
-            .fetch_one(&state.db)
+            .fetch_one(&state.backfill_db)
             .await
             .map(|(c,)| c)
             .unwrap_or(0)
@@ -433,7 +436,7 @@ async fn run_pipelined_resolve_and_fetch(
         );
         sqlx::query_as::<_, (i32,)>(&sql)
             .bind(job_id)
-            .fetch_one(&state.db)
+            .fetch_one(&state.backfill_db)
             .await
             .map(|(c,)| c)
             .unwrap_or(0)
@@ -449,7 +452,7 @@ async fn run_pipelined_resolve_and_fetch(
         );
         sqlx::query_as::<_, (Option<i32>,)>(&sql)
             .bind(job_id)
-            .fetch_one(&state.db)
+            .fetch_one(&state.backfill_db)
             .await
             .map(|(c,)| c.unwrap_or(0))
             .unwrap_or(0)
@@ -479,7 +482,7 @@ async fn run_pipelined_resolve_and_fetch(
         );
         let unresolved: Vec<(String,)> = sqlx::query_as(&sql)
             .bind(&resolver_job_id)
-            .fetch_all(&resolver_state.db)
+            .fetch_all(&resolver_state.backfill_db)
             .await
             .unwrap_or_default();
 
@@ -520,7 +523,7 @@ async fn run_pipelined_resolve_and_fetch(
                         .bind(&pds)
                         .bind(&resolver_job_id)
                         .bind(&did)
-                        .execute(&resolver_state.db)
+                        .execute(&resolver_state.backfill_db)
                         .await;
 
                     publish_event(
@@ -592,7 +595,7 @@ async fn run_pipelined_resolve_and_fetch(
     );
     let pending_rows: Vec<(String, String)> = sqlx::query_as(&pending_sql)
         .bind(job_id)
-        .fetch_all(&state.db)
+        .fetch_all(&state.backfill_db)
         .await
         .unwrap_or_default();
 
@@ -754,7 +757,7 @@ async fn run_pipelined_resolve_and_fetch(
         .bind(final_repos)
         .bind(final_records)
         .bind(job_id)
-        .execute(&state.db)
+        .execute(&state.backfill_db)
         .await;
 
     (final_repos, final_records)
@@ -801,7 +804,7 @@ async fn run_pds_worker(ctx: FetchContext, pds_endpoint: String, mut rx: mpsc::R
                     .bind(records)
                     .bind(job_id.as_str())
                     .bind(&did)
-                    .execute(&state.db)
+                    .execute(&state.backfill_db)
                     .await;
 
                 publish_event(&state, super::types::BackfillEvent::RepoFetched {
@@ -822,7 +825,7 @@ async fn run_pds_worker(ctx: FetchContext, pds_endpoint: String, mut rx: mpsc::R
                         .bind(repos)
                         .bind(records)
                         .bind(job_id.as_str())
-                        .execute(&state.db)
+                        .execute(&state.backfill_db)
                         .await;
 
                     if is_cancelled(&state, job_id.as_str()).await {
@@ -896,7 +899,7 @@ async fn run_pds_worker(ctx: FetchContext, pds_endpoint: String, mut rx: mpsc::R
             .bind(records)
             .bind(job_id.as_str())
             .bind(&did)
-            .execute(&state.db)
+            .execute(&state.backfill_db)
             .await;
 
         publish_event(
@@ -932,7 +935,7 @@ async fn run_fetching_phase(
     );
     let rows: Vec<(String, String)> = sqlx::query_as(&sql)
         .bind(job_id)
-        .fetch_all(&state.db)
+        .fetch_all(&state.backfill_db)
         .await
         .unwrap_or_default();
 
@@ -948,7 +951,7 @@ async fn run_fetching_phase(
     );
     let already_completed: i32 = sqlx::query_as::<_, (i32,)>(&sql)
         .bind(job_id)
-        .fetch_one(&state.db)
+        .fetch_one(&state.backfill_db)
         .await
         .map(|(c,)| c)
         .unwrap_or(0);
@@ -964,7 +967,7 @@ async fn run_fetching_phase(
         );
         sqlx::query_as::<_, (Option<i32>,)>(&sql)
             .bind(job_id)
-            .fetch_one(&state.db)
+            .fetch_one(&state.backfill_db)
             .await
             .map(|(c,)| c.unwrap_or(0))
             .unwrap_or(0)
@@ -1046,7 +1049,7 @@ async fn run_fetching_phase(
                                 .bind(did_records)
                                 .bind(job_id.as_str())
                                 .bind(&did)
-                                .execute(&state.db)
+                                .execute(&state.backfill_db)
                                 .await;
 
                             let repos = processed_repos.fetch_add(1, Ordering::Relaxed) + 1;
@@ -1065,7 +1068,7 @@ async fn run_fetching_phase(
                                     .bind(repos)
                                     .bind(records)
                                     .bind(job_id.as_str())
-                                    .execute(&state.db)
+                                    .execute(&state.backfill_db)
                                     .await;
 
                                 if is_cancelled(&state, job_id.as_str()).await {
@@ -1099,7 +1102,7 @@ async fn run_fetching_phase(
         .bind(final_repos)
         .bind(final_records)
         .bind(job_id)
-        .execute(&state.db)
+        .execute(&state.backfill_db)
         .await;
 
     (final_repos, final_records)
@@ -1189,7 +1192,7 @@ async fn run_backfill_job(state: AppState, job_id: String) {
     );
     let job: Option<(Option<String>, Option<String>, String)> = sqlx::query_as(&sql)
         .bind(&job_id)
-        .fetch_optional(&state.db)
+        .fetch_optional(&state.backfill_db)
         .await
         .ok()
         .flatten();
@@ -1217,7 +1220,7 @@ async fn run_backfill_job(state: AppState, job_id: String) {
             "SELECT id FROM lexicons WHERE json_extract(lexicon_json, '$.defs.main.type') = 'record'",
             backend,
         );
-        let rows: Vec<(String,)> = match sqlx::query_as(&sql).fetch_all(&state.db).await {
+        let rows: Vec<(String,)> = match sqlx::query_as(&sql).fetch_all(&state.backfill_db).await {
             Ok(rows) => rows,
             Err(e) => {
                 let error = format!("failed to query backfill-eligible lexicons: {e}");
@@ -1692,11 +1695,14 @@ pub async fn run_backfill_retention_cleanup(state: &AppState) {
     loop {
         interval.tick().await;
 
-        let retention_days: i64 =
-            get_setting(&state.db, "backfill_retention_days", state.db_backend)
-                .await
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(28);
+        let retention_days: i64 = get_setting(
+            &state.backfill_db,
+            "backfill_retention_days",
+            state.db_backend,
+        )
+        .await
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(28);
 
         if retention_days == 0 {
             continue;
@@ -1709,7 +1715,11 @@ pub async fn run_backfill_retention_cleanup(state: &AppState) {
             "DELETE FROM backfill_repos WHERE job_id IN (SELECT id FROM backfill_jobs WHERE completed_at IS NOT NULL AND completed_at < ?)",
             state.db_backend,
         );
-        match sqlx::query(&sql).bind(&cutoff_str).execute(&state.db).await {
+        match sqlx::query(&sql)
+            .bind(&cutoff_str)
+            .execute(&state.backfill_db)
+            .await
+        {
             Ok(result) => {
                 let deleted = result.rows_affected();
                 if deleted > 0 {
@@ -1739,7 +1749,7 @@ pub async fn resume_backfill_jobs(state: &AppState) {
         state.db_backend,
     );
     let rows: Vec<(String, String)> = sqlx::query_as(&sql)
-        .fetch_all(&state.db)
+        .fetch_all(&state.backfill_db)
         .await
         .unwrap_or_default();
 

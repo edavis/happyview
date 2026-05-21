@@ -94,6 +94,7 @@ pub fn admin_routes(_state: AppState) -> Router<AppState> {
         )
         .route("/feature-flags", get(feature_flags::list))
         .route("/settings", get(settings::list))
+        .route("/settings/db-info", get(settings::db_info))
         .route(
             "/settings/logo",
             put(settings::upload_logo).delete(settings::delete_logo),

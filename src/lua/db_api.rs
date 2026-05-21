@@ -755,6 +755,7 @@ mod tests {
             config,
             http: reqwest::Client::new(),
             db: test_db.clone(),
+            backfill_db: test_db.clone(),
             db_backend: DatabaseBackend::Sqlite,
             domain_cache: crate::domain::DomainCache::new(),
             lexicons: LexiconRegistry::new(),

@@ -167,6 +167,7 @@ impl TestApp {
             proxy_config: std::sync::Arc::new(arc_swap::ArcSwap::new(std::sync::Arc::new(
                 happyview::proxy_config::ProxyConfig::default(),
             ))),
+            backfill_db: pool.clone(),
             backfill_events_tx: tokio::sync::broadcast::channel(16).0,
         };
 

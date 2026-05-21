@@ -365,6 +365,17 @@ export function getSettings() {
   return apiFetch<SettingEntry[]>("/admin/settings");
 }
 
+export type DbInfo = {
+  backend: "sqlite" | "postgres";
+  server_max_connections: number | null;
+  main_pool_size: number;
+  backfill_pool_size: number;
+};
+
+export function getDbInfo() {
+  return apiFetch<DbInfo>("/admin/settings/db-info");
+}
+
 export function upsertSetting(key: string, value: string) {
   return apiFetch(`/admin/settings/${encodeURIComponent(key)}`, {
     method: "PUT",
