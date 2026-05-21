@@ -16,6 +16,15 @@ use super::types::{SettingEntry, UpsertSettingBody};
 
 const ENV_FALLBACKS: &[(&str, &str)] = &[
     ("app_name", "APP_NAME"),
+    (
+        "backfill_concurrent_dids_per_pds",
+        "BACKFILL_CONCURRENT_DIDS_PER_PDS",
+    ),
+    ("backfill_concurrent_pds", "BACKFILL_CONCURRENT_PDS"),
+    (
+        "backfill_concurrent_resolution",
+        "BACKFILL_CONCURRENT_RESOLUTION",
+    ),
     ("backfill_retention_days", "BACKFILL_RETENTION_DAYS"),
     ("client_uri", "CLIENT_URI"),
     ("feature.spaces_enabled", "FEATURE_SPACES_ENABLED"),

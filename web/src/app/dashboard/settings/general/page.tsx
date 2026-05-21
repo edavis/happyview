@@ -19,11 +19,14 @@ import { Label } from "@/components/ui/label"
 
 const SETTING_KEYS = [
   "app_name",
+  "backfill_concurrent_dids_per_pds",
+  "backfill_concurrent_pds",
+  "backfill_concurrent_resolution",
+  "backfill_retention_days",
   "client_uri",
   "logo_uri",
   "tos_uri",
   "policy_uri",
-  "backfill_retention_days",
 ] as const
 
 type FieldKey = (typeof SETTING_KEYS)[number]
@@ -77,19 +80,25 @@ export default function GeneralSettingsPage() {
 
   const [values, setValues] = useState<Record<FieldKey, string>>({
     app_name: "",
+    backfill_concurrent_dids_per_pds: "3",
+    backfill_concurrent_pds: "10",
+    backfill_concurrent_resolution: "100",
+    backfill_retention_days: "28",
     client_uri: "",
     logo_uri: "",
     tos_uri: "",
     policy_uri: "",
-    backfill_retention_days: "28",
   })
   const [sources, setSources] = useState<Record<FieldKey, "database" | "env" | "unset">>({
     app_name: "unset",
+    backfill_concurrent_dids_per_pds: "unset",
+    backfill_concurrent_pds: "unset",
+    backfill_concurrent_resolution: "unset",
+    backfill_retention_days: "unset",
     client_uri: "unset",
     logo_uri: "unset",
     tos_uri: "unset",
     policy_uri: "unset",
-    backfill_retention_days: "unset",
   })
   const [logoUploaded, setLogoUploaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -101,21 +110,29 @@ export default function GeneralSettingsPage() {
     try {
       const entries = await getSettings()
       const byKey = new Map<string, SettingEntry>(entries.map((e) => [e.key, e]))
+      const val = (key: string, fallback: string) => byKey.get(key)?.value ?? fallback
+      const src = (key: string) => (byKey.get(key)?.source as "database" | "env" | undefined) ?? "unset"
       setValues({
-        app_name: byKey.get("app_name")?.value ?? "",
-        client_uri: byKey.get("client_uri")?.value ?? "",
-        logo_uri: byKey.get("logo_uri")?.value ?? "",
-        tos_uri: byKey.get("tos_uri")?.value ?? "",
-        policy_uri: byKey.get("policy_uri")?.value ?? "",
-        backfill_retention_days: byKey.get("backfill_retention_days")?.value ?? "28",
+        app_name: val("app_name", ""),
+        backfill_concurrent_dids_per_pds: val("backfill_concurrent_dids_per_pds", "3"),
+        backfill_concurrent_pds: val("backfill_concurrent_pds", "10"),
+        backfill_concurrent_resolution: val("backfill_concurrent_resolution", "100"),
+        backfill_retention_days: val("backfill_retention_days", "28"),
+        client_uri: val("client_uri", ""),
+        logo_uri: val("logo_uri", ""),
+        tos_uri: val("tos_uri", ""),
+        policy_uri: val("policy_uri", ""),
       })
       setSources({
-        app_name: (byKey.get("app_name")?.source as "database" | "env" | undefined) ?? "unset",
-        client_uri: (byKey.get("client_uri")?.source as "database" | "env" | undefined) ?? "unset",
-        logo_uri: (byKey.get("logo_uri")?.source as "database" | "env" | undefined) ?? "unset",
-        tos_uri: (byKey.get("tos_uri")?.source as "database" | "env" | undefined) ?? "unset",
-        policy_uri: (byKey.get("policy_uri")?.source as "database" | "env" | undefined) ?? "unset",
-        backfill_retention_days: (byKey.get("backfill_retention_days")?.source as "database" | "env" | undefined) ?? "unset",
+        app_name: src("app_name"),
+        backfill_concurrent_dids_per_pds: src("backfill_concurrent_dids_per_pds"),
+        backfill_concurrent_pds: src("backfill_concurrent_pds"),
+        backfill_concurrent_resolution: src("backfill_concurrent_resolution"),
+        backfill_retention_days: src("backfill_retention_days"),
+        client_uri: src("client_uri"),
+        logo_uri: src("logo_uri"),
+        tos_uri: src("tos_uri"),
+        policy_uri: src("policy_uri"),
       })
       setLogoUploaded(byKey.has("logo_data"))
     } catch (e: unknown) {
@@ -142,13 +159,21 @@ export default function GeneralSettingsPage() {
           await upsertSetting(field.key, value)
         }
       }
-      const retentionValue = values["backfill_retention_days"]
-      if (retentionValue === "") {
-        if (sources["backfill_retention_days"] === "database") {
-          await deleteSetting("backfill_retention_days")
+      const backfillKeys = [
+        "backfill_concurrent_dids_per_pds",
+        "backfill_concurrent_pds",
+        "backfill_concurrent_resolution",
+        "backfill_retention_days",
+      ] as const
+      for (const key of backfillKeys) {
+        const value = values[key]
+        if (value === "") {
+          if (sources[key] === "database") {
+            await deleteSetting(key)
+          }
+        } else {
+          await upsertSetting(key, value)
         }
-      } else {
-        await upsertSetting("backfill_retention_days", retentionValue)
       }
       setNotice("Settings saved.")
       await load()
@@ -295,6 +320,37 @@ export default function GeneralSettingsPage() {
             How long to keep per-repo detail data from completed backfill jobs. Set to 0 to keep indefinitely.
           </p>
         </div>
+
+        <div>
+          <h2 className="text-lg font-semibold">Backfill Performance</h2>
+          <p className="text-muted-foreground text-sm">
+            Tune concurrency limits for backfill jobs. Changes apply to the next job started.
+          </p>
+        </div>
+
+        {([
+          { key: "backfill_concurrent_resolution" as const, id: "backfill_concurrent_resolution", label: "Concurrent PLC Resolutions", placeholder: "100", description: "How many DID document lookups to run in parallel during PDS resolution." },
+          { key: "backfill_concurrent_pds" as const, id: "backfill_concurrent_pds", label: "Concurrent PDS Hosts", placeholder: "10", description: "How many PDS servers to fetch records from simultaneously." },
+          { key: "backfill_concurrent_dids_per_pds" as const, id: "backfill_concurrent_dids_per_pds", label: "Concurrent DIDs per PDS", placeholder: "3", description: "How many repos to fetch concurrently from each PDS host." },
+        ]).map((field) => (
+          <div key={field.key} className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor={field.id}>{field.label}</Label>
+              {sources[field.key] === "env" && (
+                <span className="text-xs text-muted-foreground">from env var</span>
+              )}
+            </div>
+            <Input
+              id={field.id}
+              type="number"
+              value={values[field.key]}
+              onChange={(e) => setValues((v) => ({ ...v, [field.key]: e.target.value }))}
+              placeholder={field.placeholder}
+              disabled={!canManage}
+            />
+            <p className="text-muted-foreground text-xs">{field.description}</p>
+          </div>
+        ))}
 
         <div className="flex justify-end pt-2">
           <Button
