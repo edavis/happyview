@@ -7,11 +7,145 @@ use std::sync::Arc;
 use crate::AppState;
 use crate::db::{DatabaseBackend, adapt_sql, decode_cursor, encode_cursor};
 
+const MAX_FILTER_DEPTH: u8 = 5;
+const ALLOWED_OPS: &[&str] = &["=", "!=", "<", ">", "<=", ">=", "LIKE", "NOT LIKE"];
+
+fn is_valid_json_field_path(path: &str) -> bool {
+    if path.is_empty() {
+        return false;
+    }
+    for segment in path.split('.') {
+        if segment.is_empty() {
+            return false;
+        }
+        let bracket_start = segment.find('[').unwrap_or(segment.len());
+        let ident = &segment[..bracket_start];
+        if ident.is_empty() || !ident.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return false;
+        }
+        let mut rest = &segment[bracket_start..];
+        while !rest.is_empty() {
+            if !rest.starts_with('[') {
+                return false;
+            }
+            let close = match rest.find(']') {
+                Some(i) => i,
+                None => return false,
+            };
+            let idx = &rest[1..close];
+            if idx.is_empty() || !idx.chars().all(|c| c.is_ascii_digit()) {
+                return false;
+            }
+            rest = &rest[close + 1..];
+        }
+    }
+    true
+}
+
+enum FilterNode {
+    Condition {
+        field: String,
+        op: String,
+        value: String,
+    },
+    Group {
+        combine: String,
+        children: Vec<FilterNode>,
+    },
+}
+
+fn parse_filter_node(table: &mlua::Table, depth: u8) -> LuaResult<FilterNode> {
+    if depth >= MAX_FILTER_DEPTH {
+        return Err(mlua::Error::runtime(format!(
+            "filter nesting too deep (max {MAX_FILTER_DEPTH} levels)",
+        )));
+    }
+
+    if let Ok(field) = table.get::<String>("field") {
+        if !is_valid_json_field_path(&field) {
+            return Err(mlua::Error::runtime(format!(
+                "invalid filter field '{field}': use alphanumeric names with optional dot notation and array indices (e.g. 'name', 'author.handle', 'tags[0]')",
+            )));
+        }
+
+        let op: String = table
+            .get::<String>("op")
+            .unwrap_or_else(|_| "=".to_string());
+        let op_upper = op.to_uppercase();
+        if !ALLOWED_OPS.contains(&op_upper.as_str()) {
+            return Err(mlua::Error::runtime(format!(
+                "invalid filter op '{op}': must be one of {ALLOWED_OPS:?}",
+            )));
+        }
+
+        let val: mlua::Value = table.get("value")?;
+        let value = match val {
+            mlua::Value::String(s) => s.to_str()?.to_string(),
+            mlua::Value::Integer(n) => n.to_string(),
+            mlua::Value::Number(n) => n.to_string(),
+            mlua::Value::Boolean(b) => (if b { "true" } else { "false" }).to_string(),
+            other => {
+                return Err(mlua::Error::runtime(format!(
+                    "unsupported filter value type for '{field}': {}",
+                    other.type_name()
+                )));
+            }
+        };
+
+        return Ok(FilterNode::Condition {
+            field,
+            op: op_upper,
+            value,
+        });
+    }
+
+    let combine: String = table
+        .get::<String>("combine")
+        .unwrap_or_else(|_| "AND".to_string())
+        .to_uppercase();
+    if combine != "AND" && combine != "OR" {
+        return Err(mlua::Error::runtime(format!(
+            "invalid filter combine '{combine}': must be 'AND' or 'OR'",
+        )));
+    }
+
+    let mut children = Vec::new();
+    for child in table.sequence_values::<mlua::Table>() {
+        children.push(parse_filter_node(&child?, depth + 1)?);
+    }
+
+    if children.is_empty() {
+        return Err(mlua::Error::runtime("filter group has no conditions"));
+    }
+
+    Ok(FilterNode::Group { combine, children })
+}
+
+fn build_filter_sql(node: &FilterNode, binds: &mut Vec<String>) -> String {
+    match node {
+        FilterNode::Condition { field, op, value } => {
+            binds.push(value.clone());
+            format!("json_extract(record, '$.value.{field}') {op} ?")
+        }
+        FilterNode::Group { combine, children } => {
+            let parts: Vec<String> = children
+                .iter()
+                .map(|c| build_filter_sql(c, binds))
+                .collect();
+            if parts.len() == 1 {
+                parts.into_iter().next().unwrap()
+            } else {
+                format!("({})", parts.join(&format!(" {combine} ")))
+            }
+        }
+    }
+}
+
 /// Register the `db` table with database query functions.
 pub fn register_db_api(lua: &Lua, state: Arc<AppState>) -> LuaResult<()> {
     let db_table = lua.create_table()?;
 
-    // db.query({ collection, did?, limit?, offset?, cursor?, sort?, sortDirection? }) -> { records, cursor? }
+    // db.query({ collection, did?, limit?, offset?, cursor?, sort?, sortDirection?, filter? }) -> { records, cursor? }
     let state_query = state.clone();
     let query_fn = lua.create_async_function(move |lua, opts: mlua::Table| {
         let state = state_query.clone();
@@ -24,14 +158,12 @@ pub fn register_db_api(lua: &Lua, state: Arc<AppState>) -> LuaResult<()> {
             let sort_direction: Option<String> = opts.get("sortDirection").ok();
             let cursor_str: Option<String> = opts.get("cursor").ok();
 
-            // Validate sort field name to prevent SQL injection
-            if let Some(ref field) = sort {
-                let valid = field.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-                if !valid || field.is_empty() {
-                    return Err(mlua::Error::runtime(
-                        "invalid sort field: only alphanumeric characters and underscores are allowed",
-                    ));
-                }
+            if let Some(ref field) = sort
+                && !is_valid_json_field_path(field)
+            {
+                return Err(mlua::Error::runtime(
+                    "invalid sort field: use alphanumeric names with optional dot notation and array indices (e.g. 'name', 'author.handle', 'tags[0]')",
+                ));
             }
 
             let direction = match sort_direction.as_deref() {
@@ -43,6 +175,16 @@ pub fn register_db_api(lua: &Lua, state: Arc<AppState>) -> LuaResult<()> {
                         "invalid sortDirection '{other}': must be 'asc' or 'desc'"
                     )));
                 }
+            };
+
+            let filter_table: Option<mlua::Table> = opts.get("filter").ok();
+            let mut filter_binds: Vec<String> = Vec::new();
+            let filter_clause = if let Some(ref tbl) = filter_table {
+                let node = parse_filter_node(tbl, 0)?;
+                let sql = build_filter_sql(&node, &mut filter_binds);
+                format!(" AND {sql}")
+            } else {
+                String::new()
             };
 
             let result_table = lua.create_table()?;
@@ -62,38 +204,23 @@ pub fn register_db_api(lua: &Lua, state: Arc<AppState>) -> LuaResult<()> {
                 let order_expr = if top_level_columns.contains(&sort_field.as_str()) {
                     format!("{sort_field} {direction}")
                 } else {
-                    match backend {
-                        DatabaseBackend::Sqlite => format!("json_extract(record, '$.value.{sort_field}') {direction}"),
-                        DatabaseBackend::Postgres => format!("record::jsonb->'value'->>'{sort_field}' {direction}"),
-                    }
+                    format!("json_extract(record, '$.value.{sort_field}') {direction}")
                 };
 
-                let rows: Vec<(String, String, String)> = if let Some(ref did) = did {
-                    let sql = adapt_sql(
-                        &format!("SELECT uri, did, record FROM records WHERE collection = ? AND did = ? ORDER BY {order_expr} LIMIT ? OFFSET ?"),
-                        backend,
-                    );
-                    sqlx::query_as(&sql)
-                    .bind(&collection)
-                    .bind(did)
+                let did_clause = if did.is_some() { " AND did = ?" } else { "" };
+                let sql = adapt_sql(
+                    &format!("SELECT uri, did, record FROM records WHERE collection = ?{did_clause}{filter_clause} ORDER BY {order_expr} LIMIT ? OFFSET ?"),
+                    backend,
+                );
+                let mut q = sqlx::query_as(&sql).bind(&collection);
+                if let Some(ref did) = did { q = q.bind(did); }
+                for val in &filter_binds { q = q.bind(val); }
+                let rows: Vec<(String, String, String)> = q
                     .bind(limit)
                     .bind(offset)
                     .fetch_all(&state.db)
                     .await
-                    .map_err(|e| mlua::Error::runtime(format!("DB query failed: {e}")))?
-                } else {
-                    let sql = adapt_sql(
-                        &format!("SELECT uri, did, record FROM records WHERE collection = ? ORDER BY {order_expr} LIMIT ? OFFSET ?"),
-                        backend,
-                    );
-                    sqlx::query_as(&sql)
-                    .bind(&collection)
-                    .bind(limit)
-                    .bind(offset)
-                    .fetch_all(&state.db)
-                    .await
-                    .map_err(|e| mlua::Error::runtime(format!("DB query failed: {e}")))?
-                };
+                    .map_err(|e| mlua::Error::runtime(format!("DB query failed: {e}")))?;
 
                 let has_next = rows.len() as i64 == limit;
 
@@ -126,76 +253,32 @@ pub fn register_db_api(lua: &Lua, state: Arc<AppState>) -> LuaResult<()> {
 
                 type RowType = (String, String, String, String);
 
-                let rows_raw: Vec<RowType> = match (&did, &cursor_parts) {
-                    (Some(did), Some((cursor_ts, cursor_uri))) => {
-                        let sql = adapt_sql(
-                            "SELECT uri, did, record, created_at FROM records \
-                             WHERE collection = ? AND did = ? AND (created_at < ? OR (created_at = ? AND uri < ?)) \
-                             ORDER BY created_at DESC, uri DESC \
-                             LIMIT ?",
-                            backend,
-                        );
-                        sqlx::query_as(&sql)
-                        .bind(&collection)
-                        .bind(did)
-                        .bind(cursor_ts)
-                        .bind(cursor_ts)
-                        .bind(cursor_uri)
-                        .bind(limit)
-                        .fetch_all(&state.db)
-                        .await
-                        .map_err(|e| mlua::Error::runtime(format!("DB query failed: {e}")))?
-                    }
-                    (Some(did), None) => {
-                        let sql = adapt_sql(
-                            "SELECT uri, did, record, created_at FROM records \
-                             WHERE collection = ? AND did = ? \
-                             ORDER BY created_at DESC, uri DESC \
-                             LIMIT ?",
-                            backend,
-                        );
-                        sqlx::query_as(&sql)
-                        .bind(&collection)
-                        .bind(did)
-                        .bind(limit)
-                        .fetch_all(&state.db)
-                        .await
-                        .map_err(|e| mlua::Error::runtime(format!("DB query failed: {e}")))?
-                    }
-                    (None, Some((cursor_ts, cursor_uri))) => {
-                        let sql = adapt_sql(
-                            "SELECT uri, did, record, created_at FROM records \
-                             WHERE collection = ? AND (created_at < ? OR (created_at = ? AND uri < ?)) \
-                             ORDER BY created_at DESC, uri DESC \
-                             LIMIT ?",
-                            backend,
-                        );
-                        sqlx::query_as(&sql)
-                        .bind(&collection)
-                        .bind(cursor_ts)
-                        .bind(cursor_ts)
-                        .bind(cursor_uri)
-                        .bind(limit)
-                        .fetch_all(&state.db)
-                        .await
-                        .map_err(|e| mlua::Error::runtime(format!("DB query failed: {e}")))?
-                    }
-                    (None, None) => {
-                        let sql = adapt_sql(
-                            "SELECT uri, did, record, created_at FROM records \
-                             WHERE collection = ? \
-                             ORDER BY created_at DESC, uri DESC \
-                             LIMIT ?",
-                            backend,
-                        );
-                        sqlx::query_as(&sql)
-                        .bind(&collection)
-                        .bind(limit)
-                        .fetch_all(&state.db)
-                        .await
-                        .map_err(|e| mlua::Error::runtime(format!("DB query failed: {e}")))?
-                    }
+                let did_clause = if did.is_some() { " AND did = ?" } else { "" };
+                let cursor_clause = if cursor_parts.is_some() {
+                    " AND (created_at < ? OR (created_at = ? AND uri < ?))"
+                } else {
+                    ""
                 };
+                let sql = adapt_sql(
+                    &format!(
+                        "SELECT uri, did, record, created_at FROM records \
+                         WHERE collection = ?{did_clause}{cursor_clause}{filter_clause} \
+                         ORDER BY created_at DESC, uri DESC \
+                         LIMIT ?"
+                    ),
+                    backend,
+                );
+                let mut q = sqlx::query_as::<_, RowType>(&sql).bind(&collection);
+                if let Some(ref did) = did { q = q.bind(did); }
+                if let Some((cursor_ts, cursor_uri)) = &cursor_parts {
+                    q = q.bind(cursor_ts).bind(cursor_ts).bind(cursor_uri);
+                }
+                for val in &filter_binds { q = q.bind(val); }
+                let rows_raw: Vec<RowType> = q
+                    .bind(limit)
+                    .fetch_all(&state.db)
+                    .await
+                    .map_err(|e| mlua::Error::runtime(format!("DB query failed: {e}")))?;
 
                 let has_next = rows_raw.len() as i64 == limit;
 
@@ -269,11 +352,9 @@ pub fn register_db_api(lua: &Lua, state: Arc<AppState>) -> LuaResult<()> {
             let query: String = opts.get("query")?;
             let limit: i64 = opts.get::<i64>("limit").unwrap_or(10).min(100);
 
-            // Validate field name to prevent SQL injection
-            let valid = field.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-            if !valid || field.is_empty() {
+            if !is_valid_json_field_path(&field) {
                 return Err(mlua::Error::runtime(
-                    "invalid search field: only alphanumeric characters and underscores are allowed",
+                    "invalid search field: use alphanumeric names with optional dot notation and array indices (e.g. 'name', 'author.handle', 'tags[0]')",
                 ));
             }
 
@@ -750,6 +831,63 @@ mod tests {
                 "should have passed validation but got: {err}"
             );
         }
+    }
+
+    #[test]
+    fn valid_json_field_paths() {
+        assert!(super::is_valid_json_field_path("name"));
+        assert!(super::is_valid_json_field_path("author_name"));
+        assert!(super::is_valid_json_field_path("author.handle"));
+        assert!(super::is_valid_json_field_path("tags[0]"));
+        assert!(super::is_valid_json_field_path("data[0][1]"));
+        assert!(super::is_valid_json_field_path("author.websites[0].url"));
+        assert!(super::is_valid_json_field_path("a.b.c.d.e"));
+    }
+
+    #[test]
+    fn invalid_json_field_paths() {
+        assert!(!super::is_valid_json_field_path(""));
+        assert!(!super::is_valid_json_field_path(".name"));
+        assert!(!super::is_valid_json_field_path("name."));
+        assert!(!super::is_valid_json_field_path("name..foo"));
+        assert!(!super::is_valid_json_field_path("[0]"));
+        assert!(!super::is_valid_json_field_path("name[]"));
+        assert!(!super::is_valid_json_field_path("name[abc]"));
+        assert!(!super::is_valid_json_field_path("name; DROP TABLE"));
+        assert!(!super::is_valid_json_field_path("name'OR 1=1"));
+        assert!(!super::is_valid_json_field_path("na-me"));
+    }
+
+    #[tokio::test]
+    async fn query_accepts_nested_sort_field() {
+        let state = test_state();
+        let lua = setup(&state);
+        let result: Result<mlua::Value, _> = lua
+            .load(r#"return db.query({ collection = "test", sort = "author.handle" })"#)
+            .eval_async()
+            .await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            !err.contains("invalid sort field"),
+            "nested sort field should be accepted, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn query_accepts_array_index_sort_field() {
+        let state = test_state();
+        let lua = setup(&state);
+        let result: Result<mlua::Value, _> = lua
+            .load(r#"return db.query({ collection = "test", sort = "tags[0]" })"#)
+            .eval_async()
+            .await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            !err.contains("invalid sort field"),
+            "array index sort field should be accepted, got: {err}"
+        );
     }
 
     #[tokio::test]
