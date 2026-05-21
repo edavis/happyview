@@ -1,16 +1,18 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Upload, Trash2 } from "lucide-react"
 
 import { useCurrentUser } from "@/hooks/use-current-user"
 import {
   getSettings,
+  getDbInfo,
   upsertSetting,
   deleteSetting,
   uploadLogo,
   deleteLogo,
   type SettingEntry,
+  type DbInfo,
 } from "@/lib/api"
 import { SiteHeader } from "@/components/site-header"
 import { Button } from "@/components/ui/button"
@@ -101,6 +103,7 @@ export default function GeneralSettingsPage() {
     policy_uri: "unset",
   })
   const [logoUploaded, setLogoUploaded] = useState(false)
+  const [dbInfo, setDbInfo] = useState<DbInfo | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -135,6 +138,11 @@ export default function GeneralSettingsPage() {
         policy_uri: src("policy_uri"),
       })
       setLogoUploaded(byKey.has("logo_data"))
+      try {
+        setDbInfo(await getDbInfo())
+      } catch {
+        // non-critical
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e))
     }
@@ -209,6 +217,25 @@ export default function GeneralSettingsPage() {
       setError(err instanceof Error ? err.message : String(err))
     }
   }
+
+  const connectionEstimate = useMemo(() => {
+    const pds = parseInt(values.backfill_concurrent_pds) || 10
+    const dids = parseInt(values.backfill_concurrent_dids_per_pds) || 3
+    const resolution = parseInt(values.backfill_concurrent_resolution) || 100
+    const needed = pds * dids + resolution + 4
+    const mainPool = dbInfo?.main_pool_size ?? 32
+    const total = needed + mainPool
+    const serverMax = dbInfo?.server_max_connections ?? null
+    return { needed, mainPool, total, serverMax }
+  }, [values, dbInfo])
+
+  const connectionWarning = useMemo(() => {
+    if (!connectionEstimate.serverMax) return null
+    if (connectionEstimate.total > connectionEstimate.serverMax) {
+      return `These settings need ~${connectionEstimate.total} connections (${connectionEstimate.needed} backfill + ${connectionEstimate.mainPool} main), but the database allows ${connectionEstimate.serverMax}. Reduce concurrency or increase the database's max_connections.`
+    }
+    return null
+  }, [connectionEstimate])
 
   return (
     <>
@@ -325,7 +352,16 @@ export default function GeneralSettingsPage() {
           <h2 className="text-lg font-semibold">Backfill Performance</h2>
           <p className="text-muted-foreground text-sm">
             Tune concurrency limits for backfill jobs. Changes apply to the next job started.
+            The backfill connection pool is auto-sized on startup based on these values.
           </p>
+          {dbInfo?.server_max_connections && (
+            <p className="text-muted-foreground text-xs mt-1">
+              Database limit: {dbInfo.server_max_connections} connections · Main pool: {connectionEstimate.mainPool} · Backfill estimate: {connectionEstimate.needed}
+            </p>
+          )}
+          {connectionWarning && (
+            <p className="text-sm text-destructive mt-2">{connectionWarning}</p>
+          )}
         </div>
 
         {([
@@ -355,7 +391,7 @@ export default function GeneralSettingsPage() {
         <div className="flex justify-end pt-2">
           <Button
             onClick={handleSave}
-            disabled={!canManage || saving}
+            disabled={!canManage || saving || !!connectionWarning}
           >
             {saving ? "Saving..." : "Save changes"}
           </Button>

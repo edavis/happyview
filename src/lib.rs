@@ -63,6 +63,7 @@ pub struct AppState {
     pub config: Config,
     pub http: reqwest::Client,
     pub db: sqlx::AnyPool,
+    pub backfill_db: sqlx::AnyPool,
     pub db_backend: DatabaseBackend,
     pub domain_cache: domain::DomainCache,
     pub lexicons: LexiconRegistry,

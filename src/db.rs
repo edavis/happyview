@@ -283,6 +283,63 @@ pub async fn connect(url: &str, backend: DatabaseBackend) -> AnyPool {
     pool
 }
 
+pub async fn connect_backfill_pool(url: &str, backend: DatabaseBackend) -> AnyPool {
+    let max_connections: u32 = std::env::var("BACKFILL_DATABASE_MAX_CONNECTIONS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or_else(|| {
+            let pds: u32 = std::env::var("BACKFILL_CONCURRENT_PDS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(10);
+            let dids: u32 = std::env::var("BACKFILL_CONCURRENT_DIDS_PER_PDS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(3);
+            let resolution: u32 = std::env::var("BACKFILL_CONCURRENT_RESOLUTION")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(100);
+            // Each concurrent worker may need a connection: PDS×DIDs for fetching +
+            // resolution concurrency + a few for bookkeeping queries.
+            let needed = (pds * dids) + resolution + 4;
+            let ceiling = match backend {
+                DatabaseBackend::Sqlite => 64,
+                DatabaseBackend::Postgres => 256,
+            };
+            needed.min(ceiling)
+        });
+
+    tracing::info!(max_connections, "backfill pool sized");
+
+    let pool = PoolOptions::<sqlx::Any>::new()
+        .max_connections(max_connections)
+        .acquire_timeout(std::time::Duration::from_secs(30))
+        .idle_timeout(std::time::Duration::from_secs(300))
+        .connect(url)
+        .await
+        .expect("Failed to connect backfill database pool");
+
+    if backend == DatabaseBackend::Sqlite {
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .expect("Failed to enable foreign keys on backfill pool");
+
+        sqlx::query("PRAGMA journal_mode = WAL")
+            .execute(&pool)
+            .await
+            .expect("Failed to enable WAL mode on backfill pool");
+
+        sqlx::query("PRAGMA busy_timeout = 5000")
+            .execute(&pool)
+            .await
+            .expect("Failed to set busy timeout on backfill pool");
+    }
+
+    pool
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
