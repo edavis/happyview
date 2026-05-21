@@ -76,6 +76,7 @@ pub(crate) struct BackfillJob {
     pub(crate) status: String,
     pub(crate) stage: String,
     pub(crate) total_repos: Option<i32>,
+    pub(crate) resolved_repos: Option<i32>,
     pub(crate) processed_repos: Option<i32>,
     pub(crate) total_records: Option<i32>,
     pub(crate) error: Option<String>,

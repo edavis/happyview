@@ -90,6 +90,7 @@ function statusBadge(job: BackfillJob) {
 }
 
 function phaseIndex(stage: string): number {
+  if (stage === "resolving_and_fetching") return 1;
   const idx = PROGRESS_PHASES.indexOf(
     stage as (typeof PROGRESS_PHASES)[number],
   );
@@ -229,6 +230,9 @@ function JobDetail({
 
   function hasReached(phase: (typeof PROGRESS_PHASES)[number]): boolean {
     if (allDone) return true;
+    if (job.stage === "resolving_and_fetching") {
+      return phase === "discovering_repos" || phase === "resolving_pds" || phase === "fetching_records";
+    }
     return current >= phaseIndex(phase);
   }
 
@@ -307,26 +311,36 @@ function JobDetail({
             />
             <ProgressRow
               label="Resolving PDS"
-              active={isActive && job.stage === "resolving_pds"}
+              active={
+                isActive &&
+                (job.stage === "resolving_pds" ||
+                  job.stage === "resolving_and_fetching")
+              }
               reached={hasReached("resolving_pds")}
               value={
                 hasReached("resolving_pds")
-                  ? `${job.processed_repos?.toLocaleString() ?? "0"} / ${job.total_repos?.toLocaleString() ?? "0"}`
+                  ? `${(job.resolved_repos ?? job.processed_repos)?.toLocaleString() ?? "0"} / ${job.total_repos?.toLocaleString() ?? "0"}`
                   : undefined
               }
               suffix="resolved"
             />
             <ProgressRow
               label="Fetching records"
-              active={isActive && job.stage === "fetching_records"}
+              active={
+                isActive &&
+                (job.stage === "fetching_records" ||
+                  job.stage === "resolving_and_fetching")
+              }
               reached={hasReached("fetching_records")}
               value={
-                hasReached("fetching_records")
+                hasReached("fetching_records") ||
+                job.stage === "resolving_and_fetching"
                   ? `${job.processed_repos?.toLocaleString() ?? "0"} / ${job.total_repos?.toLocaleString() ?? "0"} repos`
                   : undefined
               }
               suffix={
-                hasReached("fetching_records")
+                hasReached("fetching_records") ||
+                job.stage === "resolving_and_fetching"
                   ? `${job.total_records?.toLocaleString() ?? "0"} records`
                   : undefined
               }
