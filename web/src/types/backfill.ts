@@ -5,6 +5,7 @@ export interface BackfillJob {
   status: string
   stage: string
   total_repos: number | null
+  resolved_repos: number | null
   processed_repos: number | null
   total_records: number | null
   error: string | null
