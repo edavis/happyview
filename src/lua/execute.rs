@@ -1180,6 +1180,7 @@ mod tests {
             proxy_config: std::sync::Arc::new(arc_swap::ArcSwap::new(std::sync::Arc::new(
                 crate::proxy_config::ProxyConfig::default(),
             ))),
+            backfill_events_tx: tokio::sync::broadcast::channel(16).0,
         }
     }
 

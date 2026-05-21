@@ -23,6 +23,7 @@ const SETTING_KEYS = [
   "logo_uri",
   "tos_uri",
   "policy_uri",
+  "backfill_retention_days",
 ] as const
 
 type FieldKey = (typeof SETTING_KEYS)[number]
@@ -80,6 +81,7 @@ export default function GeneralSettingsPage() {
     logo_uri: "",
     tos_uri: "",
     policy_uri: "",
+    backfill_retention_days: "28",
   })
   const [sources, setSources] = useState<Record<FieldKey, "database" | "env" | "unset">>({
     app_name: "unset",
@@ -87,6 +89,7 @@ export default function GeneralSettingsPage() {
     logo_uri: "unset",
     tos_uri: "unset",
     policy_uri: "unset",
+    backfill_retention_days: "unset",
   })
   const [logoUploaded, setLogoUploaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -104,6 +107,7 @@ export default function GeneralSettingsPage() {
         logo_uri: byKey.get("logo_uri")?.value ?? "",
         tos_uri: byKey.get("tos_uri")?.value ?? "",
         policy_uri: byKey.get("policy_uri")?.value ?? "",
+        backfill_retention_days: byKey.get("backfill_retention_days")?.value ?? "28",
       })
       setSources({
         app_name: (byKey.get("app_name")?.source as "database" | "env" | undefined) ?? "unset",
@@ -111,6 +115,7 @@ export default function GeneralSettingsPage() {
         logo_uri: (byKey.get("logo_uri")?.source as "database" | "env" | undefined) ?? "unset",
         tos_uri: (byKey.get("tos_uri")?.source as "database" | "env" | undefined) ?? "unset",
         policy_uri: (byKey.get("policy_uri")?.source as "database" | "env" | undefined) ?? "unset",
+        backfill_retention_days: (byKey.get("backfill_retention_days")?.source as "database" | "env" | undefined) ?? "unset",
       })
       setLogoUploaded(byKey.has("logo_data"))
     } catch (e: unknown) {
@@ -136,6 +141,14 @@ export default function GeneralSettingsPage() {
         } else {
           await upsertSetting(field.key, value)
         }
+      }
+      const retentionValue = values["backfill_retention_days"]
+      if (retentionValue === "") {
+        if (sources["backfill_retention_days"] === "database") {
+          await deleteSetting("backfill_retention_days")
+        }
+      } else {
+        await upsertSetting("backfill_retention_days", retentionValue)
       }
       setNotice("Settings saved.")
       await load()
@@ -250,6 +263,37 @@ export default function GeneralSettingsPage() {
               </span>
             )}
           </div>
+        </div>
+
+        <div>
+          <h2 className="text-lg font-semibold">Data Retention</h2>
+          <p className="text-muted-foreground text-sm">
+            Configure how long HappyView retains detailed data from completed backfill jobs.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="backfill_retention_days">Backfill Detail Retention (days)</Label>
+            {sources["backfill_retention_days"] === "env" && (
+              <span className="text-xs text-muted-foreground">
+                from env var
+              </span>
+            )}
+          </div>
+          <Input
+            id="backfill_retention_days"
+            type="number"
+            value={values["backfill_retention_days"]}
+            onChange={(e) =>
+              setValues((v) => ({ ...v, backfill_retention_days: e.target.value }))
+            }
+            placeholder="28"
+            disabled={!canManage}
+          />
+          <p className="text-muted-foreground text-xs">
+            How long to keep per-repo detail data from completed backfill jobs. Set to 0 to keep indefinitely.
+          </p>
         </div>
 
         <div className="flex justify-end pt-2">

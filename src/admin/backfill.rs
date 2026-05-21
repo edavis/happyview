@@ -12,6 +12,8 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+use rand::Rng;
+
 use crate::AppState;
 use crate::db::{adapt_sql, now_rfc3339};
 use crate::error::AppError;
@@ -66,6 +68,13 @@ async fn set_stage(state: &AppState, job_id: &str, stage: &str) {
         .bind(job_id)
         .execute(&state.db)
         .await;
+    publish_event(
+        state,
+        super::types::BackfillEvent::JobStageChanged {
+            job_id: job_id.to_string(),
+            stage: stage.to_string(),
+        },
+    );
 }
 
 async fn update_job_counter(state: &AppState, job_id: &str, column: &str, value: i32) {
@@ -103,12 +112,13 @@ async fn count_repos(state: &AppState, job_id: &str) -> i32 {
         .unwrap_or(0)
 }
 
-async fn cleanup_repos(state: &AppState, job_id: &str) {
-    let sql = adapt_sql(
-        "DELETE FROM backfill_repos WHERE job_id = ?",
-        state.db_backend,
-    );
-    let _ = sqlx::query(&sql).bind(job_id).execute(&state.db).await;
+fn publish_event(state: &AppState, event: super::types::BackfillEvent) {
+    let _ = state.backfill_events_tx.send(event);
+}
+
+fn random_batch_threshold(base: i32) -> i32 {
+    let low = base - base / 10;
+    rand::rng().random_range(low..=base)
 }
 
 async fn fail_job(state: &AppState, job_id: &str, error: &str) {
@@ -123,7 +133,14 @@ async fn fail_job(state: &AppState, job_id: &str, error: &str) {
         .bind(job_id)
         .execute(&state.db)
         .await;
-    cleanup_repos(state, job_id).await;
+    publish_event(
+        state,
+        super::types::BackfillEvent::JobCompleted {
+            job_id: job_id.to_string(),
+            status: "failed".to_string(),
+            error: Some(error.to_string()),
+        },
+    );
 }
 
 async fn is_cancelled(state: &AppState, job_id: &str) -> bool {
@@ -159,7 +176,14 @@ async fn finalise_cancel(state: &AppState, job_id: &str) {
         .bind(job_id)
         .execute(&state.db)
         .await;
-    cleanup_repos(state, job_id).await;
+    publish_event(
+        state,
+        super::types::BackfillEvent::JobCompleted {
+            job_id: job_id.to_string(),
+            status: "cancelled".to_string(),
+            error: None,
+        },
+    );
 }
 
 async fn complete_job(
@@ -182,7 +206,14 @@ async fn complete_job(
         .bind(job_id)
         .execute(&state.db)
         .await;
-    cleanup_repos(state, job_id).await;
+    publish_event(
+        state,
+        super::types::BackfillEvent::JobCompleted {
+            job_id: job_id.to_string(),
+            status: "completed".to_string(),
+            error: error.map(|e| e.to_string()),
+        },
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -207,6 +238,13 @@ async fn run_discovery_phase(
             .bind(did)
             .execute(&state.db)
             .await;
+        publish_event(
+            state,
+            super::types::BackfillEvent::RepoDiscovered {
+                job_id: job_id.to_string(),
+                did: did.to_string(),
+            },
+        );
     } else {
         for collection in collections {
             if is_cancelled(state, job_id).await {
@@ -300,6 +338,15 @@ async fn discover_repos_from_relay(
                 }
                 if let Ok(result) = query.execute(&state.db).await {
                     running_total += result.rows_affected() as i32;
+                }
+                for repo in chunk {
+                    publish_event(
+                        state,
+                        super::types::BackfillEvent::RepoDiscovered {
+                            job_id: job_id.to_string(),
+                            did: repo.did.clone(),
+                        },
+                    );
                 }
             }
         }
@@ -401,6 +448,8 @@ async fn run_pipelined_resolve_and_fetch(
             .unwrap_or_default();
 
         let mut attempted: i32 = 0;
+        let mut next_flush = random_batch_threshold(100);
+        let mut next_cancel_check = random_batch_threshold(100);
         for (did,) in &unresolved {
             if resolver_cancelled.load(Ordering::Relaxed) {
                 break;
@@ -425,8 +474,17 @@ async fn run_pipelined_resolve_and_fetch(
                         .execute(&resolver_state.db)
                         .await;
 
+                    publish_event(
+                        &resolver_state,
+                        super::types::BackfillEvent::RepoResolved {
+                            job_id: resolver_job_id.clone(),
+                            did: did.clone(),
+                            pds_endpoint: pds.clone(),
+                        },
+                    );
+
                     let count = resolver_resolved.fetch_add(1, Ordering::Relaxed) + 1;
-                    if count % 100 == 0 {
+                    if count >= next_flush {
                         update_job_counter(
                             &resolver_state,
                             &resolver_job_id,
@@ -434,7 +492,18 @@ async fn run_pipelined_resolve_and_fetch(
                             count,
                         )
                         .await;
+                        next_flush = count + random_batch_threshold(100);
                     }
+                    publish_event(
+                        &resolver_state,
+                        super::types::BackfillEvent::JobCounters {
+                            job_id: resolver_job_id.clone(),
+                            total_repos: None,
+                            resolved_repos: Some(count),
+                            processed_repos: None,
+                            total_records: None,
+                        },
+                    );
 
                     if tx_resolver.send((did.clone(), pds)).await.is_err() {
                         break;
@@ -446,9 +515,12 @@ async fn run_pipelined_resolve_and_fetch(
             }
 
             attempted += 1;
-            if attempted % 100 == 0 && is_cancelled(&resolver_state, &resolver_job_id).await {
-                resolver_cancelled.store(true, Ordering::Relaxed);
-                break;
+            if attempted >= next_cancel_check {
+                if is_cancelled(&resolver_state, &resolver_job_id).await {
+                    resolver_cancelled.store(true, Ordering::Relaxed);
+                    break;
+                }
+                next_cancel_check = attempted + random_batch_threshold(100);
             }
         }
 
@@ -657,6 +729,7 @@ async fn run_pds_worker(ctx: FetchContext, pds_endpoint: String, mut rx: mpsc::R
     } = ctx;
     let mut fetches = FuturesUnordered::new();
     let mut rx_open = true;
+    let mut next_flush = random_batch_threshold(10);
 
     loop {
         tokio::select! {
@@ -668,18 +741,26 @@ async fn run_pds_worker(ctx: FetchContext, pds_endpoint: String, mut rx: mpsc::R
 
                 // Mark DID as completed
                 let sql = adapt_sql(
-                    "UPDATE backfill_repos SET status = 'completed' WHERE job_id = ? AND did = ?",
+                    "UPDATE backfill_repos SET status = 'completed', records_fetched = ? WHERE job_id = ? AND did = ?",
                     state.db_backend,
                 );
                 let _ = sqlx::query(&sql)
+                    .bind(records)
                     .bind(job_id.as_str())
                     .bind(&did)
                     .execute(&state.db)
                     .await;
 
+                publish_event(&state, super::types::BackfillEvent::RepoFetched {
+                    job_id: job_id.to_string(),
+                    did: did.clone(),
+                    pds_endpoint: pds_endpoint.clone(),
+                    records_fetched: records,
+                });
+
                 let repos = processed_repos.fetch_add(1, Ordering::Relaxed) + 1;
-                if repos % 10 == 0 {
-                    let records = total_records.load(Ordering::Relaxed);
+                let records = total_records.load(Ordering::Relaxed);
+                if repos >= next_flush {
                     let sql = adapt_sql(
                         "UPDATE backfill_jobs SET processed_repos = ?, total_records = ? WHERE id = ?",
                         state.db_backend,
@@ -695,7 +776,15 @@ async fn run_pds_worker(ctx: FetchContext, pds_endpoint: String, mut rx: mpsc::R
                         cancelled.store(true, Ordering::Relaxed);
                         break;
                     }
+                    next_flush = repos + random_batch_threshold(10);
                 }
+                publish_event(&state, super::types::BackfillEvent::JobCounters {
+                    job_id: job_id.to_string(),
+                    total_repos: None,
+                    resolved_repos: None,
+                    processed_repos: Some(repos),
+                    total_records: Some(records),
+                });
             }
 
             did = rx.recv(), if rx_open && fetches.len() < 3 => {
@@ -747,14 +836,25 @@ async fn run_pds_worker(ctx: FetchContext, pds_endpoint: String, mut rx: mpsc::R
         total_records.fetch_add(records, Ordering::Relaxed);
 
         let sql = adapt_sql(
-            "UPDATE backfill_repos SET status = 'completed' WHERE job_id = ? AND did = ?",
+            "UPDATE backfill_repos SET status = 'completed', records_fetched = ? WHERE job_id = ? AND did = ?",
             state.db_backend,
         );
         let _ = sqlx::query(&sql)
+            .bind(records)
             .bind(job_id.as_str())
             .bind(&did)
             .execute(&state.db)
             .await;
+
+        publish_event(
+            &state,
+            super::types::BackfillEvent::RepoFetched {
+                job_id: job_id.to_string(),
+                did: did.clone(),
+                pds_endpoint: pds_endpoint.clone(),
+                records_fetched: records,
+            },
+        );
 
         processed_repos.fetch_add(1, Ordering::Relaxed);
     }
@@ -815,6 +915,9 @@ async fn run_fetching_phase(state: &AppState, job_id: &str, collections: &[Strin
     let processed_repos = Arc::new(AtomicI32::new(already_completed));
     let total_records = Arc::new(AtomicI32::new(existing_records));
     let cancelled = Arc::new(AtomicBool::new(false));
+    let next_flush = Arc::new(AtomicI32::new(
+        already_completed + random_batch_threshold(10),
+    ));
     let state = Arc::new(state.clone());
     let collections = Arc::new(collections.to_vec());
     let job_id_arc = Arc::new(job_id.to_string());
@@ -828,6 +931,7 @@ async fn run_fetching_phase(state: &AppState, job_id: &str, collections: &[Strin
             let processed_repos = Arc::clone(&processed_repos);
             let total_records = Arc::clone(&total_records);
             let cancelled = Arc::clone(&cancelled);
+            let next_flush = Arc::clone(&next_flush);
             let job_id = Arc::clone(&job_id_arc);
 
             async move {
@@ -838,6 +942,7 @@ async fn run_fetching_phase(state: &AppState, job_id: &str, collections: &[Strin
                         let processed_repos = Arc::clone(&processed_repos);
                         let total_records = Arc::clone(&total_records);
                         let cancelled = Arc::clone(&cancelled);
+                        let next_flush = Arc::clone(&next_flush);
                         let pds_endpoint = pds_endpoint.clone();
                         let job_id = Arc::clone(&job_id);
 
@@ -846,6 +951,7 @@ async fn run_fetching_phase(state: &AppState, job_id: &str, collections: &[Strin
                                 return;
                             }
 
+                            let mut did_records: i32 = 0;
                             for collection in collections.iter() {
                                 match fetch_records_from_pds(
                                     &state,
@@ -856,6 +962,7 @@ async fn run_fetching_phase(state: &AppState, job_id: &str, collections: &[Strin
                                 .await
                                 {
                                     Ok(count) => {
+                                        did_records += count as i32;
                                         total_records
                                             .fetch_add(count as i32, Ordering::Relaxed);
                                     }
@@ -873,19 +980,23 @@ async fn run_fetching_phase(state: &AppState, job_id: &str, collections: &[Strin
 
                             // Mark DID as completed
                             let sql = adapt_sql(
-                                "UPDATE backfill_repos SET status = 'completed' WHERE job_id = ? AND did = ?",
+                                "UPDATE backfill_repos SET status = 'completed', records_fetched = ? WHERE job_id = ? AND did = ?",
                                 state.db_backend,
                             );
                             let _ = sqlx::query(&sql)
+                                .bind(did_records)
                                 .bind(job_id.as_str())
                                 .bind(&did)
                                 .execute(&state.db)
                                 .await;
 
                             let repos = processed_repos.fetch_add(1, Ordering::Relaxed) + 1;
+                            let records = total_records.load(Ordering::Relaxed);
 
-                            if repos % 10 == 0 {
-                                let records = total_records.load(Ordering::Relaxed);
+                            let threshold = next_flush.load(Ordering::Relaxed);
+                            if repos >= threshold
+                                && next_flush.compare_exchange(threshold, repos + random_batch_threshold(10), Ordering::Relaxed, Ordering::Relaxed).is_ok()
+                            {
                                 let backend = state.db_backend;
                                 let sql = adapt_sql(
                                     "UPDATE backfill_jobs SET processed_repos = ?, total_records = ? WHERE id = ?",
@@ -902,6 +1013,14 @@ async fn run_fetching_phase(state: &AppState, job_id: &str, collections: &[Strin
                                     cancelled.store(true, Ordering::Relaxed);
                                 }
                             }
+
+                            publish_event(&state, super::types::BackfillEvent::JobCounters {
+                                job_id: job_id.to_string(),
+                                total_repos: None,
+                                resolved_repos: None,
+                                processed_repos: Some(repos),
+                                total_records: Some(records),
+                            });
                         }
                     })
                     .await;
@@ -1309,6 +1428,243 @@ pub(super) async fn backfill_status(
         .collect();
 
     Ok(Json(jobs))
+}
+
+// ---------------------------------------------------------------------------
+// SSE events endpoint
+// ---------------------------------------------------------------------------
+
+pub(super) async fn backfill_events(
+    State(state): State<AppState>,
+    Path(job_id): Path<String>,
+    auth: UserAuth,
+) -> Result<
+    axum::response::sse::Sse<
+        impl futures_util::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>,
+    >,
+    AppError,
+> {
+    auth.require(Permission::BackfillRead).await?;
+
+    let mut rx = state.backfill_events_tx.subscribe();
+
+    let stream = async_stream::stream! {
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    let event_job_id = match &event {
+                        super::types::BackfillEvent::RepoDiscovered { job_id, .. }
+                        | super::types::BackfillEvent::RepoResolved { job_id, .. }
+                        | super::types::BackfillEvent::RepoFetched { job_id, .. }
+                        | super::types::BackfillEvent::JobCounters { job_id, .. }
+                        | super::types::BackfillEvent::JobStageChanged { job_id, .. }
+                        | super::types::BackfillEvent::JobCompleted { job_id, .. } => job_id,
+                    };
+                    if *event_job_id != job_id {
+                        continue;
+                    }
+                    if let Ok(json) = serde_json::to_string(&event) {
+                        yield Ok(axum::response::sse::Event::default().event("event").data(json));
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::warn!(job_id, skipped = n, "SSE client lagged behind");
+                    continue;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    };
+
+    Ok(axum::response::sse::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))
+}
+
+// ---------------------------------------------------------------------------
+// REST detail endpoints
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub(super) struct ReposQuery {
+    phase: Option<String>,
+    cursor: Option<String>,
+    limit: Option<i32>,
+}
+
+pub(super) async fn backfill_repos(
+    State(state): State<AppState>,
+    Path(job_id): Path<String>,
+    auth: UserAuth,
+    axum::extract::Query(query): axum::extract::Query<ReposQuery>,
+) -> Result<Json<super::types::BackfillReposResponse>, AppError> {
+    auth.require(Permission::BackfillRead).await?;
+
+    let limit = query.limit.unwrap_or(50).min(100);
+    let phase_filter = match query.phase.as_deref() {
+        Some("resolved") => " AND pds_endpoint IS NOT NULL",
+        Some("fetched") => " AND status = 'completed'",
+        _ => "",
+    };
+    let cursor_filter = if query.cursor.is_some() {
+        " AND did > ?"
+    } else {
+        ""
+    };
+
+    let sql_str = format!(
+        "SELECT did, pds_endpoint, status, records_fetched FROM backfill_repos WHERE job_id = ?{phase_filter}{cursor_filter} ORDER BY did ASC LIMIT ?",
+    );
+    let sql = adapt_sql(&sql_str, state.db_backend);
+
+    let mut q = sqlx::query_as::<_, (String, Option<String>, String, i32)>(&sql).bind(&job_id);
+    if let Some(ref cursor) = query.cursor {
+        q = q.bind(cursor);
+    }
+    q = q.bind(limit + 1);
+
+    let rows: Vec<(String, Option<String>, String, i32)> = q
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to query backfill repos: {e}")))?;
+
+    let has_more = rows.len() > limit as usize;
+    let repos: Vec<super::types::BackfillRepoEntry> = rows
+        .into_iter()
+        .take(limit as usize)
+        .map(
+            |(did, pds_endpoint, status, records_fetched)| super::types::BackfillRepoEntry {
+                did,
+                pds_endpoint,
+                status,
+                records_fetched,
+            },
+        )
+        .collect();
+
+    let cursor = if has_more {
+        repos.last().map(|r| r.did.clone())
+    } else {
+        None
+    };
+
+    Ok(Json(super::types::BackfillReposResponse { repos, cursor }))
+}
+
+pub(super) async fn backfill_pds_summary(
+    State(state): State<AppState>,
+    Path(job_id): Path<String>,
+    auth: UserAuth,
+) -> Result<Json<super::types::PdsSummaryResponse>, AppError> {
+    auth.require(Permission::BackfillRead).await?;
+
+    let sql = adapt_sql(
+        "SELECT pds_endpoint, COUNT(*) as total_repos, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_repos, SUM(records_fetched) as total_records FROM backfill_repos WHERE job_id = ? AND pds_endpoint IS NOT NULL GROUP BY pds_endpoint ORDER BY COUNT(*) DESC",
+        state.db_backend,
+    );
+
+    let rows: Vec<(String, i32, i32, i64)> = sqlx::query_as(&sql)
+        .bind(&job_id)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to query PDS summary: {e}")))?;
+
+    let pds_endpoints: Vec<super::types::PdsSummaryEntry> = rows
+        .into_iter()
+        .map(
+            |(pds_endpoint, total_repos, completed_repos, total_records)| {
+                super::types::PdsSummaryEntry {
+                    pds_endpoint,
+                    total_repos,
+                    completed_repos,
+                    total_records: total_records as i32,
+                }
+            },
+        )
+        .collect();
+
+    Ok(Json(super::types::PdsSummaryResponse { pds_endpoints }))
+}
+
+// ---------------------------------------------------------------------------
+// Flush endpoints
+// ---------------------------------------------------------------------------
+
+pub(super) async fn flush_backfill_details(
+    State(state): State<AppState>,
+    Path(job_id): Path<String>,
+    auth: UserAuth,
+) -> Result<StatusCode, AppError> {
+    auth.require(Permission::BackfillCreate).await?;
+
+    let sql = adapt_sql(
+        "DELETE FROM backfill_repos WHERE job_id = ?",
+        state.db_backend,
+    );
+    let _ = sqlx::query(&sql).bind(&job_id).execute(&state.db).await;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub(super) async fn flush_all_backfill_details(
+    State(state): State<AppState>,
+    auth: UserAuth,
+) -> Result<StatusCode, AppError> {
+    auth.require(Permission::BackfillCreate).await?;
+
+    let sql = adapt_sql(
+        "DELETE FROM backfill_repos WHERE job_id IN (SELECT id FROM backfill_jobs WHERE status IN ('completed', 'cancelled', 'failed'))",
+        state.db_backend,
+    );
+    let _ = sqlx::query(&sql).execute(&state.db).await;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ---------------------------------------------------------------------------
+// Retention cleanup
+// ---------------------------------------------------------------------------
+
+pub async fn run_backfill_retention_cleanup(state: &AppState) {
+    use super::settings::get_setting;
+
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(86400));
+    interval.tick().await; // first tick is immediate — run once on startup
+
+    loop {
+        interval.tick().await;
+
+        let retention_days: i64 =
+            get_setting(&state.db, "backfill_retention_days", state.db_backend)
+                .await
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(28);
+
+        if retention_days == 0 {
+            continue;
+        }
+
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(retention_days);
+        let cutoff_str = cutoff.to_rfc3339();
+
+        let sql = adapt_sql(
+            "DELETE FROM backfill_repos WHERE job_id IN (SELECT id FROM backfill_jobs WHERE completed_at IS NOT NULL AND completed_at < ?)",
+            state.db_backend,
+        );
+        match sqlx::query(&sql).bind(&cutoff_str).execute(&state.db).await {
+            Ok(result) => {
+                let deleted = result.rows_affected();
+                if deleted > 0 {
+                    tracing::info!(
+                        deleted,
+                        retention_days,
+                        "cleaned up old backfill detail rows"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "backfill retention cleanup failed");
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

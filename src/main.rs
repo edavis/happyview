@@ -612,6 +612,8 @@ async fn main() {
         std::sync::Arc::new(arc_swap::ArcSwap::new(std::sync::Arc::new(config)))
     };
 
+    let (backfill_events_tx, _) = tokio::sync::broadcast::channel(1024);
+
     let state = AppState {
         config: config.clone(),
         http,
@@ -631,6 +633,7 @@ async fn main() {
         official_registry,
         official_registry_config,
         proxy_config,
+        backfill_events_tx,
     };
 
     jetstream::spawn(state.clone(), collections_rx);
@@ -645,6 +648,13 @@ async fn main() {
     ));
 
     happyview::admin::backfill::resume_backfill_jobs(&state).await;
+
+    {
+        let state = state.clone();
+        tokio::spawn(async move {
+            happyview::admin::backfill::run_backfill_retention_cleanup(&state).await;
+        });
+    }
 
     let app = server::router(state);
     let addr = config.listen_addr();
