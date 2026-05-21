@@ -450,18 +450,31 @@ async fn run_pipelined_resolve_and_fetch(
         let mut attempted: i32 = 0;
         let mut next_flush = random_batch_threshold(100);
         let mut next_cancel_check = random_batch_threshold(100);
-        for (did,) in &unresolved {
-            if resolver_cancelled.load(Ordering::Relaxed) {
-                break;
-            }
 
-            match profile::resolve_pds_endpoint(
-                &resolver_state.http,
-                &resolver_state.config.plc_url,
-                did,
-            )
-            .await
-            {
+        let stream_state = resolver_state.clone();
+        let stream_cancelled = Arc::clone(&resolver_cancelled);
+        let mut results = stream::iter(unresolved)
+            .map(move |(did,)| {
+                let state = stream_state.clone();
+                let cancelled = Arc::clone(&stream_cancelled);
+                async move {
+                    if cancelled.load(Ordering::Relaxed) {
+                        return None;
+                    }
+                    let result =
+                        profile::resolve_pds_endpoint(&state.http, &state.config.plc_url, &did)
+                            .await;
+                    Some((did, result))
+                }
+            })
+            .buffer_unordered(100);
+
+        while let Some(item) = results.next().await {
+            let Some((did, result)) = item else {
+                break;
+            };
+
+            match result {
                 Ok(pds) => {
                     let sql = adapt_sql(
                         "UPDATE backfill_repos SET pds_endpoint = ? WHERE job_id = ? AND did = ?",
@@ -470,7 +483,7 @@ async fn run_pipelined_resolve_and_fetch(
                     let _ = sqlx::query(&sql)
                         .bind(&pds)
                         .bind(&resolver_job_id)
-                        .bind(did)
+                        .bind(&did)
                         .execute(&resolver_state.db)
                         .await;
 
@@ -505,7 +518,7 @@ async fn run_pipelined_resolve_and_fetch(
                         },
                     );
 
-                    if tx_resolver.send((did.clone(), pds)).await.is_err() {
+                    if tx_resolver.send((did, pds)).await.is_err() {
                         break;
                     }
                 }
