@@ -121,6 +121,40 @@ fn random_batch_threshold(base: i32) -> i32 {
     rand::rng().random_range(low..=base)
 }
 
+struct BackfillConcurrency {
+    resolution: usize,
+    pds: usize,
+    dids_per_pds: usize,
+}
+
+async fn load_concurrency(state: &AppState) -> BackfillConcurrency {
+    let resolution = super::settings::get_setting(
+        &state.db,
+        "backfill_concurrent_resolution",
+        state.db_backend,
+    )
+    .await
+    .and_then(|v| v.parse().ok())
+    .unwrap_or(100);
+    let pds = super::settings::get_setting(&state.db, "backfill_concurrent_pds", state.db_backend)
+        .await
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10);
+    let dids_per_pds = super::settings::get_setting(
+        &state.db,
+        "backfill_concurrent_dids_per_pds",
+        state.db_backend,
+    )
+    .await
+    .and_then(|v| v.parse().ok())
+    .unwrap_or(3);
+    BackfillConcurrency {
+        resolution,
+        pds,
+        dids_per_pds,
+    }
+}
+
 async fn fail_job(state: &AppState, job_id: &str, error: &str) {
     let now = now_rfc3339();
     let sql = adapt_sql(
@@ -374,6 +408,7 @@ async fn run_pipelined_resolve_and_fetch(
     state: &AppState,
     job_id: &str,
     collections: &[String],
+    concurrency: &BackfillConcurrency,
 ) -> (i32, i32) {
     set_stage(state, job_id, "resolving_and_fetching").await;
 
@@ -431,6 +466,7 @@ async fn run_pipelined_resolve_and_fetch(
     let tx_backlog = tx.clone();
 
     // --- Resolver task ---
+    let resolution_concurrency = concurrency.resolution;
     let resolver_state = state.clone();
     let resolver_job_id = job_id.to_string();
     let resolver_resolved = Arc::clone(&resolved_repos);
@@ -467,7 +503,7 @@ async fn run_pipelined_resolve_and_fetch(
                     Some((did, result))
                 }
             })
-            .buffer_unordered(100);
+            .buffer_unordered(resolution_concurrency);
 
         while let Some(item) = results.next().await {
             let Some((did, result)) = item else {
@@ -585,7 +621,7 @@ async fn run_pipelined_resolve_and_fetch(
     let collections = Arc::new(collections.to_vec());
     let job_id_arc = Arc::new(job_id.to_string());
 
-    let pds_semaphore = Arc::new(tokio::sync::Semaphore::new(10));
+    let pds_semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency.pds));
     let mut pds_workers: HashMap<String, mpsc::Sender<String>> = HashMap::new();
     let mut worker_handles = FuturesUnordered::new();
     let mut overflow: Vec<(String, String)> = Vec::new();
@@ -630,6 +666,7 @@ async fn run_pipelined_resolve_and_fetch(
                 processed_repos: Arc::clone(&processed_repos),
                 total_records: Arc::clone(&total_records),
                 cancelled: Arc::clone(&cancelled),
+                dids_per_pds: concurrency.dids_per_pds,
             };
 
             worker_handles.push(tokio::spawn(async move {
@@ -678,6 +715,7 @@ async fn run_pipelined_resolve_and_fetch(
             processed_repos: Arc::clone(&processed_repos),
             total_records: Arc::clone(&total_records),
             cancelled: Arc::clone(&cancelled),
+            dids_per_pds: concurrency.dids_per_pds,
         };
 
         worker_handles.push(tokio::spawn(async move {
@@ -729,6 +767,7 @@ struct FetchContext {
     processed_repos: Arc<AtomicI32>,
     total_records: Arc<AtomicI32>,
     cancelled: Arc<AtomicBool>,
+    dids_per_pds: usize,
 }
 
 async fn run_pds_worker(ctx: FetchContext, pds_endpoint: String, mut rx: mpsc::Receiver<String>) {
@@ -739,6 +778,7 @@ async fn run_pds_worker(ctx: FetchContext, pds_endpoint: String, mut rx: mpsc::R
         processed_repos,
         total_records,
         cancelled,
+        dids_per_pds,
     } = ctx;
     let mut fetches = FuturesUnordered::new();
     let mut rx_open = true;
@@ -800,7 +840,7 @@ async fn run_pds_worker(ctx: FetchContext, pds_endpoint: String, mut rx: mpsc::R
                 });
             }
 
-            did = rx.recv(), if rx_open && fetches.len() < 3 => {
+            did = rx.recv(), if rx_open && fetches.len() < dids_per_pds => {
                 match did {
                     Some(did) if !cancelled.load(Ordering::Relaxed) => {
                         let state = Arc::clone(&state);
@@ -877,7 +917,12 @@ async fn run_pds_worker(ctx: FetchContext, pds_endpoint: String, mut rx: mpsc::R
 // Phase 3: Fetch records from PDS instances (legacy, for resumed jobs)
 // ---------------------------------------------------------------------------
 
-async fn run_fetching_phase(state: &AppState, job_id: &str, collections: &[String]) -> (i32, i32) {
+async fn run_fetching_phase(
+    state: &AppState,
+    job_id: &str,
+    collections: &[String],
+    concurrency: &BackfillConcurrency,
+) -> (i32, i32) {
     set_stage(state, job_id, "fetching_records").await;
 
     // Load pending repos grouped by PDS
@@ -937,8 +982,9 @@ async fn run_fetching_phase(state: &AppState, job_id: &str, collections: &[Strin
 
     let pds_entries: Vec<(String, Vec<String>)> = pds_to_dids.into_iter().collect();
 
+    let dids_per_pds = concurrency.dids_per_pds;
     stream::iter(pds_entries)
-        .for_each_concurrent(10, |(pds_endpoint, dids)| {
+        .for_each_concurrent(concurrency.pds, |(pds_endpoint, dids)| {
             let state = Arc::clone(&state);
             let collections = Arc::clone(&collections);
             let processed_repos = Arc::clone(&processed_repos);
@@ -949,7 +995,7 @@ async fn run_fetching_phase(state: &AppState, job_id: &str, collections: &[Strin
 
             async move {
                 stream::iter(dids)
-                    .for_each_concurrent(3, |did| {
+                    .for_each_concurrent(dids_per_pds, |did| {
                         let state = Arc::clone(&state);
                         let collections = Arc::clone(&collections);
                         let processed_repos = Arc::clone(&processed_repos);
@@ -1227,14 +1273,15 @@ async fn run_backfill_job(state: AppState, job_id: String) {
         }
     }
 
+    let concurrency = load_concurrency(&state).await;
     let (final_processed, final_records) = if matches!(
         stage.as_str(),
         "pending" | "discovering_repos" | "resolving_pds" | "resolving_and_fetching"
     ) {
-        run_pipelined_resolve_and_fetch(&state, &job_id, &collections).await
+        run_pipelined_resolve_and_fetch(&state, &job_id, &collections, &concurrency).await
     } else {
         // stage == "fetching_records": resolution already done (legacy or resumed)
-        run_fetching_phase(&state, &job_id, &collections).await
+        run_fetching_phase(&state, &job_id, &collections, &concurrency).await
     };
 
     if is_cancelled(&state, &job_id).await {
