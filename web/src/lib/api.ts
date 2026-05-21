@@ -2,7 +2,7 @@ import type { ApiKeySummary, CreateApiKeyResponse } from "@/types/api-keys";
 import type { StatsResponse } from "@/types/stats";
 import type { LexiconSummary, LexiconDetail } from "@/types/lexicons";
 import type { NetworkLexiconSummary } from "@/types/network-lexicons";
-import type { BackfillJob } from "@/types/backfill";
+import type { BackfillJob, BackfillReposResponse, PdsSummaryResponse } from "@/types/backfill";
 import type { UserSummary } from "@/types/users";
 import type { AdminListRecordsResponse } from "@/types/records";
 import type { EventsListResponse } from "@/types/events";
@@ -32,7 +32,7 @@ export type { ApiKeySummary, CreateApiKeyResponse } from "@/types/api-keys";
 export type { CollectionStat, StatsResponse } from "@/types/stats";
 export type { LexiconSummary, LexiconDetail } from "@/types/lexicons";
 export type { NetworkLexiconSummary } from "@/types/network-lexicons";
-export type { BackfillJob } from "@/types/backfill";
+export type { BackfillJob, BackfillRepoEntry, BackfillReposResponse, PdsSummaryEntry, PdsSummaryResponse, BackfillEvent, BlueskyProfile } from "@/types/backfill";
 export type { UserSummary } from "@/types/users";
 export type { AdminRecord, AdminListRecordsResponse } from "@/types/records";
 export type { EventLogEntry, EventsListResponse } from "@/types/events";
@@ -187,6 +187,34 @@ export function cancelBackfillJob(id: string) {
     `/admin/backfill/${id}/cancel`,
     { method: "POST" },
   );
+}
+
+export function getBackfillRepos(
+  jobId: string,
+  params: { phase?: string; cursor?: string; limit?: number } = {},
+) {
+  const search = new URLSearchParams();
+  if (params.phase) search.set("phase", params.phase);
+  if (params.cursor) search.set("cursor", params.cursor);
+  if (params.limit) search.set("limit", String(params.limit));
+  const qs = search.toString();
+  return apiFetch<BackfillReposResponse>(
+    `/admin/backfill/${jobId}/repos${qs ? `?${qs}` : ""}`,
+  );
+}
+
+export function getBackfillPdsSummary(jobId: string) {
+  return apiFetch<PdsSummaryResponse>(
+    `/admin/backfill/${jobId}/pds-summary`,
+  );
+}
+
+export function flushBackfillDetails(jobId: string) {
+  return apiFetch(`/admin/backfill/${jobId}/details`, { method: "DELETE" });
+}
+
+export function flushAllBackfillDetails() {
+  return apiFetch(`/admin/backfill/details`, { method: "DELETE" });
 }
 
 // Users

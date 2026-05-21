@@ -1,18 +1,44 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useCurrentUser } from "@/hooks/use-current-user";
 import {
   cancelBackfillJob,
   createBackfillJob,
   getBackfillJobs,
+  getBackfillRepos,
+  getBackfillPdsSummary,
+  flushBackfillDetails,
+  flushAllBackfillDetails,
   getLexicons,
 } from "@/lib/api";
-import type { BackfillJob } from "@/types/backfill";
-import { CheckCircle2, Circle, Loader2 } from "lucide-react";
+import type {
+  BackfillJob,
+  BackfillRepoEntry,
+  PdsSummaryEntry,
+  BackfillEvent,
+  BlueskyProfile,
+} from "@/types/backfill";
+import { CheckCircle2, ChevronRight, Circle, Loader2 } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import {
   Combobox,
@@ -97,6 +123,257 @@ function phaseIndex(stage: string): number {
   return idx;
 }
 
+// SSE hook for backfill events
+function useBackfillSSE(jobId: string | null, active: boolean): BackfillEvent[] {
+  const [events, setEvents] = useState<BackfillEvent[]>([]);
+
+  useEffect(() => {
+    if (!jobId || !active) {
+      setEvents([]);
+      return;
+    }
+
+    const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
+    const es = new EventSource(`${basePath}/admin/backfill/${jobId}/events`, {
+      withCredentials: true,
+    });
+
+    es.addEventListener("event", (e) => {
+      try {
+        const event: BackfillEvent = JSON.parse((e as MessageEvent).data);
+        setEvents((prev) => [...prev, event]);
+      } catch { /* ignore parse errors */ }
+    });
+
+    return () => es.close();
+  }, [jobId, active]);
+
+  return events;
+}
+
+// Batch Bluesky profile resolution hook
+function useBlueskyProfiles(dids: string[]): Map<string, BlueskyProfile> {
+  const [profiles, setProfiles] = useState<Map<string, BlueskyProfile>>(new Map());
+  const resolvedRef = useRef<Set<string>>(new Set());
+  const pendingRef = useRef(false);
+
+  useEffect(() => {
+    const unresolved = dids.filter((d) => !resolvedRef.current.has(d));
+    if (unresolved.length === 0 || pendingRef.current) return;
+
+    pendingRef.current = true;
+
+    const batches: string[][] = [];
+    for (let i = 0; i < unresolved.length; i += 25) {
+      batches.push(unresolved.slice(i, i + 25));
+    }
+
+    // Mark all as resolved immediately to prevent re-fetching
+    for (const did of unresolved) {
+      resolvedRef.current.add(did);
+    }
+
+    Promise.all(
+      batches.map(async (batch) => {
+        const params = batch.map((d) => `actors=${encodeURIComponent(d)}`).join("&");
+        try {
+          const resp = await fetch(
+            `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfiles?${params}`
+          );
+          if (!resp.ok) return [];
+          const data = await resp.json();
+          return (data.profiles || []) as BlueskyProfile[];
+        } catch {
+          return [];
+        }
+      })
+    ).then((results) => {
+      setProfiles((prev) => {
+        const newProfiles = new Map(prev);
+        for (const batch of results) {
+          for (const p of batch) {
+            newProfiles.set(p.did, p);
+          }
+        }
+        return newProfiles;
+      });
+      pendingRef.current = false;
+    });
+  }, [dids]);
+
+  return profiles;
+}
+
+const BSKY_PDS_SUFFIX = ".bsky.network";
+const BSKY_PDS_HOSTNAMES = ["bsky.social", "staging.bsky.dev"];
+const failedFaviconUrls = new Set<string>();
+
+function isBskyPds(pdsEndpoint: string): boolean {
+  try {
+    const hostname = new URL(pdsEndpoint).hostname;
+    return BSKY_PDS_HOSTNAMES.includes(hostname) || hostname.endsWith(BSKY_PDS_SUFFIX);
+  } catch {
+    return false;
+  }
+}
+
+function PdsFavicon({ pdsEndpoint }: { pdsEndpoint: string }) {
+  let hostname: string;
+  try {
+    hostname = new URL(pdsEndpoint).hostname;
+  } catch {
+    return <PdsPlaceholderIcon />;
+  }
+
+  if (isBskyPds(pdsEndpoint)) {
+    return (
+      <svg viewBox="0 0 360 320" className="size-4 shrink-0" aria-hidden>
+        <path
+          d="M180 142c-16.3-31.7-60.7-90.8-102-120C38.5-5.9 0 1.4 0 45.6c0 31.7 18.2 266.4 67.8 266.4 45.2 0 60.4-39 112.2-130 51.8 91 67 130 112.2 130C341.8 312 360 77.3 360 45.6 360 1.4 321.5-5.9 282 22c-41.3 29.2-85.7 88.3-102 120Z"
+          fill="#1185FE"
+        />
+      </svg>
+    );
+  }
+
+  const faviconUrl = `https://twenty-icons.com/${hostname}`;
+
+  if (failedFaviconUrls.has(faviconUrl)) {
+    return <PdsPlaceholderIcon />;
+  }
+
+  return <PdsFaviconImg url={faviconUrl} />;
+}
+
+function PdsFaviconImg({ url }: { url: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (failed) return <PdsPlaceholderIcon />;
+
+  return (
+    <img
+      src={url}
+      alt=""
+      className="size-4 shrink-0 rounded"
+      onError={() => { failedFaviconUrls.add(url); setFailed(true); }}
+    />
+  );
+}
+
+function PdsPlaceholderIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="size-4 shrink-0 text-muted-foreground" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
+      <ellipse cx="8" cy="12" rx="6" ry="2.5" />
+      <ellipse cx="8" cy="8" rx="6" ry="2.5" />
+      <path d="M2 8v4M14 8v4" />
+      <ellipse cx="8" cy="4" rx="6" ry="2.5" />
+      <path d="M2 4v4M14 4v4" />
+    </svg>
+  );
+}
+
+function ScrollSentinel({ onVisible }: { onVisible: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const onVisibleRef = useRef(onVisible);
+  onVisibleRef.current = onVisible;
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) onVisibleRef.current(); },
+      { rootMargin: "100px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return <div ref={ref} className="h-1" />;
+}
+
+function AnimatedNumber({ value }: { value: number }) {
+  const targetRef = useRef(value);
+  const displayedRef = useRef(value);
+  const [displayed, setDisplayed] = useState(value);
+  const rafRef = useRef<number>(0);
+
+  targetRef.current = value;
+
+  useEffect(() => {
+    cancelAnimationFrame(rafRef.current);
+
+    function tick() {
+      const current = displayedRef.current;
+      const target = targetRef.current;
+      const diff = target - current;
+
+      if (Math.abs(diff) < 0.5) {
+        displayedRef.current = target;
+        setDisplayed(target);
+        return;
+      }
+
+      const next = current + diff * 0.06;
+      displayedRef.current = next;
+      setDisplayed(next);
+      rafRef.current = requestAnimationFrame(tick);
+    }
+
+    tick();
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [value]);
+
+  return <>{Math.round(displayed).toLocaleString()}</>;
+}
+
+function CompactRepoRow({ did, profile }: {
+  did: string;
+  profile?: BlueskyProfile;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 px-3 py-1 text-xs">
+      <div className="size-4 shrink-0 rounded-full bg-muted overflow-hidden">
+        {profile?.avatar && (
+          <img src={profile.avatar} alt="" className="size-full object-cover" />
+        )}
+      </div>
+      <span className="truncate">
+        {profile?.handle ? `@${profile.handle}` : <span className="font-mono">{did}</span>}
+      </span>
+    </div>
+  );
+}
+
+function ProfileRow({ did, profile, suffix }: {
+  did: string;
+  profile?: BlueskyProfile;
+  suffix?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 text-sm">
+      <div className="size-6 shrink-0 rounded-full bg-muted overflow-hidden">
+        {profile?.avatar && (
+          <img src={profile.avatar} alt="" className="size-full object-cover" />
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="truncate text-sm">
+          {profile?.displayName || profile?.handle || did}
+        </p>
+        {profile?.handle && (
+          <p className="truncate text-xs text-muted-foreground">@{profile.handle}</p>
+        )}
+        {!profile?.handle && (
+          <p className="truncate text-xs text-muted-foreground font-mono">{did}</p>
+        )}
+      </div>
+      {suffix && (
+        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{suffix}</span>
+      )}
+    </div>
+  );
+}
+
 export default function BackfillPage() {
   const { hasPermission } = useCurrentUser();
   const [jobs, setJobs] = useState<BackfillJob[]>([]);
@@ -119,6 +396,7 @@ export default function BackfillPage() {
   }, [load]);
 
   const selectedJob = jobs.find((j) => j.id === selectedJobId) ?? null;
+  const canFlush = hasPermission("backfill:create");
 
   return (
     <>
@@ -128,9 +406,32 @@ export default function BackfillPage() {
 
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Backfill Jobs</h2>
-          {hasPermission("backfill:create") && (
-            <CreateDialog onSuccess={load} />
-          )}
+          <div className="flex items-center gap-2">
+            {canFlush && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" size="sm">Clear all details</Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Clear all job details?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete per-repo detail data for all backfill jobs.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={async () => {
+                      await flushAllBackfillDetails();
+                    }}>Clear</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+            {hasPermission("backfill:create") && (
+              <CreateDialog onSuccess={load} />
+            )}
+          </div>
         </div>
 
         <div className="rounded-lg border">
@@ -201,6 +502,7 @@ export default function BackfillPage() {
               <JobDetail
                 job={selectedJob}
                 canCancel={hasPermission("backfill:create")}
+                canFlush={canFlush}
                 onCancel={async () => {
                   await cancelBackfillJob(selectedJob.id);
                   load();
@@ -217,16 +519,33 @@ export default function BackfillPage() {
 function JobDetail({
   job,
   canCancel,
+  canFlush,
   onCancel,
 }: {
   job: BackfillJob;
   canCancel: boolean;
+  canFlush: boolean;
   onCancel: () => Promise<void>;
 }) {
   const [cancelling, setCancelling] = useState(false);
   const current = phaseIndex(job.stage);
   const allDone = job.status === "completed";
   const isActive = job.status === "running" || job.status === "cancelling";
+
+  // Detail data state
+  const [discoveredRepos, setDiscoveredRepos] = useState<BackfillRepoEntry[]>([]);
+  const [discoveredCursor, setDiscoveredCursor] = useState<string | null>(null);
+  const [discoveredLoaded, setDiscoveredLoaded] = useState(false);
+
+  const [pdsSummary, setPdsSummary] = useState<PdsSummaryEntry[]>([]);
+  const [pdsLoaded, setPdsLoaded] = useState(false);
+
+  const [fetchedRepos, setFetchedRepos] = useState<BackfillRepoEntry[]>([]);
+  const [fetchedCursor, setFetchedCursor] = useState<string | null>(null);
+  const [fetchedLoaded, setFetchedLoaded] = useState(false);
+
+  // SSE events for active jobs
+  const sseEvents = useBackfillSSE(job.id, isActive);
 
   function hasReached(phase: (typeof PROGRESS_PHASES)[number]): boolean {
     if (allDone) return true;
@@ -244,6 +563,102 @@ function JobDetail({
       setCancelling(false);
     }
   }
+
+  // Auto-load detail data when phases are reached
+  const discoveredReached = hasReached("discovering_repos");
+  const pdsReached = hasReached("resolving_pds");
+  const fetchedReached = hasReached("fetching_records") || job.stage === "resolving_and_fetching";
+
+  useEffect(() => {
+    if (discoveredReached && !discoveredLoaded) {
+      getBackfillRepos(job.id, { phase: "discovered", limit: 50 })
+        .then((resp) => { setDiscoveredRepos(resp.repos); setDiscoveredCursor(resp.cursor); setDiscoveredLoaded(true); })
+        .catch(() => {});
+    }
+  }, [job.id, discoveredReached, discoveredLoaded]);
+
+  useEffect(() => {
+    if (pdsReached && !pdsLoaded) {
+      getBackfillPdsSummary(job.id)
+        .then((resp) => { setPdsSummary(resp.pds_endpoints); setPdsLoaded(true); })
+        .catch(() => {});
+    }
+  }, [job.id, pdsReached, pdsLoaded]);
+
+  useEffect(() => {
+    if (fetchedReached && !fetchedLoaded) {
+      getBackfillRepos(job.id, { phase: "fetched", limit: 50 })
+        .then((resp) => { setFetchedRepos(resp.repos); setFetchedCursor(resp.cursor); setFetchedLoaded(true); })
+        .catch(() => {});
+    }
+  }, [job.id, fetchedReached, fetchedLoaded]);
+
+  const loadMoreDiscovered = useCallback(async () => {
+    if (!discoveredCursor) return;
+    try {
+      const resp = await getBackfillRepos(job.id, { phase: "discovered", cursor: discoveredCursor, limit: 50 });
+      setDiscoveredRepos((prev) => [...prev, ...resp.repos]);
+      setDiscoveredCursor(resp.cursor);
+    } catch { /* ignore */ }
+  }, [job.id, discoveredCursor]);
+
+  const loadMoreFetched = useCallback(async () => {
+    if (!fetchedCursor) return;
+    try {
+      const resp = await getBackfillRepos(job.id, { phase: "fetched", cursor: fetchedCursor, limit: 50 });
+      setFetchedRepos((prev) => [...prev, ...resp.repos]);
+      setFetchedCursor(resp.cursor);
+    } catch { /* ignore */ }
+  }, [job.id, fetchedCursor]);
+
+  // Process SSE events
+  useEffect(() => {
+    for (const event of sseEvents) {
+      if (event.type === "repo_discovered" && event.did) {
+        setDiscoveredRepos((prev) => {
+          if (prev.some((r) => r.did === event.did)) return prev;
+          return [{ did: event.did!, pds_endpoint: null, status: "pending", records_fetched: 0 }, ...prev];
+        });
+      }
+      if (event.type === "repo_resolved" && event.did && event.pds_endpoint) {
+        setDiscoveredRepos((prev) =>
+          prev.map((r) => r.did === event.did ? { ...r, pds_endpoint: event.pds_endpoint! } : r)
+        );
+        setPdsSummary((prev) => {
+          const idx = prev.findIndex((p) => p.pds_endpoint === event.pds_endpoint);
+          if (idx >= 0) {
+            const updated = [...prev];
+            updated[idx] = { ...updated[idx], total_repos: updated[idx].total_repos + 1 };
+            return updated;
+          }
+          return [...prev, { pds_endpoint: event.pds_endpoint!, total_repos: 1, completed_repos: 0, total_records: 0 }];
+        });
+      }
+      if (event.type === "repo_fetched" && event.did) {
+        setFetchedRepos((prev) => {
+          if (prev.some((r) => r.did === event.did)) return prev;
+          return [{ did: event.did!, pds_endpoint: event.pds_endpoint ?? null, status: "completed", records_fetched: event.records_fetched ?? 0 }, ...prev];
+        });
+        setPdsSummary((prev) => {
+          if (!event.pds_endpoint) return prev;
+          return prev.map((p) => p.pds_endpoint === event.pds_endpoint
+            ? { ...p, completed_repos: p.completed_repos + 1, total_records: p.total_records + (event.records_fetched ?? 0) }
+            : p
+          );
+        });
+      }
+    }
+  }, [sseEvents]);
+
+  // Collect all visible DIDs for profile resolution
+  const allVisibleDids = useMemo(() => {
+    const dids = new Set<string>();
+    for (const r of discoveredRepos) dids.add(r.did);
+    for (const r of fetchedRepos) dids.add(r.did);
+    return Array.from(dids);
+  }, [discoveredRepos, fetchedRepos]);
+
+  const profiles = useBlueskyProfiles(allVisibleDids);
 
   return (
     <>
@@ -306,9 +721,27 @@ function JobDetail({
               label="Discovering repos"
               active={isActive && job.stage === "discovering_repos"}
               reached={hasReached("discovering_repos")}
-              value={job.total_repos?.toLocaleString()}
+              value={job.total_repos != null ? <AnimatedNumber value={job.total_repos} /> : undefined}
               suffix="repos found"
-            />
+              loading={discoveredReached && !discoveredLoaded}
+            >
+              {discoveredRepos.length > 0 ? (
+                <div>
+                  {discoveredRepos.map((repo) => (
+                    <CompactRepoRow
+                      key={repo.did}
+                      did={repo.did}
+                      profile={profiles.get(repo.did)}
+                    />
+                  ))}
+                  {discoveredCursor && (
+                    <ScrollSentinel onVisible={loadMoreDiscovered} />
+                  )}
+                </div>
+              ) : discoveredLoaded ? (
+                <p className="py-3 text-center text-xs text-muted-foreground">No repos discovered yet.</p>
+              ) : null}
+            </ProgressRow>
             <ProgressRow
               label="Resolving PDS"
               active={
@@ -319,11 +752,30 @@ function JobDetail({
               reached={hasReached("resolving_pds")}
               value={
                 hasReached("resolving_pds")
-                  ? `${(job.resolved_repos ?? job.processed_repos)?.toLocaleString() ?? "0"} / ${job.total_repos?.toLocaleString() ?? "0"}`
+                  ? <><AnimatedNumber value={job.resolved_repos ?? job.processed_repos ?? 0} /> / <AnimatedNumber value={job.total_repos ?? 0} /></>
                   : undefined
               }
               suffix="resolved"
-            />
+              loading={pdsReached && !pdsLoaded}
+            >
+              {pdsSummary.length > 0 ? (
+                <div className="divide-y text-sm">
+                  {pdsSummary
+                    .sort((a, b) => b.total_repos - a.total_repos)
+                    .map((pds) => (
+                      <div key={pds.pds_endpoint} className="flex items-center gap-2 px-3 py-1.5">
+                        <PdsFavicon pdsEndpoint={pds.pds_endpoint} />
+                        <span className="flex-1 truncate font-mono text-xs">{new URL(pds.pds_endpoint).hostname}</span>
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          <AnimatedNumber value={pds.completed_repos} />/<AnimatedNumber value={pds.total_repos} /> repos · <AnimatedNumber value={pds.total_records} /> records
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              ) : pdsLoaded ? (
+                <p className="py-3 text-center text-xs text-muted-foreground">No PDS data yet.</p>
+              ) : null}
+            </ProgressRow>
             <ProgressRow
               label="Fetching records"
               active={
@@ -335,21 +787,69 @@ function JobDetail({
               value={
                 hasReached("fetching_records") ||
                 job.stage === "resolving_and_fetching"
-                  ? `${job.processed_repos?.toLocaleString() ?? "0"} / ${job.total_repos?.toLocaleString() ?? "0"} repos`
+                  ? <><AnimatedNumber value={job.processed_repos ?? 0} /> / <AnimatedNumber value={job.total_repos ?? 0} /> repos</>
                   : undefined
               }
               suffix={
                 hasReached("fetching_records") ||
                 job.stage === "resolving_and_fetching"
-                  ? `${job.total_records?.toLocaleString() ?? "0"} records`
+                  ? <><AnimatedNumber value={job.total_records ?? 0} /> records</>
                   : undefined
               }
-            />
+              loading={fetchedReached && !fetchedLoaded}
+            >
+              {fetchedRepos.filter((r) => r.records_fetched > 0).length > 0 ? (
+                <div className="divide-y">
+                  {fetchedRepos.filter((r) => r.records_fetched > 0).map((repo) => (
+                    <ProfileRow
+                      key={repo.did}
+                      did={repo.did}
+                      profile={profiles.get(repo.did)}
+                      suffix={<span className="flex items-center gap-1"><CheckCircle2 className="size-3 text-emerald-500" /><AnimatedNumber value={repo.records_fetched} /> records</span>}
+                    />
+                  ))}
+                  {fetchedCursor && (
+                    <ScrollSentinel onVisible={loadMoreFetched} />
+                  )}
+                </div>
+              ) : fetchedLoaded ? (
+                <p className="py-3 text-center text-xs text-muted-foreground">No repos fetched yet.</p>
+              ) : null}
+            </ProgressRow>
           </div>
         </div>
       </div>
-      {canCancel && isActive && (
-        <SheetFooter className="border-t flex-row justify-end">
+      <SheetFooter className="border-t flex-row justify-end gap-2">
+        {canFlush && !isActive && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="outline" size="sm">Clear details</Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Clear job details?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete per-repo detail data for this backfill job.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={async () => {
+                  await flushBackfillDetails(job.id);
+                  setDiscoveredRepos([]);
+                  setDiscoveredCursor(null);
+                  setDiscoveredLoaded(false);
+                  setPdsSummary([]);
+                  setPdsLoaded(false);
+                  setFetchedRepos([]);
+                  setFetchedCursor(null);
+                  setFetchedLoaded(false);
+                }}>Clear</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
+        {canCancel && isActive && (
           <Button
             variant="destructive"
             size="sm"
@@ -358,8 +858,8 @@ function JobDetail({
           >
             {job.status === "cancelling" ? "Cancelling…" : "Cancel Job"}
           </Button>
-        </SheetFooter>
-      )}
+        )}
+      </SheetFooter>
     </>
   );
 }
@@ -370,42 +870,64 @@ function ProgressRow({
   reached,
   value,
   suffix,
+  loading,
+  children,
 }: {
   label: string;
   active: boolean;
   reached: boolean;
-  value?: string;
-  suffix?: string;
+  value?: React.ReactNode;
+  suffix?: React.ReactNode;
+  loading?: boolean;
+  children?: React.ReactNode;
 }) {
+  const [open, setOpen] = useState(false);
   const done = reached && !active;
+  const expandable = reached;
 
   return (
-    <div
-      className={`flex items-center gap-2 px-3 py-2 text-sm ${
-        active
-          ? "bg-blue-500/5"
-          : reached
-            ? ""
-            : "text-muted-foreground opacity-50"
-      }`}
-    >
-      <span className="shrink-0">
-        {active ? (
-          <Loader2 className="size-4 animate-spin text-blue-500" />
-        ) : done ? (
-          <CheckCircle2 className="size-4 text-emerald-500" />
-        ) : (
-          <Circle className="size-4" />
-        )}
-      </span>
-      <span className={`flex-1 ${active ? "font-medium" : ""}`}>{label}</span>
-      {reached && value && (
-        <span className="tabular-nums text-xs text-muted-foreground">
-          {value}
-          {suffix ? ` · ${suffix}` : ""}
-        </span>
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger asChild disabled={!expandable}>
+        <div
+          className={`flex items-center gap-2 px-3 py-2 text-sm ${
+            expandable ? "cursor-pointer hover:bg-accent/50" : ""
+          } ${
+            active ? "bg-blue-500/5" : reached ? "" : "text-muted-foreground opacity-50"
+          }`}
+        >
+          <span className="shrink-0">
+            {active ? (
+              <Loader2 className="size-4 animate-spin text-blue-500" />
+            ) : done ? (
+              <CheckCircle2 className="size-4 text-emerald-500" />
+            ) : (
+              <Circle className="size-4" />
+            )}
+          </span>
+          <span className={`flex-1 ${active ? "font-medium" : ""}`}>{label}</span>
+          {reached && value && (
+            <span className="tabular-nums text-xs text-muted-foreground">
+              {value}
+              {suffix && <> · {suffix}</>}
+            </span>
+          )}
+          {expandable && (
+            <ChevronRight className={`size-4 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
+          )}
+        </div>
+      </CollapsibleTrigger>
+      {expandable && (
+        <CollapsibleContent>
+          <div className="border-t bg-muted/30 max-h-64 overflow-y-auto">
+            {loading ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="size-4 animate-spin text-muted-foreground" />
+              </div>
+            ) : children}
+          </div>
+        </CollapsibleContent>
       )}
-    </div>
+    </Collapsible>
   );
 }
 

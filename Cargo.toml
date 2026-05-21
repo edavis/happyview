@@ -55,6 +55,7 @@ wasmtime = { version = "29", features = ["async"] }
 wasmtime-wasi = "29"
 regex = "1.12.3"
 semver = "1.0"
+async-stream = "0.3.6"
 
 [[bin]]
 name = "migrate-lua-sql"

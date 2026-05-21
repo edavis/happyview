@@ -78,6 +78,7 @@ pub struct AppState {
     pub official_registry: SharedRegistry,
     pub official_registry_config: RegistryConfig,
     pub proxy_config: Arc<arc_swap::ArcSwap<proxy_config::ProxyConfig>>,
+    pub backfill_events_tx: tokio::sync::broadcast::Sender<crate::admin::types::BackfillEvent>,
 }
 
 impl axum::extract::FromRef<AppState> for axum_extra::extract::cookie::Key {
