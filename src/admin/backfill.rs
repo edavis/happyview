@@ -20,7 +20,6 @@ use crate::error::AppError;
 use crate::event_log::{EventLog, Severity, log_event};
 use crate::http_retry::parse_retry_after;
 use crate::profile;
-use crate::record_handler::{self, RecordEvent};
 
 use super::auth::UserAuth;
 use super::permissions::Permission;
@@ -1108,6 +1107,95 @@ async fn run_fetching_phase(
     (final_repos, final_records)
 }
 
+struct PreparedRecord {
+    uri: String,
+    did: String,
+    collection: String,
+    rkey: String,
+    record_json: String,
+    cid: String,
+}
+
+async fn batch_upsert_records(state: &AppState, batch: &[PreparedRecord]) {
+    if batch.is_empty() {
+        return;
+    }
+
+    let backend = state.db_backend;
+    let now = now_rfc3339();
+
+    // Build multi-row INSERT. 8 params per row; ON CONFLICT uses EXCLUDED.
+    let placeholders: Vec<String> = (0..batch.len())
+        .map(|_| "(?, ?, ?, ?, ?, ?, ?, ?)".to_string())
+        .collect();
+    let raw_sql = format!(
+        "INSERT INTO records (uri, did, collection, rkey, record, cid, indexed_at, created_at) VALUES {} ON CONFLICT (uri) DO UPDATE SET record = EXCLUDED.record, cid = EXCLUDED.cid, indexed_at = EXCLUDED.indexed_at",
+        placeholders.join(", ")
+    );
+    let sql = adapt_sql(&raw_sql, backend);
+
+    let mut query = sqlx::query(&sql);
+    for rec in batch {
+        query = query
+            .bind(&rec.uri)
+            .bind(&rec.did)
+            .bind(&rec.collection)
+            .bind(&rec.rkey)
+            .bind(&rec.record_json)
+            .bind(&rec.cid)
+            .bind(&now)
+            .bind(&now);
+    }
+
+    if let Err(e) = query.execute(&state.db).await {
+        tracing::warn!(batch_size = batch.len(), "batch record upsert failed: {e}");
+    }
+
+    // Batch sync_refs: delete old refs for all URIs, then insert new ones.
+    let uris: Vec<&str> = batch.iter().map(|r| r.uri.as_str()).collect();
+    let delete_placeholders: Vec<&str> = (0..uris.len()).map(|_| "?").collect();
+    let delete_raw = format!(
+        "DELETE FROM record_refs WHERE source_uri IN ({})",
+        delete_placeholders.join(", ")
+    );
+    let delete_sql = adapt_sql(&delete_raw, backend);
+    let mut del_query = sqlx::query(&delete_sql);
+    for uri in &uris {
+        del_query = del_query.bind(*uri);
+    }
+    let _ = del_query.execute(&state.db).await;
+
+    // Collect all new refs and batch insert them
+    let mut all_refs: Vec<(&str, String, &str)> = Vec::new();
+    for rec in batch {
+        let record_val: serde_json::Value =
+            serde_json::from_str(&rec.record_json).unwrap_or_default();
+        for target_uri in crate::record_refs::extract_at_uris(&record_val) {
+            all_refs.push((&rec.uri, target_uri, &rec.collection));
+        }
+    }
+
+    // Insert refs in chunks to stay within SQLite's param limit (3 params per ref)
+    for chunk in all_refs.chunks(300) {
+        let ref_placeholders: Vec<&str> = (0..chunk.len()).map(|_| "(?, ?, ?)").collect();
+        let ref_raw = format!(
+            "INSERT INTO record_refs (source_uri, target_uri, collection) VALUES {} ON CONFLICT DO NOTHING",
+            ref_placeholders.join(", ")
+        );
+        let ref_sql = adapt_sql(&ref_raw, backend);
+        let mut ref_query = sqlx::query(&ref_sql);
+        for (source, target, collection) in chunk {
+            ref_query = ref_query.bind(*source).bind(target).bind(*collection);
+        }
+        let _ = ref_query.execute(&state.db).await;
+    }
+
+    // Queue label backfill for each record
+    for rec in batch {
+        crate::labeler::backfill_labels_for_uri(Arc::new(state.clone()), rec.uri.clone());
+    }
+}
+
 /// Fetch all records for a given DID and collection from a PDS via
 /// `com.atproto.repo.listRecords`, paginating and handling rate limits.
 async fn fetch_records_from_pds(
@@ -1153,21 +1241,46 @@ async fn fetch_records_from_pds(
 
         let page_count = body.records.len();
 
+        let mut batch: Vec<PreparedRecord> = Vec::with_capacity(page_count);
         for entry in &body.records {
             let rkey = entry.uri.rsplit('/').next().unwrap_or_default().to_string();
+            let uri = format!("at://{did}/{collection}/{rkey}");
 
-            let event = RecordEvent {
+            let rec_to_store = if let Some(script) = state.lexicons.get_index_hook(collection).await
+            {
+                let hook_result = crate::lua::execute_hook_script(&crate::lua::HookEvent {
+                    state,
+                    lexicon_id: collection,
+                    script: &script,
+                    action: "create",
+                    uri: &uri,
+                    did,
+                    collection,
+                    rkey: &rkey,
+                    record: Some(&entry.value),
+                })
+                .await;
+
+                match hook_result {
+                    None => continue,
+                    Some(v) => v,
+                }
+            } else {
+                entry.value.clone()
+            };
+
+            batch.push(PreparedRecord {
+                uri,
                 did: did.to_string(),
                 collection: collection.to_string(),
                 rkey,
-                action: "create".to_string(),
-                record: Some(entry.value.clone()),
-                cid: Some(entry.cid.clone()),
-            };
-
-            record_handler::handle_record_event(state, &event).await;
-            count += 1;
+                record_json: serde_json::to_string(&rec_to_store).unwrap_or_default(),
+                cid: entry.cid.clone(),
+            });
         }
+
+        count += batch.len() as u32;
+        batch_upsert_records(state, &batch).await;
 
         match body.cursor {
             Some(c) if page_count > 0 => cursor = Some(c),
