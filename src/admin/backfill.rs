@@ -282,14 +282,16 @@ async fn run_discovery_phase(
             },
         );
     } else {
-        for collection in collections {
-            if is_cancelled(state, job_id).await {
-                return;
-            }
-            if let Err(e) = discover_repos_from_relay(state, job_id, collection).await {
-                tracing::warn!(collection, error = %e, "failed to discover repos, skipping");
-            }
-        }
+        stream::iter(collections.iter())
+            .for_each_concurrent(collections.len(), |collection| async move {
+                if is_cancelled(state, job_id).await {
+                    return;
+                }
+                if let Err(e) = discover_repos_from_relay(state, job_id, collection).await {
+                    tracing::warn!(collection, error = %e, "failed to discover repos, skipping");
+                }
+            })
+            .await;
     }
 
     let total = count_repos(state, job_id).await;
