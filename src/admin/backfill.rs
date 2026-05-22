@@ -134,11 +134,13 @@ async fn load_concurrency(state: &AppState) -> BackfillConcurrency {
     )
     .await
     .and_then(|v| v.parse().ok())
-    .unwrap_or(100);
+    .unwrap_or(100usize)
+    .max(1);
     let pds = super::settings::get_setting(&state.db, "backfill_concurrent_pds", state.db_backend)
         .await
         .and_then(|v| v.parse().ok())
-        .unwrap_or(10);
+        .unwrap_or(10usize)
+        .max(1);
     let dids_per_pds = super::settings::get_setting(
         &state.db,
         "backfill_concurrent_dids_per_pds",
@@ -146,7 +148,8 @@ async fn load_concurrency(state: &AppState) -> BackfillConcurrency {
     )
     .await
     .and_then(|v| v.parse().ok())
-    .unwrap_or(3);
+    .unwrap_or(3usize)
+    .max(1);
     BackfillConcurrency {
         resolution,
         pds,
