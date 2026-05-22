@@ -1149,7 +1149,7 @@ async fn batch_upsert_records(state: &AppState, batch: &[PreparedRecord]) {
             .bind(&now);
     }
 
-    if let Err(e) = query.execute(&state.db).await {
+    if let Err(e) = query.execute(&state.backfill_db).await {
         tracing::warn!(batch_size = batch.len(), "batch record upsert failed: {e}");
     }
 
@@ -1165,7 +1165,7 @@ async fn batch_upsert_records(state: &AppState, batch: &[PreparedRecord]) {
     for uri in &uris {
         del_query = del_query.bind(*uri);
     }
-    let _ = del_query.execute(&state.db).await;
+    let _ = del_query.execute(&state.backfill_db).await;
 
     // Collect all new refs and batch insert them
     let mut all_refs: Vec<(&str, String, &str)> = Vec::new();
@@ -1189,7 +1189,7 @@ async fn batch_upsert_records(state: &AppState, batch: &[PreparedRecord]) {
         for (source, target, collection) in chunk {
             ref_query = ref_query.bind(*source).bind(target).bind(*collection);
         }
-        let _ = ref_query.execute(&state.db).await;
+        let _ = ref_query.execute(&state.backfill_db).await;
     }
 
     // Queue label backfill for each record
@@ -1700,7 +1700,7 @@ pub(super) async fn backfill_repos(
     q = q.bind(limit + 1);
 
     let rows: Vec<(String, Option<String>, String, i32)> = q
-        .fetch_all(&state.db)
+        .fetch_all(&state.backfill_db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to query backfill repos: {e}")))?;
 
@@ -1741,7 +1741,7 @@ pub(super) async fn backfill_pds_summary(
 
     let rows: Vec<(String, i32, i32, i64)> = sqlx::query_as(&sql)
         .bind(&job_id)
-        .fetch_all(&state.db)
+        .fetch_all(&state.backfill_db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to query PDS summary: {e}")))?;
 
@@ -1777,7 +1777,10 @@ pub(super) async fn flush_backfill_details(
         "DELETE FROM backfill_repos WHERE job_id = ?",
         state.db_backend,
     );
-    let _ = sqlx::query(&sql).bind(&job_id).execute(&state.db).await;
+    let _ = sqlx::query(&sql)
+        .bind(&job_id)
+        .execute(&state.backfill_db)
+        .await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1792,7 +1795,7 @@ pub(super) async fn flush_all_backfill_details(
         "DELETE FROM backfill_repos WHERE job_id IN (SELECT id FROM backfill_jobs WHERE status IN ('completed', 'cancelled', 'failed'))",
         state.db_backend,
     );
-    let _ = sqlx::query(&sql).execute(&state.db).await;
+    let _ = sqlx::query(&sql).execute(&state.backfill_db).await;
 
     Ok(StatusCode::NO_CONTENT)
 }
