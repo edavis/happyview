@@ -894,8 +894,9 @@ function ProgressRow({
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger asChild disabled={!expandable}>
-        <div
-          className={`flex items-center gap-2 px-3 py-2 text-sm ${
+        <button
+          type="button"
+          className={`flex w-full items-center gap-2 px-3 py-2 text-sm text-left ${
             expandable ? "cursor-pointer hover:bg-accent/50" : ""
           } ${
             active ? "bg-blue-500/5" : reached ? "" : "text-muted-foreground opacity-50"
@@ -920,7 +921,7 @@ function ProgressRow({
           {expandable && (
             <ChevronRight className={`size-4 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
           )}
-        </div>
+        </button>
       </CollapsibleTrigger>
       {expandable && (
         <CollapsibleContent>
