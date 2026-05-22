@@ -1811,7 +1811,6 @@ pub async fn run_backfill_retention_cleanup(state: &AppState) {
     use super::settings::get_setting;
 
     let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(86400));
-    interval.tick().await; // first tick is immediate — run once on startup
 
     loop {
         interval.tick().await;
