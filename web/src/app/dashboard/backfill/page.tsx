@@ -546,6 +546,7 @@ function JobDetail({
 
   // SSE events for active jobs
   const sseEvents = useBackfillSSE(job.id, isActive);
+  const sseProcessedRef = useRef(0);
 
   function hasReached(phase: (typeof PROGRESS_PHASES)[number]): boolean {
     if (allDone) return true;
@@ -611,9 +612,14 @@ function JobDetail({
     } catch { /* ignore */ }
   }, [job.id, fetchedCursor]);
 
-  // Process SSE events
+  // Process SSE events — only handle events added since last render
   useEffect(() => {
-    for (const event of sseEvents) {
+    const start = sseProcessedRef.current;
+    if (start >= sseEvents.length) return;
+    sseProcessedRef.current = sseEvents.length;
+
+    for (let i = start; i < sseEvents.length; i++) {
+      const event = sseEvents[i];
       if (event.type === "repo_discovered" && event.did) {
         setDiscoveredRepos((prev) => {
           if (prev.some((r) => r.did === event.did)) return prev;
