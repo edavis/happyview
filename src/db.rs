@@ -286,7 +286,7 @@ pub async fn connect(url: &str, backend: DatabaseBackend) -> AnyPool {
 pub async fn connect_backfill_pool(url: &str, backend: DatabaseBackend) -> AnyPool {
     let max_connections: u32 = std::env::var("BACKFILL_DATABASE_MAX_CONNECTIONS")
         .ok()
-        .and_then(|v| v.parse().ok())
+        .and_then(|v| v.parse::<u32>().ok())
         .unwrap_or_else(|| {
             let pds: u32 = std::env::var("BACKFILL_CONCURRENT_PDS")
                 .ok()
@@ -308,7 +308,8 @@ pub async fn connect_backfill_pool(url: &str, backend: DatabaseBackend) -> AnyPo
                 DatabaseBackend::Postgres => 256,
             };
             needed.min(ceiling)
-        });
+        })
+        .max(1);
 
     tracing::info!(max_connections, "backfill pool sized");
 
