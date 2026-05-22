@@ -200,8 +200,8 @@ pub(super) async fn db_info(
         None
     };
 
-    let main_pool_size = state.db.size() as i64;
-    let backfill_pool_size = state.backfill_db.size() as i64;
+    let main_pool_size = state.db.options().get_max_connections() as i64;
+    let backfill_pool_size = state.backfill_db.options().get_max_connections() as i64;
 
     Ok(Json(serde_json::json!({
         "backend": match state.db_backend {
