@@ -336,6 +336,8 @@ export default function GeneralSettingsPage() {
           <Input
             id="backfill_retention_days"
             type="number"
+            min={0}
+            step={1}
             value={values["backfill_retention_days"]}
             onChange={(e) =>
               setValues((v) => ({ ...v, backfill_retention_days: e.target.value }))
@@ -379,6 +381,8 @@ export default function GeneralSettingsPage() {
             <Input
               id={field.id}
               type="number"
+              min={1}
+              step={1}
               value={values[field.key]}
               onChange={(e) => setValues((v) => ({ ...v, [field.key]: e.target.value }))}
               placeholder={field.placeholder}
