@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import {
   cancelBackfillJob,
+  pauseBackfillJob,
+  resumeBackfillJob,
   createBackfillJob,
   getBackfillJobs,
   getBackfillRepos,
@@ -20,7 +22,7 @@ import type {
   BackfillEvent,
   BlueskyProfile,
 } from "@/types/backfill";
-import { CheckCircle2, ChevronRight, Circle, Loader2 } from "lucide-react";
+import { CheckCircle2, ChevronRight, Circle, Loader2, PauseCircle } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import {
   AlertDialog,
@@ -102,6 +104,18 @@ function statusBadge(job: BackfillJob) {
       return (
         <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 hover:bg-amber-500/25 border-amber-500/20">
           cancelling
+        </Badge>
+      );
+    case "pausing":
+      return (
+        <Badge className="bg-gray-500/15 text-gray-700 dark:text-gray-400 hover:bg-gray-500/25 border-gray-500/20">
+          pausing
+        </Badge>
+      );
+    case "paused":
+      return (
+        <Badge className="bg-gray-500/15 text-gray-700 dark:text-gray-400 hover:bg-gray-500/25 border-gray-500/20">
+          paused
         </Badge>
       );
     case "running":
@@ -507,6 +521,14 @@ export default function BackfillPage() {
                   await cancelBackfillJob(selectedJob.id);
                   load();
                 }}
+                onPause={async () => {
+                  await pauseBackfillJob(selectedJob.id);
+                  load();
+                }}
+                onResume={async () => {
+                  await resumeBackfillJob(selectedJob.id);
+                  load();
+                }}
               />
             )}
           </SheetContent>
@@ -521,16 +543,23 @@ function JobDetail({
   canCancel,
   canFlush,
   onCancel,
+  onPause,
+  onResume,
 }: {
   job: BackfillJob;
   canCancel: boolean;
   canFlush: boolean;
   onCancel: () => Promise<void>;
+  onPause: () => Promise<void>;
+  onResume: () => Promise<void>;
 }) {
   const [cancelling, setCancelling] = useState(false);
+  const [pausing, setPausing] = useState(false);
+  const [resuming, setResuming] = useState(false);
   const current = phaseIndex(job.stage);
   const allDone = job.status === "completed";
-  const isActive = job.status === "running" || job.status === "cancelling";
+  const isActive = job.status === "running" || job.status === "cancelling" || job.status === "pausing";
+  const isPaused = job.status === "paused" || job.status === "pausing";
 
   // Detail data state
   const [discoveredRepos, setDiscoveredRepos] = useState<BackfillRepoEntry[]>([]);
@@ -556,12 +585,47 @@ function JobDetail({
     return current >= phaseIndex(phase);
   }
 
+  function isPhasePaused(phase: (typeof PROGRESS_PHASES)[number]): boolean {
+    if (!isPaused) return false;
+    if (job.stage === "resolving_and_fetching") {
+      return phase === "resolving_pds" || phase === "fetching_records";
+    }
+    if (job.stage === "discovering_repos") {
+      return phase === "discovering_repos";
+    }
+    if (job.stage === "resolving_pds") {
+      return phase === "resolving_pds";
+    }
+    if (job.stage === "fetching_records") {
+      return phase === "fetching_records";
+    }
+    return false;
+  }
+
   async function handleCancel() {
     setCancelling(true);
     try {
       await onCancel();
     } finally {
       setCancelling(false);
+    }
+  }
+
+  async function handlePause() {
+    setPausing(true);
+    try {
+      await onPause();
+    } finally {
+      setPausing(false);
+    }
+  }
+
+  async function handleResume() {
+    setResuming(true);
+    try {
+      await onResume();
+    } finally {
+      setResuming(false);
     }
   }
 
@@ -727,6 +791,7 @@ function JobDetail({
               label="Discovering repos"
               active={isActive && job.stage === "discovering_repos"}
               reached={hasReached("discovering_repos")}
+              paused={isPhasePaused("discovering_repos")}
               value={job.total_repos != null ? <AnimatedNumber value={job.total_repos} /> : undefined}
               suffix="repos found"
               loading={discoveredReached && !discoveredLoaded}
@@ -756,6 +821,7 @@ function JobDetail({
                   job.stage === "resolving_and_fetching")
               }
               reached={hasReached("resolving_pds")}
+              paused={isPhasePaused("resolving_pds")}
               value={
                 hasReached("resolving_pds")
                   ? <><AnimatedNumber value={job.resolved_repos ?? job.processed_repos ?? 0} /> / <AnimatedNumber value={job.total_repos ?? 0} /></>
@@ -790,6 +856,7 @@ function JobDetail({
                   job.stage === "resolving_and_fetching")
               }
               reached={hasReached("fetching_records")}
+              paused={isPhasePaused("fetching_records")}
               value={
                 hasReached("fetching_records") ||
                 job.stage === "resolving_and_fetching"
@@ -855,6 +922,26 @@ function JobDetail({
             </AlertDialogContent>
           </AlertDialog>
         )}
+        {canCancel && (job.status === "running" || job.status === "pausing") && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={job.status === "pausing"}
+            onClick={handlePause}
+          >
+            {job.status === "pausing" ? "Pausing…" : "Pause Job"}
+          </Button>
+        )}
+        {canCancel && job.status === "paused" && (
+          <Button
+            variant="default"
+            size="sm"
+            disabled={resuming}
+            onClick={handleResume}
+          >
+            {resuming ? "Resuming…" : "Resume Job"}
+          </Button>
+        )}
         {canCancel && isActive && (
           <Button
             variant="destructive"
@@ -863,6 +950,16 @@ function JobDetail({
             onClick={handleCancel}
           >
             {job.status === "cancelling" ? "Cancelling…" : "Cancel Job"}
+          </Button>
+        )}
+        {canCancel && job.status === "paused" && (
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={cancelling}
+            onClick={handleCancel}
+          >
+            Cancel Job
           </Button>
         )}
       </SheetFooter>
@@ -874,6 +971,7 @@ function ProgressRow({
   label,
   active,
   reached,
+  paused,
   value,
   suffix,
   loading,
@@ -882,13 +980,14 @@ function ProgressRow({
   label: string;
   active: boolean;
   reached: boolean;
+  paused?: boolean;
   value?: React.ReactNode;
   suffix?: React.ReactNode;
   loading?: boolean;
   children?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const done = reached && !active;
+  const done = reached && !active && !paused;
   const expandable = reached;
 
   return (
@@ -905,6 +1004,8 @@ function ProgressRow({
           <span className="shrink-0">
             {active ? (
               <Loader2 className="size-4 animate-spin text-blue-500" />
+            ) : paused ? (
+              <PauseCircle className="size-4 text-gray-500" />
             ) : done ? (
               <CheckCircle2 className="size-4 text-emerald-500" />
             ) : (

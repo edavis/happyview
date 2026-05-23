@@ -203,6 +203,29 @@ pub(super) async fn db_info(
     let main_pool_size = state.db.options().get_max_connections() as i64;
     let backfill_pool_size = state.backfill_db.options().get_max_connections() as i64;
 
+    let pds: i64 = get_setting(&state.db, "backfill_concurrent_pds", state.db_backend)
+        .await
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10);
+    let dids: i64 = get_setting(
+        &state.db,
+        "backfill_concurrent_dids_per_pds",
+        state.db_backend,
+    )
+    .await
+    .and_then(|v| v.parse().ok())
+    .unwrap_or(3);
+    let resolution: i64 = get_setting(
+        &state.db,
+        "backfill_concurrent_resolution",
+        state.db_backend,
+    )
+    .await
+    .and_then(|v| v.parse().ok())
+    .unwrap_or(100);
+    let needed_backfill_pool = (pds * dids) + resolution + 4;
+    let restart_recommended = needed_backfill_pool > backfill_pool_size;
+
     Ok(Json(serde_json::json!({
         "backend": match state.db_backend {
             DatabaseBackend::Sqlite => "sqlite",
@@ -211,6 +234,7 @@ pub(super) async fn db_info(
         "server_max_connections": server_max,
         "main_pool_size": main_pool_size,
         "backfill_pool_size": backfill_pool_size,
+        "restart_recommended": restart_recommended,
     })))
 }
 

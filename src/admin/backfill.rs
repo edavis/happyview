@@ -179,23 +179,32 @@ async fn fail_job(state: &AppState, job_id: &str, error: &str) {
     );
 }
 
-async fn is_cancelled(state: &AppState, job_id: &str) -> bool {
+async fn should_stop(state: &AppState, job_id: &str) -> Option<&'static str> {
     let sql = adapt_sql(
         "SELECT status FROM backfill_jobs WHERE id = ?",
         state.db_backend,
     );
-    sqlx::query_as::<_, (String,)>(&sql)
+    let status = sqlx::query_as::<_, (String,)>(&sql)
         .bind(job_id)
         .fetch_optional(&state.backfill_db)
         .await
         .ok()
         .flatten()
-        .is_some_and(|(status,)| status == "cancelling")
+        .map(|(s,)| s);
+    match status.as_deref() {
+        Some("cancelling") => Some("cancelling"),
+        Some("pausing") => Some("pausing"),
+        _ => None,
+    }
+}
+
+async fn should_stop_worker(state: &AppState, job_id: &str) -> bool {
+    should_stop(state, job_id).await.is_some()
 }
 
 async fn request_cancel(state: &AppState, job_id: &str) {
     let sql = adapt_sql(
-        "UPDATE backfill_jobs SET status = 'cancelling' WHERE id = ? AND status = 'running'",
+        "UPDATE backfill_jobs SET status = 'cancelling' WHERE id = ? AND status IN ('running', 'paused')",
         state.db_backend,
     );
     let _ = sqlx::query(&sql)
@@ -220,6 +229,36 @@ async fn finalise_cancel(state: &AppState, job_id: &str) {
         super::types::BackfillEvent::JobCompleted {
             job_id: job_id.to_string(),
             status: "cancelled".to_string(),
+            error: None,
+        },
+    );
+}
+
+async fn request_pause(state: &AppState, job_id: &str) {
+    let sql = adapt_sql(
+        "UPDATE backfill_jobs SET status = 'pausing' WHERE id = ? AND status = 'running'",
+        state.db_backend,
+    );
+    let _ = sqlx::query(&sql)
+        .bind(job_id)
+        .execute(&state.backfill_db)
+        .await;
+}
+
+async fn finalise_pause(state: &AppState, job_id: &str) {
+    let sql = adapt_sql(
+        "UPDATE backfill_jobs SET status = 'paused' WHERE id = ?",
+        state.db_backend,
+    );
+    let _ = sqlx::query(&sql)
+        .bind(job_id)
+        .execute(&state.backfill_db)
+        .await;
+    publish_event(
+        state,
+        super::types::BackfillEvent::JobCompleted {
+            job_id: job_id.to_string(),
+            status: "paused".to_string(),
             error: None,
         },
     );
@@ -287,7 +326,7 @@ async fn run_discovery_phase(
     } else {
         stream::iter(collections.iter())
             .for_each_concurrent(collections.len(), |collection| async move {
-                if is_cancelled(state, job_id).await {
+                if should_stop_worker(state, job_id).await {
                     return;
                 }
                 if let Err(e) = discover_repos_from_relay(state, job_id, collection).await {
@@ -394,7 +433,7 @@ async fn discover_repos_from_relay(
 
         update_job_counter(state, job_id, "total_repos", running_total).await;
 
-        if is_cancelled(state, job_id).await {
+        if should_stop_worker(state, job_id).await {
             return Ok(());
         }
 
@@ -492,7 +531,7 @@ async fn run_pipelined_resolve_and_fetch(
 
         let mut attempted: i32 = 0;
         let mut next_flush = random_batch_threshold(100);
-        let mut next_cancel_check = random_batch_threshold(100);
+        let mut next_cancel_check = random_batch_threshold(10);
 
         let stream_state = resolver_state.clone();
         let stream_cancelled = Arc::clone(&resolver_cancelled);
@@ -572,11 +611,11 @@ async fn run_pipelined_resolve_and_fetch(
 
             attempted += 1;
             if attempted >= next_cancel_check {
-                if is_cancelled(&resolver_state, &resolver_job_id).await {
+                if should_stop_worker(&resolver_state, &resolver_job_id).await {
                     resolver_cancelled.store(true, Ordering::Relaxed);
                     break;
                 }
-                next_cancel_check = attempted + random_batch_threshold(100);
+                next_cancel_check = attempted + random_batch_threshold(10);
             }
         }
 
@@ -633,7 +672,31 @@ async fn run_pipelined_resolve_and_fetch(
     let mut worker_handles = FuturesUnordered::new();
     let mut overflow: Vec<(String, String)> = Vec::new();
 
-    while let Some((did, pds_endpoint)) = rx.recv().await {
+    loop {
+        if cancelled.load(Ordering::Relaxed) {
+            break;
+        }
+
+        let poll_state = Arc::clone(&state);
+        let poll_job_id = Arc::clone(&job_id_arc);
+        let poll_cancelled = Arc::clone(&cancelled);
+        let pair = tokio::select! {
+            biased;
+            result = rx.recv() => result,
+            _ = async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    if poll_cancelled.load(Ordering::Relaxed) || should_stop_worker(&poll_state, &poll_job_id).await {
+                        poll_cancelled.store(true, Ordering::Relaxed);
+                        return;
+                    }
+                }
+            } => None,
+        };
+        let Some((did, pds_endpoint)) = pair else {
+            break;
+        };
+
         // Also drain any overflow from previous iterations
         overflow.push((did, pds_endpoint));
 
@@ -831,12 +894,11 @@ async fn run_pds_worker(ctx: FetchContext, pds_endpoint: String, mut rx: mpsc::R
                         .bind(job_id.as_str())
                         .execute(&state.backfill_db)
                         .await;
-
-                    if is_cancelled(&state, job_id.as_str()).await {
-                        cancelled.store(true, Ordering::Relaxed);
-                        break;
-                    }
                     next_flush = repos + random_batch_threshold(10);
+                }
+                if cancelled.load(Ordering::Relaxed) || should_stop_worker(&state, job_id.as_str()).await {
+                    cancelled.store(true, Ordering::Relaxed);
+                    break;
                 }
                 publish_event(&state, super::types::BackfillEvent::JobCounters {
                     job_id: job_id.to_string(),
@@ -853,15 +915,20 @@ async fn run_pds_worker(ctx: FetchContext, pds_endpoint: String, mut rx: mpsc::R
                         let state = Arc::clone(&state);
                         let collections = collections.clone();
                         let pds_endpoint = pds_endpoint.clone();
+                        let cancelled = Arc::clone(&cancelled);
 
                         fetches.push(async move {
                             let mut count: i32 = 0;
                             for collection in collections.iter() {
+                                if cancelled.load(Ordering::Relaxed) {
+                                    break;
+                                }
                                 match fetch_records_from_pds(
                                     &state,
                                     &pds_endpoint,
                                     &did,
                                     collection,
+                                    &cancelled,
                                 )
                                 .await
                                 {
@@ -1019,11 +1086,15 @@ async fn run_fetching_phase(
 
                             let mut did_records: i32 = 0;
                             for collection in collections.iter() {
+                                if cancelled.load(Ordering::Relaxed) {
+                                    break;
+                                }
                                 match fetch_records_from_pds(
                                     &state,
                                     &pds_endpoint,
                                     &did,
                                     collection,
+                                    &cancelled,
                                 )
                                 .await
                                 {
@@ -1075,7 +1146,7 @@ async fn run_fetching_phase(
                                     .execute(&state.backfill_db)
                                     .await;
 
-                                if is_cancelled(&state, job_id.as_str()).await {
+                                if should_stop_worker(&state, job_id.as_str()).await {
                                     cancelled.store(true, Ordering::Relaxed);
                                 }
                             }
@@ -1208,12 +1279,17 @@ async fn fetch_records_from_pds(
     pds_endpoint: &str,
     did: &str,
     collection: &str,
+    cancelled: &AtomicBool,
 ) -> Result<u32, String> {
     let base = pds_endpoint.trim_end_matches('/');
     let mut cursor: Option<String> = None;
     let mut count: u32 = 0;
 
     loop {
+        if cancelled.load(Ordering::Relaxed) {
+            break;
+        }
+
         let mut url = format!(
             "{base}/xrpc/com.atproto.repo.listRecords?repo={did}&collection={collection}&limit=100"
         );
@@ -1365,10 +1441,18 @@ async fn run_backfill_job(state: AppState, job_id: String) {
     if matches!(stage.as_str(), "pending" | "discovering_repos") {
         run_discovery_phase(&state, &job_id, &collections, did.as_deref()).await;
 
-        if is_cancelled(&state, &job_id).await {
-            tracing::info!(job_id, "backfill job cancelled");
-            finalise_cancel(&state, &job_id).await;
-            return;
+        match should_stop(&state, &job_id).await {
+            Some("cancelling") => {
+                tracing::info!(job_id, "backfill job cancelled");
+                finalise_cancel(&state, &job_id).await;
+                return;
+            }
+            Some("pausing") => {
+                tracing::info!(job_id, "backfill job paused");
+                finalise_pause(&state, &job_id).await;
+                return;
+            }
+            _ => {}
         }
 
         let total = count_repos(&state, &job_id).await;
@@ -1405,10 +1489,18 @@ async fn run_backfill_job(state: AppState, job_id: String) {
         run_fetching_phase(&state, &job_id, &collections, &concurrency).await
     };
 
-    if is_cancelled(&state, &job_id).await {
-        tracing::info!(job_id, "backfill job cancelled");
-        finalise_cancel(&state, &job_id).await;
-        return;
+    match should_stop(&state, &job_id).await {
+        Some("cancelling") => {
+            tracing::info!(job_id, "backfill job cancelled");
+            finalise_cancel(&state, &job_id).await;
+            return;
+        }
+        Some("pausing") => {
+            tracing::info!(job_id, "backfill job paused");
+            finalise_pause(&state, &job_id).await;
+            return;
+        }
+        _ => {}
     }
 
     complete_job(&state, &job_id, final_processed, final_records, None).await;
@@ -1515,6 +1607,24 @@ pub(super) async fn cancel_backfill(
         Some((ref status,)) if status == "cancelling" || status == "cancelled" => {
             Ok(Json(serde_json::json!({ "id": job_id, "status": status })))
         }
+        Some((ref status,)) if status == "paused" => {
+            finalise_cancel(&state, &job_id).await;
+            log_event(
+                &state.db,
+                EventLog {
+                    event_type: "backfill.cancelled".to_string(),
+                    severity: Severity::Info,
+                    actor_did: Some(admin.did.clone()),
+                    subject: None,
+                    detail: serde_json::json!({ "job_id": job_id }),
+                },
+                state.db_backend,
+            )
+            .await;
+            Ok(Json(
+                serde_json::json!({ "id": job_id, "status": "cancelled" }),
+            ))
+        }
         Some((status,)) if status != "running" => Err(AppError::BadRequest(format!(
             "job is not running (status: {status})"
         ))),
@@ -1534,6 +1644,111 @@ pub(super) async fn cancel_backfill(
             .await;
             Ok(Json(
                 serde_json::json!({ "id": job_id, "status": "cancelling" }),
+            ))
+        }
+    }
+}
+
+/// POST /admin/backfill/{id}/pause — pause a running backfill job.
+pub(super) async fn pause_backfill(
+    State(state): State<AppState>,
+    admin: UserAuth,
+    Path(job_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    admin.require(Permission::BackfillCreate).await?;
+
+    let sql = adapt_sql(
+        "SELECT status FROM backfill_jobs WHERE id = ?",
+        state.db_backend,
+    );
+    let row: Option<(String,)> = sqlx::query_as(&sql)
+        .bind(&job_id)
+        .fetch_optional(&state.backfill_db)
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to query backfill job: {e}")))?;
+
+    match row {
+        None => Err(AppError::NotFound("backfill job not found".into())),
+        Some((ref status,)) if status == "pausing" || status == "paused" => {
+            Ok(Json(serde_json::json!({ "id": job_id, "status": status })))
+        }
+        Some((status,)) if status != "running" => Err(AppError::BadRequest(format!(
+            "job is not running (status: {status})"
+        ))),
+        Some(_) => {
+            request_pause(&state, &job_id).await;
+            log_event(
+                &state.db,
+                EventLog {
+                    event_type: "backfill.pausing".to_string(),
+                    severity: Severity::Info,
+                    actor_did: Some(admin.did.clone()),
+                    subject: None,
+                    detail: serde_json::json!({ "job_id": job_id }),
+                },
+                state.db_backend,
+            )
+            .await;
+            Ok(Json(
+                serde_json::json!({ "id": job_id, "status": "pausing" }),
+            ))
+        }
+    }
+}
+
+/// POST /admin/backfill/{id}/resume — resume a paused backfill job.
+pub(super) async fn resume_backfill(
+    State(state): State<AppState>,
+    admin: UserAuth,
+    Path(job_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    admin.require(Permission::BackfillCreate).await?;
+
+    let sql = adapt_sql(
+        "SELECT status FROM backfill_jobs WHERE id = ?",
+        state.db_backend,
+    );
+    let row: Option<(String,)> = sqlx::query_as(&sql)
+        .bind(&job_id)
+        .fetch_optional(&state.backfill_db)
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to query backfill job: {e}")))?;
+
+    match row {
+        None => Err(AppError::NotFound("backfill job not found".into())),
+        Some((status,)) if status != "paused" => Err(AppError::BadRequest(format!(
+            "job is not paused (status: {status})"
+        ))),
+        Some(_) => {
+            let sql = adapt_sql(
+                "UPDATE backfill_jobs SET status = 'running' WHERE id = ?",
+                state.db_backend,
+            );
+            let _ = sqlx::query(&sql)
+                .bind(&job_id)
+                .execute(&state.backfill_db)
+                .await;
+
+            let spawn_state = state.clone();
+            let spawn_job_id = job_id.clone();
+            tokio::spawn(async move {
+                run_backfill_job(spawn_state, spawn_job_id).await;
+            });
+
+            log_event(
+                &state.db,
+                EventLog {
+                    event_type: "backfill.resumed".to_string(),
+                    severity: Severity::Info,
+                    actor_did: Some(admin.did.clone()),
+                    subject: None,
+                    detail: serde_json::json!({ "job_id": job_id }),
+                },
+                state.db_backend,
+            )
+            .await;
+            Ok(Json(
+                serde_json::json!({ "id": job_id, "status": "running" }),
             ))
         }
     }
@@ -1865,7 +2080,7 @@ pub async fn run_backfill_retention_cleanup(state: &AppState) {
 /// Jobs stuck in `cancelling` are finalised immediately.
 pub async fn resume_backfill_jobs(state: &AppState) {
     let sql = adapt_sql(
-        "SELECT id, status FROM backfill_jobs WHERE status IN ('running', 'cancelling')",
+        "SELECT id, status FROM backfill_jobs WHERE status IN ('running', 'cancelling', 'pausing')",
         state.db_backend,
     );
     let rows: Vec<(String, String)> = sqlx::query_as(&sql)
@@ -1874,18 +2089,25 @@ pub async fn resume_backfill_jobs(state: &AppState) {
         .unwrap_or_default();
 
     for (job_id, status) in rows {
-        if status == "cancelling" {
-            tracing::info!(
-                job_id,
-                "finalising cancelled backfill job from previous run"
-            );
-            finalise_cancel(state, &job_id).await;
-        } else {
-            tracing::info!(job_id, "resuming interrupted backfill job");
-            let spawn_state = state.clone();
-            tokio::spawn(async move {
-                run_backfill_job(spawn_state, job_id).await;
-            });
+        match status.as_str() {
+            "cancelling" => {
+                tracing::info!(
+                    job_id,
+                    "finalising cancelled backfill job from previous run"
+                );
+                finalise_cancel(state, &job_id).await;
+            }
+            "pausing" => {
+                tracing::info!(job_id, "finalising paused backfill job from previous run");
+                finalise_pause(state, &job_id).await;
+            }
+            _ => {
+                tracing::info!(job_id, "resuming interrupted backfill job");
+                let spawn_state = state.clone();
+                tokio::spawn(async move {
+                    run_backfill_job(spawn_state, job_id).await;
+                });
+            }
         }
     }
 }

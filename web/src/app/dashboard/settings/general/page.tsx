@@ -1,9 +1,9 @@
-"use client"
+"use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Upload, Trash2 } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Upload, Trash2 } from "lucide-react";
 
-import { useCurrentUser } from "@/hooks/use-current-user"
+import { useCurrentUser } from "@/hooks/use-current-user";
 import {
   getSettings,
   getDbInfo,
@@ -13,11 +13,11 @@ import {
   deleteLogo,
   type SettingEntry,
   type DbInfo,
-} from "@/lib/api"
-import { SiteHeader } from "@/components/site-header"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+} from "@/lib/api";
+import { SiteHeader } from "@/components/site-header";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 const SETTING_KEYS = [
   "app_name",
@@ -29,16 +29,16 @@ const SETTING_KEYS = [
   "logo_uri",
   "tos_uri",
   "policy_uri",
-] as const
+] as const;
 
-type FieldKey = (typeof SETTING_KEYS)[number]
+type FieldKey = (typeof SETTING_KEYS)[number];
 
 type FieldConfig = {
-  key: FieldKey
-  label: string
-  placeholder: string
-  description: string
-}
+  key: FieldKey;
+  label: string;
+  placeholder: string;
+  description: string;
+};
 
 const FIELDS: FieldConfig[] = [
   {
@@ -74,11 +74,11 @@ const FIELDS: FieldConfig[] = [
     placeholder: "https://example.com/privacy",
     description: "Link to your privacy policy. Optional.",
   },
-]
+];
 
 export default function GeneralSettingsPage() {
-  const { hasPermission } = useCurrentUser()
-  const canManage = hasPermission("settings:manage")
+  const { hasPermission } = useCurrentUser();
+  const canManage = hasPermission("settings:manage");
 
   const [values, setValues] = useState<Record<FieldKey, string>>({
     app_name: "",
@@ -90,8 +90,10 @@ export default function GeneralSettingsPage() {
     logo_uri: "",
     tos_uri: "",
     policy_uri: "",
-  })
-  const [sources, setSources] = useState<Record<FieldKey, "database" | "env" | "unset">>({
+  });
+  const [sources, setSources] = useState<
+    Record<FieldKey, "database" | "env" | "unset">
+  >({
     app_name: "unset",
     backfill_concurrent_dids_per_pds: "unset",
     backfill_concurrent_pds: "unset",
@@ -101,34 +103,46 @@ export default function GeneralSettingsPage() {
     logo_uri: "unset",
     tos_uri: "unset",
     policy_uri: "unset",
-  })
-  const [logoUploaded, setLogoUploaded] = useState(false)
-  const [dbInfo, setDbInfo] = useState<DbInfo | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  });
+  const [logoUploaded, setLogoUploaded] = useState(false);
+  const [dbInfo, setDbInfo] = useState<DbInfo | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
-      const entries = await getSettings()
-      const byKey = new Map<string, SettingEntry>(entries.map((e) => [e.key, e]))
-      const val = (key: string, fallback: string) => byKey.get(key)?.value ?? fallback
-      const src = (key: string) => (byKey.get(key)?.source as "database" | "env" | undefined) ?? "unset"
+      const entries = await getSettings();
+      const byKey = new Map<string, SettingEntry>(
+        entries.map((e) => [e.key, e]),
+      );
+      const val = (key: string, fallback: string) =>
+        byKey.get(key)?.value ?? fallback;
+      const src = (key: string) =>
+        (byKey.get(key)?.source as "database" | "env" | undefined) ?? "unset";
       setValues({
         app_name: val("app_name", ""),
-        backfill_concurrent_dids_per_pds: val("backfill_concurrent_dids_per_pds", "3"),
+        backfill_concurrent_dids_per_pds: val(
+          "backfill_concurrent_dids_per_pds",
+          "3",
+        ),
         backfill_concurrent_pds: val("backfill_concurrent_pds", "10"),
-        backfill_concurrent_resolution: val("backfill_concurrent_resolution", "100"),
+        backfill_concurrent_resolution: val(
+          "backfill_concurrent_resolution",
+          "100",
+        ),
         backfill_retention_days: val("backfill_retention_days", "28"),
         client_uri: val("client_uri", ""),
         logo_uri: val("logo_uri", ""),
         tos_uri: val("tos_uri", ""),
         policy_uri: val("policy_uri", ""),
-      })
+      });
       setSources({
         app_name: src("app_name"),
-        backfill_concurrent_dids_per_pds: src("backfill_concurrent_dids_per_pds"),
+        backfill_concurrent_dids_per_pds: src(
+          "backfill_concurrent_dids_per_pds",
+        ),
         backfill_concurrent_pds: src("backfill_concurrent_pds"),
         backfill_concurrent_resolution: src("backfill_concurrent_resolution"),
         backfill_retention_days: src("backfill_retention_days"),
@@ -136,35 +150,35 @@ export default function GeneralSettingsPage() {
         logo_uri: src("logo_uri"),
         tos_uri: src("tos_uri"),
         policy_uri: src("policy_uri"),
-      })
-      setLogoUploaded(byKey.has("logo_data"))
+      });
+      setLogoUploaded(byKey.has("logo_data"));
       try {
-        setDbInfo(await getDbInfo())
+        setDbInfo(await getDbInfo());
       } catch {
         // non-critical
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    load()
-  }, [load])
+    load();
+  }, [load]);
 
   async function handleSave() {
-    setError(null)
-    setNotice(null)
-    setSaving(true)
+    setError(null);
+    setNotice(null);
+    setSaving(true);
     try {
       for (const field of FIELDS) {
-        const value = values[field.key]
+        const value = values[field.key];
         if (value === "") {
           if (sources[field.key] === "database") {
-            await deleteSetting(field.key)
+            await deleteSetting(field.key);
           }
         } else {
-          await upsertSetting(field.key, value)
+          await upsertSetting(field.key, value);
         }
       }
       const backfillKeys = [
@@ -172,77 +186,79 @@ export default function GeneralSettingsPage() {
         "backfill_concurrent_pds",
         "backfill_concurrent_resolution",
         "backfill_retention_days",
-      ] as const
+      ] as const;
       for (const key of backfillKeys) {
-        const value = values[key]
+        const value = values[key];
         if (value === "") {
           if (sources[key] === "database") {
-            await deleteSetting(key)
+            await deleteSetting(key);
           }
         } else {
-          await upsertSetting(key, value)
+          await upsertSetting(key, value);
         }
       }
-      setNotice("Settings saved.")
-      await load()
+      setNotice("Settings saved.");
+      await load();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
   }
 
   async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setError(null)
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(null);
     try {
-      await uploadLogo(file)
-      setNotice("Logo uploaded.")
-      await load()
+      await uploadLogo(file);
+      setNotice("Logo uploaded.");
+      await load();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
-      if (fileInputRef.current) fileInputRef.current.value = ""
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
   async function handleLogoDelete() {
-    setError(null)
+    setError(null);
     try {
-      await deleteLogo()
-      setNotice("Logo removed.")
-      await load()
+      await deleteLogo();
+      setNotice("Logo removed.");
+      await load();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
   const connectionEstimate = useMemo(() => {
-    const pds = parseInt(values.backfill_concurrent_pds) || 10
-    const dids = parseInt(values.backfill_concurrent_dids_per_pds) || 3
-    const resolution = parseInt(values.backfill_concurrent_resolution) || 100
-    const needed = pds * dids + resolution + 4
-    const mainPool = dbInfo?.main_pool_size ?? 32
-    const total = needed + mainPool
-    const serverMax = dbInfo?.server_max_connections ?? null
-    return { needed, mainPool, total, serverMax }
-  }, [values, dbInfo])
+    const pds = parseInt(values.backfill_concurrent_pds) || 10;
+    const dids = parseInt(values.backfill_concurrent_dids_per_pds) || 3;
+    const resolution = parseInt(values.backfill_concurrent_resolution) || 100;
+    const needed = pds * dids + resolution + 4;
+    const mainPool = dbInfo?.main_pool_size ?? 32;
+    const total = needed + mainPool;
+    const serverMax = dbInfo?.server_max_connections ?? null;
+    return { needed, mainPool, total, serverMax };
+  }, [values, dbInfo]);
 
   const connectionWarning = useMemo(() => {
-    if (!connectionEstimate.serverMax) return null
+    if (!connectionEstimate.serverMax) return null;
     if (connectionEstimate.total > connectionEstimate.serverMax) {
-      return `These settings need ~${connectionEstimate.total} connections (${connectionEstimate.needed} backfill + ${connectionEstimate.mainPool} main), but the database allows ${connectionEstimate.serverMax}. Reduce concurrency or increase the database's max_connections.`
+      return `These settings need ~${connectionEstimate.total} connections (${connectionEstimate.needed} backfill + ${connectionEstimate.mainPool} main), but the database allows ${connectionEstimate.serverMax}. Reduce concurrency or increase the database's max_connections.`;
     }
-    return null
-  }, [connectionEstimate])
+    return null;
+  }, [connectionEstimate]);
 
   return (
     <>
       <SiteHeader title="General Settings" />
       <div className="flex flex-1 flex-col gap-6 p-4 md:p-6 max-w-3xl">
         {error && <p className="text-destructive text-sm">{error}</p>}
-        {notice && <p className="text-sm text-green-600 dark:text-green-400">{notice}</p>}
+        {notice && (
+          <p className="text-sm text-green-600 dark:text-green-400">{notice}</p>
+        )}
 
         <div>
           <h2 className="text-lg font-semibold">Instance Identity</h2>
@@ -320,13 +336,16 @@ export default function GeneralSettingsPage() {
         <div>
           <h2 className="text-lg font-semibold">Data Retention</h2>
           <p className="text-muted-foreground text-sm">
-            Configure how long HappyView retains detailed data from completed backfill jobs.
+            Configure how long HappyView retains detailed data from completed
+            backfill jobs.
           </p>
         </div>
 
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <Label htmlFor="backfill_retention_days">Backfill Detail Retention (days)</Label>
+            <Label htmlFor="backfill_retention_days">
+              Backfill Detail Retention (days)
+            </Label>
             {sources["backfill_retention_days"] === "env" && (
               <span className="text-xs text-muted-foreground">
                 from env var
@@ -340,25 +359,31 @@ export default function GeneralSettingsPage() {
             step={1}
             value={values["backfill_retention_days"]}
             onChange={(e) =>
-              setValues((v) => ({ ...v, backfill_retention_days: e.target.value }))
+              setValues((v) => ({
+                ...v,
+                backfill_retention_days: e.target.value,
+              }))
             }
             placeholder="28"
             disabled={!canManage}
           />
           <p className="text-muted-foreground text-xs">
-            How long to keep per-repo detail data from completed backfill jobs. Set to 0 to keep indefinitely.
+            How long to keep per-repo detail data from completed backfill jobs.
+            Set to 0 to keep indefinitely.
           </p>
         </div>
 
         <div>
           <h2 className="text-lg font-semibold">Backfill Performance</h2>
           <p className="text-muted-foreground text-sm">
-            Tune concurrency limits for backfill jobs. Changes apply to the next job started.
-            The backfill connection pool is auto-sized on startup based on these values.
+            Tune concurrency limits for backfill jobs. Changes only apply to new
+            or resumed jobs.
           </p>
           {dbInfo?.server_max_connections && (
             <p className="text-muted-foreground text-xs mt-1">
-              Database limit: {dbInfo.server_max_connections} connections · Main pool: {connectionEstimate.mainPool} · Backfill estimate: {connectionEstimate.needed}
+              Database limit: {dbInfo.server_max_connections} connections · Main
+              pool: {connectionEstimate.mainPool} · Backfill estimate:{" "}
+              {connectionEstimate.needed}
             </p>
           )}
           {connectionWarning && (
@@ -366,16 +391,39 @@ export default function GeneralSettingsPage() {
           )}
         </div>
 
-        {([
-          { key: "backfill_concurrent_resolution" as const, id: "backfill_concurrent_resolution", label: "Concurrent PLC Resolutions", placeholder: "100", description: "How many DID document lookups to run in parallel during PDS resolution." },
-          { key: "backfill_concurrent_pds" as const, id: "backfill_concurrent_pds", label: "Concurrent PDS Hosts", placeholder: "10", description: "How many PDS servers to fetch records from simultaneously." },
-          { key: "backfill_concurrent_dids_per_pds" as const, id: "backfill_concurrent_dids_per_pds", label: "Concurrent DIDs per PDS", placeholder: "3", description: "How many repos to fetch concurrently from each PDS host." },
-        ]).map((field) => (
+        {[
+          {
+            key: "backfill_concurrent_resolution" as const,
+            id: "backfill_concurrent_resolution",
+            label: "Concurrent PLC Resolutions",
+            placeholder: "100",
+            description:
+              "How many DID document lookups to run in parallel during PDS resolution.",
+          },
+          {
+            key: "backfill_concurrent_pds" as const,
+            id: "backfill_concurrent_pds",
+            label: "Concurrent PDS Hosts",
+            placeholder: "10",
+            description:
+              "How many PDS servers to fetch records from simultaneously.",
+          },
+          {
+            key: "backfill_concurrent_dids_per_pds" as const,
+            id: "backfill_concurrent_dids_per_pds",
+            label: "Concurrent DIDs per PDS",
+            placeholder: "3",
+            description:
+              "How many repos to fetch concurrently from each PDS host.",
+          },
+        ].map((field) => (
           <div key={field.key} className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <Label htmlFor={field.id}>{field.label}</Label>
               {sources[field.key] === "env" && (
-                <span className="text-xs text-muted-foreground">from env var</span>
+                <span className="text-xs text-muted-foreground">
+                  from env var
+                </span>
               )}
             </div>
             <Input
@@ -384,7 +432,9 @@ export default function GeneralSettingsPage() {
               min={1}
               step={1}
               value={values[field.key]}
-              onChange={(e) => setValues((v) => ({ ...v, [field.key]: e.target.value }))}
+              onChange={(e) =>
+                setValues((v) => ({ ...v, [field.key]: e.target.value }))
+              }
               placeholder={field.placeholder}
               disabled={!canManage}
             />
@@ -402,5 +452,5 @@ export default function GeneralSettingsPage() {
         </div>
       </div>
     </>
-  )
+  );
 }
