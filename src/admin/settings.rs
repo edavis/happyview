@@ -204,11 +204,11 @@ pub(super) async fn db_info(
     let main_pool_size = state.db.options().get_max_connections() as i64;
     let backfill_pool_size = state.backfill_db.options().get_max_connections() as i64;
 
-    let pds: i64 = get_setting(&state.db, "backfill_concurrent_pds", state.db_backend)
+    let pds: u32 = get_setting(&state.db, "backfill_concurrent_pds", state.db_backend)
         .await
         .and_then(|v| v.parse().ok())
         .unwrap_or(10);
-    let dids: i64 = get_setting(
+    let dids: u32 = get_setting(
         &state.db,
         "backfill_concurrent_dids_per_pds",
         state.db_backend,
@@ -216,7 +216,7 @@ pub(super) async fn db_info(
     .await
     .and_then(|v| v.parse().ok())
     .unwrap_or(3);
-    let resolution: i64 = get_setting(
+    let resolution: u32 = get_setting(
         &state.db,
         "backfill_concurrent_resolution",
         state.db_backend,
@@ -224,8 +224,9 @@ pub(super) async fn db_info(
     .await
     .and_then(|v| v.parse().ok())
     .unwrap_or(100);
-    let needed_backfill_pool = (pds * dids) + resolution + 4;
-    let restart_recommended = needed_backfill_pool > backfill_pool_size;
+    let would_be_pool_size =
+        crate::db::compute_backfill_pool_size(state.db_backend, pds, dids, resolution);
+    let restart_recommended = would_be_pool_size as i64 > backfill_pool_size;
 
     Ok(Json(serde_json::json!({
         "backend": match state.db_backend {
