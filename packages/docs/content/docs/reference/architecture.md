@@ -154,16 +154,31 @@ sequenceDiagram
 
     A->>H: POST /admin/backfill
     H->>D: Create backfill_jobs record (status = running)
+
+    rect rgb(240, 248, 255)
+    note over H,Relay: Phase 1: Discovery
     H->>Relay: listReposByCollection (paginated)
     Relay-->>H: List of DIDs
-    loop For each DID
-        H->>PLC: Resolve DID document
-        PLC-->>H: PDS endpoint
-        H->>PDS: listRecords (paginated)
-        PDS-->>H: Records
-        H->>D: UPSERT each record
-        H->>D: Update processed_repos / total_records
+    H->>D: Insert backfill_repos rows
     end
+
+    rect rgb(240, 255, 240)
+    note over H,PDS: Phase 2: Pipelined resolve + fetch (concurrent)
+    par Resolver task
+        loop Unresolved DIDs
+            H->>PLC: Resolve DID document
+            PLC-->>H: PDS endpoint
+            H->>D: Update backfill_repos.pds_endpoint
+        end
+    and Fetcher task
+        loop Resolved DIDs (as they arrive)
+            H->>PDS: listRecords (paginated)
+            PDS-->>H: Records
+            H->>D: UPSERT each record
+        end
+    end
+    end
+
     H->>D: Mark job completed (or failed)
 ```
 
@@ -274,19 +289,21 @@ sequenceDiagram
 
 ### `backfill_jobs`
 
-| Column            | Type        | Description                         |
-| ----------------- | ----------- | ----------------------------------- |
-| `id`              | uuid (PK)   |                                     |
-| `collection`      | text        | Target collection (null = all)      |
-| `did`             | text        | Target DID (null = all)             |
-| `status`          | text        | pending, running, completed, failed |
-| `total_repos`     | integer     |                                     |
-| `processed_repos` | integer     |                                     |
-| `total_records`   | integer     |                                     |
-| `error`           | text        | Error message if failed             |
-| `started_at`      | timestamptz |                                     |
-| `completed_at`    | timestamptz |                                     |
-| `created_at`      | timestamptz |                                     |
+| Column            | Type        | Description                                              |
+| ----------------- | ----------- | -------------------------------------------------------- |
+| `id`              | uuid (PK)   |                                                          |
+| `collection`      | text        | Target collection (null = all)                           |
+| `did`             | text        | Target DID (null = all)                                  |
+| `status`          | text        | pending, running, pausing, paused, cancelling, cancelled, completed, failed |
+| `stage`           | text        | pending, discovering_repos, resolving_and_fetching, completed, failed, cancelled |
+| `total_repos`     | integer     | Total DIDs discovered                                    |
+| `resolved_repos`  | integer     | DIDs with PDS endpoint resolved                          |
+| `processed_repos` | integer     | DIDs with records fetched                                |
+| `total_records`   | integer     | Total records indexed                                    |
+| `error`           | text        | Error message if failed                                  |
+| `started_at`      | timestamptz |                                                          |
+| `completed_at`    | timestamptz |                                                          |
+| `created_at`      | timestamptz |                                                          |
 
 ## Testing
 
