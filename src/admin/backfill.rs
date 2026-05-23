@@ -681,7 +681,6 @@ async fn run_pipelined_resolve_and_fetch(
         let poll_job_id = Arc::clone(&job_id_arc);
         let poll_cancelled = Arc::clone(&cancelled);
         let pair = tokio::select! {
-            biased;
             result = rx.recv() => result,
             _ = async move {
                 loop {
