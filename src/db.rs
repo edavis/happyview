@@ -283,33 +283,47 @@ pub async fn connect(url: &str, backend: DatabaseBackend) -> AnyPool {
     pool
 }
 
-pub async fn connect_backfill_pool(url: &str, backend: DatabaseBackend) -> AnyPool {
-    let max_connections: u32 = std::env::var("BACKFILL_DATABASE_MAX_CONNECTIONS")
+pub fn backfill_pool_ceiling(backend: DatabaseBackend) -> u32 {
+    match backend {
+        DatabaseBackend::Sqlite => 64,
+        DatabaseBackend::Postgres => 256,
+    }
+}
+
+pub fn needed_backfill_connections(pds: u32, dids_per_pds: u32, resolution: u32) -> u32 {
+    (pds * dids_per_pds) + resolution + 4
+}
+
+pub fn compute_backfill_pool_size(
+    backend: DatabaseBackend,
+    pds: u32,
+    dids_per_pds: u32,
+    resolution: u32,
+) -> u32 {
+    std::env::var("BACKFILL_DATABASE_MAX_CONNECTIONS")
         .ok()
         .and_then(|v| v.parse::<u32>().ok())
         .unwrap_or_else(|| {
-            let pds: u32 = std::env::var("BACKFILL_CONCURRENT_PDS")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(10);
-            let dids: u32 = std::env::var("BACKFILL_CONCURRENT_DIDS_PER_PDS")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(3);
-            let resolution: u32 = std::env::var("BACKFILL_CONCURRENT_RESOLUTION")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(100);
-            // Each concurrent worker may need a connection: PDS×DIDs for fetching +
-            // resolution concurrency + a few for bookkeeping queries.
-            let needed = (pds * dids) + resolution + 4;
-            let ceiling = match backend {
-                DatabaseBackend::Sqlite => 64,
-                DatabaseBackend::Postgres => 256,
-            };
-            needed.min(ceiling)
+            needed_backfill_connections(pds, dids_per_pds, resolution)
+                .min(backfill_pool_ceiling(backend))
         })
-        .max(1);
+        .max(1)
+}
+
+pub async fn connect_backfill_pool(url: &str, backend: DatabaseBackend) -> AnyPool {
+    let pds: u32 = std::env::var("BACKFILL_CONCURRENT_PDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10);
+    let dids: u32 = std::env::var("BACKFILL_CONCURRENT_DIDS_PER_PDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3);
+    let resolution: u32 = std::env::var("BACKFILL_CONCURRENT_RESOLUTION")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100);
+    let max_connections = compute_backfill_pool_size(backend, pds, dids, resolution);
 
     tracing::info!(max_connections, "backfill pool sized");
 
