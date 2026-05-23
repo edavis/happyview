@@ -18,6 +18,7 @@ import { SiteHeader } from "@/components/site-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 
 const SETTING_KEYS = [
   "app_name",
@@ -29,6 +30,7 @@ const SETTING_KEYS = [
   "logo_uri",
   "tos_uri",
   "policy_uri",
+  "verbose_event_logging",
 ] as const;
 
 type FieldKey = (typeof SETTING_KEYS)[number];
@@ -90,6 +92,7 @@ export default function GeneralSettingsPage() {
     logo_uri: "",
     tos_uri: "",
     policy_uri: "",
+    verbose_event_logging: "",
   });
   const [sources, setSources] = useState<
     Record<FieldKey, "database" | "env" | "unset">
@@ -103,6 +106,7 @@ export default function GeneralSettingsPage() {
     logo_uri: "unset",
     tos_uri: "unset",
     policy_uri: "unset",
+    verbose_event_logging: "unset",
   });
   const [logoUploaded, setLogoUploaded] = useState(false);
   const [dbInfo, setDbInfo] = useState<DbInfo | null>(null);
@@ -137,6 +141,7 @@ export default function GeneralSettingsPage() {
         logo_uri: val("logo_uri", ""),
         tos_uri: val("tos_uri", ""),
         policy_uri: val("policy_uri", ""),
+        verbose_event_logging: val("verbose_event_logging", ""),
       });
       setSources({
         app_name: src("app_name"),
@@ -150,6 +155,7 @@ export default function GeneralSettingsPage() {
         logo_uri: src("logo_uri"),
         tos_uri: src("tos_uri"),
         policy_uri: src("policy_uri"),
+        verbose_event_logging: src("verbose_event_logging"),
       });
       setLogoUploaded(byKey.has("logo_data"));
       try {
@@ -181,13 +187,14 @@ export default function GeneralSettingsPage() {
           await upsertSetting(field.key, value);
         }
       }
-      const backfillKeys = [
+      const extraKeys = [
         "backfill_concurrent_dids_per_pds",
         "backfill_concurrent_pds",
         "backfill_concurrent_resolution",
         "backfill_retention_days",
+        "verbose_event_logging",
       ] as const;
-      for (const key of backfillKeys) {
+      for (const key of extraKeys) {
         const value = values[key];
         if (value === "") {
           if (sources[key] === "database") {
@@ -441,6 +448,45 @@ export default function GeneralSettingsPage() {
             <p className="text-muted-foreground text-xs">{field.description}</p>
           </div>
         ))}
+
+        <div>
+          <h2 className="text-lg font-semibold">Logging</h2>
+          <p className="text-muted-foreground text-sm">
+            Configure event log verbosity.
+          </p>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="verbose_event_logging">
+                Verbose Event Logging
+              </Label>
+              {sources["verbose_event_logging"] === "env" && (
+                <span className="text-xs text-muted-foreground">
+                  from env var
+                </span>
+              )}
+            </div>
+            <p className="text-muted-foreground text-xs">
+              Log every record index, hook execution, and hook skip to the event
+              log. Generates high write volume and <em>will</em> cause issues if
+              you're indexing high-traffic collections. Recommended to only use
+              for debugging.
+            </p>
+          </div>
+          <Switch
+            id="verbose_event_logging"
+            checked={values.verbose_event_logging.toLowerCase() === "true"}
+            onCheckedChange={(checked) =>
+              setValues((v) => ({
+                ...v,
+                verbose_event_logging: checked ? "true" : "",
+              }))
+            }
+            disabled={!canManage}
+          />
+        </div>
 
         <div className="flex justify-end pt-2">
           <Button

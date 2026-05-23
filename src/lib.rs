@@ -80,6 +80,7 @@ pub struct AppState {
     pub official_registry_config: RegistryConfig,
     pub proxy_config: Arc<arc_swap::ArcSwap<proxy_config::ProxyConfig>>,
     pub backfill_events_tx: tokio::sync::broadcast::Sender<crate::admin::types::BackfillEvent>,
+    pub verbose_event_logging: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl axum::extract::FromRef<AppState> for axum_extra::extract::cookie::Key {

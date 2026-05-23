@@ -103,6 +103,7 @@ async fn test_state_with_pool(pool: sqlx::AnyPool, backend: DatabaseBackend) -> 
         ))),
         backfill_db: pool.clone(),
         backfill_events_tx: tokio::sync::broadcast::channel(16).0,
+        verbose_event_logging: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
     }
 }
 

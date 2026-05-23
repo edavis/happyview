@@ -4,6 +4,7 @@ use mlua::LuaSerdeExt;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use crate::AppState;
@@ -913,23 +914,25 @@ pub async fn execute_hook_script(event: &HookEvent<'_>) -> Option<Value> {
 
         match run_hook_once(event).await {
             Ok(hook_result) => {
-                log_event(
-                    &event.state.db,
-                    EventLog {
-                        event_type: "hook.executed".to_string(),
-                        severity: Severity::Info,
-                        actor_did: None,
-                        subject: Some(event.uri.to_string()),
-                        detail: serde_json::json!({
-                            "lexicon_id": event.lexicon_id,
-                            "action": event.action,
-                            "collection": event.collection,
-                            "attempts": attempt + 1,
-                        }),
-                    },
-                    backend,
-                )
-                .await;
+                if event.state.verbose_event_logging.load(Ordering::Relaxed) {
+                    log_event(
+                        &event.state.db,
+                        EventLog {
+                            event_type: "hook.executed".to_string(),
+                            severity: Severity::Info,
+                            actor_did: None,
+                            subject: Some(event.uri.to_string()),
+                            detail: serde_json::json!({
+                                "lexicon_id": event.lexicon_id,
+                                "action": event.action,
+                                "collection": event.collection,
+                                "attempts": attempt + 1,
+                            }),
+                        },
+                        backend,
+                    )
+                    .await;
+                }
                 return hook_result;
             }
             Err(e) => {
@@ -1182,6 +1185,7 @@ mod tests {
                 crate::proxy_config::ProxyConfig::default(),
             ))),
             backfill_events_tx: tokio::sync::broadcast::channel(16).0,
+            verbose_event_logging: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 

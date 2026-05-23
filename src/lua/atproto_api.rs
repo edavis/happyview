@@ -584,6 +584,7 @@ mod tests {
                 crate::proxy_config::ProxyConfig::default(),
             ))),
             backfill_events_tx: tokio::sync::broadcast::channel(16).0,
+            verbose_event_logging: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 

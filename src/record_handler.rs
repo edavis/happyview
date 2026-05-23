@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use serde_json::Value;
 
@@ -74,27 +75,7 @@ pub async fn handle_record_event(state: &AppState, record: &RecordEvent) {
                     .await;
 
                     match hook_result {
-                        None => {
-                            // Hook returned nil — skip indexing this record.
-                            log_event(
-                                db,
-                                EventLog {
-                                    event_type: "record.skipped".to_string(),
-                                    severity: Severity::Info,
-                                    actor_did: None,
-                                    subject: Some(uri.clone()),
-                                    detail: serde_json::json!({
-                                        "collection": record.collection,
-                                        "did": record.did,
-                                        "rkey": record.rkey,
-                                        "reason": "hook returned nil",
-                                    }),
-                                },
-                                state.db_backend,
-                            )
-                            .await;
-                            return;
-                        }
+                        None => return,
                         Some(v) => v,
                     }
                 } else {
@@ -134,23 +115,6 @@ pub async fn handle_record_event(state: &AppState, record: &RecordEvent) {
                         &uri,
                         &record.collection,
                         &rec_to_store,
-                        backend,
-                    )
-                    .await;
-
-                    log_event(
-                        db,
-                        EventLog {
-                            event_type: "record.created".to_string(),
-                            severity: Severity::Info,
-                            actor_did: None,
-                            subject: Some(uri.clone()),
-                            detail: serde_json::json!({
-                                "collection": record.collection,
-                                "did": record.did,
-                                "rkey": record.rkey,
-                            }),
-                        },
                         backend,
                     )
                     .await;
@@ -198,48 +162,32 @@ pub async fn handle_record_event(state: &AppState, record: &RecordEvent) {
                 .await;
 
                 if hook_result.is_none() {
-                    // Hook returned nil — skip the delete.
-                    log_event(
-                        db,
-                        EventLog {
-                            event_type: "record.skipped".to_string(),
-                            severity: Severity::Info,
-                            actor_did: None,
-                            subject: Some(uri.clone()),
-                            detail: serde_json::json!({
-                                "collection": record.collection,
-                                "did": record.did,
-                                "rkey": record.rkey,
-                                "reason": "hook returned nil",
-                            }),
-                        },
-                        backend,
-                    )
-                    .await;
+                    if state.verbose_event_logging.load(Ordering::Relaxed) {
+                        log_event(
+                            db,
+                            EventLog {
+                                event_type: "record.skipped".to_string(),
+                                severity: Severity::Info,
+                                actor_did: None,
+                                subject: Some(uri.clone()),
+                                detail: serde_json::json!({
+                                    "collection": record.collection,
+                                    "did": record.did,
+                                    "rkey": record.rkey,
+                                    "reason": "hook returned nil",
+                                }),
+                            },
+                            backend,
+                        )
+                        .await;
+                    }
                     return;
                 }
             }
 
             let delete_sql = adapt_sql("DELETE FROM records WHERE uri = ?", backend);
             match sqlx::query(&delete_sql).bind(&uri).execute(db).await {
-                Ok(_) => {
-                    log_event(
-                        db,
-                        EventLog {
-                            event_type: "record.deleted".to_string(),
-                            severity: Severity::Info,
-                            actor_did: None,
-                            subject: Some(uri.clone()),
-                            detail: serde_json::json!({
-                                "collection": record.collection,
-                                "did": record.did,
-                                "rkey": record.rkey,
-                            }),
-                        },
-                        backend,
-                    )
-                    .await;
-                }
+                Ok(_) => {}
                 Err(e) => {
                     tracing::warn!(uri = %uri, "failed to delete record: {e}");
                     log_event(
