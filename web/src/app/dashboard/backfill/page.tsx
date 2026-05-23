@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { useCurrentUser } from "@/hooks/use-current-user";
 import {
@@ -137,32 +138,36 @@ function phaseIndex(stage: string): number {
   return idx;
 }
 
-// SSE hook for backfill events
-function useBackfillSSE(jobId: string | null, active: boolean): BackfillEvent[] {
-  const [events, setEvents] = useState<BackfillEvent[]>([]);
+// SSE via Web Worker — events are batched off the main thread and flushed periodically
+function useBackfillSSE(
+  jobId: string | null,
+  active: boolean,
+  onBatch: (events: BackfillEvent[]) => void,
+) {
+  const onBatchRef = useRef(onBatch);
+  onBatchRef.current = onBatch;
 
   useEffect(() => {
-    if (!jobId || !active) {
-      setEvents([]);
-      return;
-    }
+    if (!jobId || !active) return;
+
+    const worker = new Worker(
+      new URL("@/workers/backfill-sse.worker.ts", import.meta.url),
+    );
+
+    worker.addEventListener("message", (e: MessageEvent) => {
+      if (e.data.type === "batch") {
+        onBatchRef.current(e.data.events as BackfillEvent[]);
+      }
+    });
 
     const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
-    const es = new EventSource(`${basePath}/admin/backfill/${jobId}/events`, {
-      withCredentials: true,
-    });
+    worker.postMessage({ type: "connect", jobId, basePath });
 
-    es.addEventListener("event", (e) => {
-      try {
-        const event: BackfillEvent = JSON.parse((e as MessageEvent).data);
-        setEvents((prev) => [...prev, event]);
-      } catch { /* ignore parse errors */ }
-    });
-
-    return () => es.close();
+    return () => {
+      worker.postMessage({ type: "disconnect" });
+      worker.terminate();
+    };
   }, [jobId, active]);
-
-  return events;
 }
 
 // Batch Bluesky profile resolution hook
@@ -284,25 +289,6 @@ function PdsPlaceholderIcon() {
       <path d="M2 4v4M14 4v4" />
     </svg>
   );
-}
-
-function ScrollSentinel({ onVisible }: { onVisible: () => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const onVisibleRef = useRef(onVisible);
-  onVisibleRef.current = onVisible;
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) onVisibleRef.current(); },
-      { rootMargin: "100px" },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  return <div ref={ref} className="h-1" />;
 }
 
 function AnimatedNumber({ value }: { value: number }) {
@@ -573,9 +559,10 @@ function JobDetail({
   const [fetchedCursor, setFetchedCursor] = useState<string | null>(null);
   const [fetchedLoaded, setFetchedLoaded] = useState(false);
 
-  // SSE events for active jobs
-  const sseEvents = useBackfillSSE(job.id, isActive);
-  const sseProcessedRef = useRef(0);
+  // Refs for open state so the SSE callback doesn't need to re-bind on toggle
+  const discoveredOpenRef = useRef(false);
+  const pdsOpenRef = useRef(false);
+  const fetchedOpenRef = useRef(false);
 
   function hasReached(phase: (typeof PROGRESS_PHASES)[number]): boolean {
     if (allDone) return true;
@@ -629,34 +616,42 @@ function JobDetail({
     }
   }
 
-  // Auto-load detail data when phases are reached
   const discoveredReached = hasReached("discovering_repos");
   const pdsReached = hasReached("resolving_pds");
   const fetchedReached = hasReached("fetching_records") || job.stage === "resolving_and_fetching";
 
+  // Track which sections are expanded
+  const [discoveredOpen, setDiscoveredOpen] = useState(false);
+  const [pdsOpen, setPdsOpen] = useState(false);
+  const [fetchedOpen, setFetchedOpen] = useState(false);
+  discoveredOpenRef.current = discoveredOpen;
+  pdsOpenRef.current = pdsOpen;
+  fetchedOpenRef.current = fetchedOpen;
+
+  // Lazy-load detail data only when sections are expanded
   useEffect(() => {
-    if (discoveredReached && !discoveredLoaded) {
+    if (discoveredOpen && discoveredReached && !discoveredLoaded) {
       getBackfillRepos(job.id, { phase: "discovered", limit: 50 })
         .then((resp) => { setDiscoveredRepos(resp.repos); setDiscoveredCursor(resp.cursor); setDiscoveredLoaded(true); })
         .catch(() => {});
     }
-  }, [job.id, discoveredReached, discoveredLoaded]);
+  }, [job.id, discoveredOpen, discoveredReached, discoveredLoaded]);
 
   useEffect(() => {
-    if (pdsReached && !pdsLoaded) {
+    if (pdsOpen && pdsReached && !pdsLoaded) {
       getBackfillPdsSummary(job.id)
         .then((resp) => { setPdsSummary(resp.pds_endpoints); setPdsLoaded(true); })
         .catch(() => {});
     }
-  }, [job.id, pdsReached, pdsLoaded]);
+  }, [job.id, pdsOpen, pdsReached, pdsLoaded]);
 
   useEffect(() => {
-    if (fetchedReached && !fetchedLoaded) {
+    if (fetchedOpen && fetchedReached && !fetchedLoaded) {
       getBackfillRepos(job.id, { phase: "fetched", limit: 50 })
         .then((resp) => { setFetchedRepos(resp.repos); setFetchedCursor(resp.cursor); setFetchedLoaded(true); })
         .catch(() => {});
     }
-  }, [job.id, fetchedReached, fetchedLoaded]);
+  }, [job.id, fetchedOpen, fetchedReached, fetchedLoaded]);
 
   const loadMoreDiscovered = useCallback(async () => {
     if (!discoveredCursor) return;
@@ -676,59 +671,98 @@ function JobDetail({
     } catch { /* ignore */ }
   }, [job.id, fetchedCursor]);
 
-  // Process SSE events — only handle events added since last render
-  useEffect(() => {
-    const start = sseProcessedRef.current;
-    if (start >= sseEvents.length) return;
-    sseProcessedRef.current = sseEvents.length;
+  // Process batched SSE events from the Web Worker.
+  // Uses refs for open state so the callback identity is stable and doesn't
+  // cause the worker to reconnect when sections are toggled.
+  const handleSSEBatch = useCallback((events: BackfillEvent[]) => {
+    const dOpen = discoveredOpenRef.current;
+    const pOpen = pdsOpenRef.current;
+    const fOpen = fetchedOpenRef.current;
 
-    for (let i = start; i < sseEvents.length; i++) {
-      const event = sseEvents[i];
-      if (event.type === "repo_discovered" && event.did) {
+    if (dOpen) {
+      const discovered = events.filter((e) => e.type === "repo_discovered" && e.did);
+      const resolved = events.filter((e) => e.type === "repo_resolved" && e.did);
+      if (discovered.length > 0 || resolved.length > 0) {
         setDiscoveredRepos((prev) => {
-          if (prev.some((r) => r.did === event.did)) return prev;
-          return [{ did: event.did!, pds_endpoint: null, status: "pending", records_fetched: 0 }, ...prev];
-        });
-      }
-      if (event.type === "repo_resolved" && event.did && event.pds_endpoint) {
-        setDiscoveredRepos((prev) =>
-          prev.map((r) => r.did === event.did ? { ...r, pds_endpoint: event.pds_endpoint! } : r)
-        );
-        setPdsSummary((prev) => {
-          const idx = prev.findIndex((p) => p.pds_endpoint === event.pds_endpoint);
-          if (idx >= 0) {
-            const updated = [...prev];
-            updated[idx] = { ...updated[idx], total_repos: updated[idx].total_repos + 1 };
-            return updated;
+          let next = prev;
+          for (const e of discovered) {
+            if (!next.some((r) => r.did === e.did)) {
+              next = [{ did: e.did!, pds_endpoint: null, status: "pending", records_fetched: 0 }, ...next];
+            }
           }
-          return [...prev, { pds_endpoint: event.pds_endpoint!, total_repos: 1, completed_repos: 0, total_records: 0 }];
-        });
-      }
-      if (event.type === "repo_fetched" && event.did) {
-        setFetchedRepos((prev) => {
-          if (prev.some((r) => r.did === event.did)) return prev;
-          return [{ did: event.did!, pds_endpoint: event.pds_endpoint ?? null, status: "completed", records_fetched: event.records_fetched ?? 0 }, ...prev];
-        });
-        setPdsSummary((prev) => {
-          if (!event.pds_endpoint) return prev;
-          return prev.map((p) => p.pds_endpoint === event.pds_endpoint
-            ? { ...p, completed_repos: p.completed_repos + 1, total_records: p.total_records + (event.records_fetched ?? 0) }
-            : p
-          );
+          for (const e of resolved) {
+            next = next.map((r) => r.did === e.did ? { ...r, pds_endpoint: e.pds_endpoint! } : r);
+          }
+          return next;
         });
       }
     }
-  }, [sseEvents]);
 
-  // Collect all visible DIDs for profile resolution
+    if (pOpen) {
+      const pdsEvents = events.filter(
+        (e) => (e.type === "repo_resolved" || e.type === "repo_fetched") && e.pds_endpoint,
+      );
+      if (pdsEvents.length > 0) {
+        setPdsSummary((prev) => {
+          let next = [...prev];
+          for (const e of pdsEvents) {
+            const idx = next.findIndex((p) => p.pds_endpoint === e.pds_endpoint);
+            if (e.type === "repo_resolved") {
+              if (idx >= 0) {
+                next[idx] = { ...next[idx], total_repos: next[idx].total_repos + 1 };
+              } else {
+                next.push({ pds_endpoint: e.pds_endpoint!, total_repos: 1, completed_repos: 0, total_records: 0 });
+              }
+            } else if (e.type === "repo_fetched") {
+              if (idx >= 0) {
+                next[idx] = {
+                  ...next[idx],
+                  completed_repos: next[idx].completed_repos + 1,
+                  total_records: next[idx].total_records + (e.records_fetched ?? 0),
+                };
+              }
+            }
+          }
+          return next;
+        });
+      }
+    }
+
+    if (fOpen) {
+      const fetched = events.filter((e) => e.type === "repo_fetched" && e.did);
+      if (fetched.length > 0) {
+        setFetchedRepos((prev) => {
+          let next = prev;
+          for (const e of fetched) {
+            if (!next.some((r) => r.did === e.did)) {
+              next = [{ did: e.did!, pds_endpoint: e.pds_endpoint ?? null, status: "completed", records_fetched: e.records_fetched ?? 0 }, ...next];
+            }
+          }
+          return next;
+        });
+      }
+    }
+  }, []);
+
+  useBackfillSSE(job.id, isActive, handleSSEBatch);
+
+  // Track visible DIDs from virtualized lists (only items in viewport)
+  const [visibleDiscoveredDids, setVisibleDiscoveredDids] = useState<string[]>([]);
+  const [visibleFetchedDids, setVisibleFetchedDids] = useState<string[]>([]);
+
   const allVisibleDids = useMemo(() => {
     const dids = new Set<string>();
-    for (const r of discoveredRepos) dids.add(r.did);
-    for (const r of fetchedRepos) dids.add(r.did);
+    for (const d of visibleDiscoveredDids) dids.add(d);
+    for (const d of visibleFetchedDids) dids.add(d);
     return Array.from(dids);
-  }, [discoveredRepos, fetchedRepos]);
+  }, [visibleDiscoveredDids, visibleFetchedDids]);
 
   const profiles = useBlueskyProfiles(allVisibleDids);
+
+  const fetchedWithRecords = useMemo(
+    () => fetchedRepos.filter((r) => r.records_fetched > 0),
+    [fetchedRepos],
+  );
 
   return (
     <>
@@ -794,21 +828,25 @@ function JobDetail({
               paused={isPhasePaused("discovering_repos")}
               value={job.total_repos != null ? <AnimatedNumber value={job.total_repos} /> : undefined}
               suffix="repos found"
-              loading={discoveredReached && !discoveredLoaded}
+              loading={discoveredOpen && discoveredReached && !discoveredLoaded}
+              open={discoveredOpen}
+              onOpenChange={setDiscoveredOpen}
             >
               {discoveredRepos.length > 0 ? (
-                <div>
-                  {discoveredRepos.map((repo) => (
+                <VirtualRepoList
+                  repos={discoveredRepos}
+                  profiles={profiles}
+                  onVisibleDidsChange={setVisibleDiscoveredDids}
+                  hasMore={!!discoveredCursor}
+                  onLoadMore={loadMoreDiscovered}
+                  rowHeight={28}
+                  renderRow={(repo) => (
                     <CompactRepoRow
-                      key={repo.did}
                       did={repo.did}
                       profile={profiles.get(repo.did)}
                     />
-                  ))}
-                  {discoveredCursor && (
-                    <ScrollSentinel onVisible={loadMoreDiscovered} />
                   )}
-                </div>
+                />
               ) : discoveredLoaded ? (
                 <p className="py-3 text-center text-xs text-muted-foreground">No repos discovered yet.</p>
               ) : null}
@@ -828,10 +866,12 @@ function JobDetail({
                   : undefined
               }
               suffix="resolved"
-              loading={pdsReached && !pdsLoaded}
+              loading={pdsOpen && pdsReached && !pdsLoaded}
+              open={pdsOpen}
+              onOpenChange={setPdsOpen}
             >
               {pdsSummary.length > 0 ? (
-                <div className="divide-y text-sm">
+                <div className="divide-y text-sm max-h-64 overflow-y-auto">
                   {pdsSummary
                     .sort((a, b) => b.total_repos - a.total_repos)
                     .map((pds) => (
@@ -869,22 +909,26 @@ function JobDetail({
                   ? <><AnimatedNumber value={job.total_records ?? 0} /> records</>
                   : undefined
               }
-              loading={fetchedReached && !fetchedLoaded}
+              loading={fetchedOpen && fetchedReached && !fetchedLoaded}
+              open={fetchedOpen}
+              onOpenChange={setFetchedOpen}
             >
-              {fetchedRepos.filter((r) => r.records_fetched > 0).length > 0 ? (
-                <div className="divide-y">
-                  {fetchedRepos.filter((r) => r.records_fetched > 0).map((repo) => (
+              {fetchedWithRecords.length > 0 ? (
+                <VirtualRepoList
+                  repos={fetchedWithRecords}
+                  profiles={profiles}
+                  onVisibleDidsChange={setVisibleFetchedDids}
+                  hasMore={!!fetchedCursor}
+                  onLoadMore={loadMoreFetched}
+                  rowHeight={40}
+                  renderRow={(repo) => (
                     <ProfileRow
-                      key={repo.did}
                       did={repo.did}
                       profile={profiles.get(repo.did)}
                       suffix={<span className="flex items-center gap-1"><CheckCircle2 className="size-3 text-emerald-500" /><AnimatedNumber value={repo.records_fetched} /> records</span>}
                     />
-                  ))}
-                  {fetchedCursor && (
-                    <ScrollSentinel onVisible={loadMoreFetched} />
                   )}
-                </div>
+                />
               ) : fetchedLoaded ? (
                 <p className="py-3 text-center text-xs text-muted-foreground">No repos fetched yet.</p>
               ) : null}
@@ -967,6 +1011,81 @@ function JobDetail({
   );
 }
 
+function VirtualRepoList({
+  repos,
+  profiles,
+  onVisibleDidsChange,
+  hasMore,
+  onLoadMore,
+  rowHeight,
+  renderRow,
+}: {
+  repos: BackfillRepoEntry[];
+  profiles: Map<string, BlueskyProfile>;
+  onVisibleDidsChange: (dids: string[]) => void;
+  hasMore: boolean;
+  onLoadMore: () => void;
+  rowHeight: number;
+  renderRow: (repo: BackfillRepoEntry) => React.ReactNode;
+}) {
+  const parentRef = useRef<HTMLDivElement>(null);
+  const loadMoreTriggered = useRef(false);
+
+  const virtualizer = useVirtualizer({
+    count: repos.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => rowHeight,
+    overscan: 5,
+  });
+
+  const virtualItems = virtualizer.getVirtualItems();
+
+  useEffect(() => {
+    const dids = virtualItems.map((item) => repos[item.index]?.did).filter(Boolean) as string[];
+    onVisibleDidsChange(dids);
+  }, [virtualItems, repos, onVisibleDidsChange]);
+
+  useEffect(() => {
+    if (!hasMore) return;
+    const lastItem = virtualItems[virtualItems.length - 1];
+    if (lastItem && lastItem.index >= repos.length - 5 && !loadMoreTriggered.current) {
+      loadMoreTriggered.current = true;
+      onLoadMore();
+    }
+    if (lastItem && lastItem.index < repos.length - 5) {
+      loadMoreTriggered.current = false;
+    }
+  }, [virtualItems, repos.length, hasMore, onLoadMore]);
+
+  return (
+    <div ref={parentRef} className="max-h-64 overflow-y-auto">
+      <div
+        style={{ height: virtualizer.getTotalSize(), width: "100%", position: "relative" }}
+      >
+        {virtualItems.map((virtualRow) => {
+          const repo = repos[virtualRow.index];
+          if (!repo) return null;
+          return (
+            <div
+              key={repo.did}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                height: `${virtualRow.size}px`,
+                transform: `translateY(${virtualRow.start}px)`,
+              }}
+            >
+              {renderRow(repo)}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ProgressRow({
   label,
   active,
@@ -975,6 +1094,8 @@ function ProgressRow({
   value,
   suffix,
   loading,
+  open,
+  onOpenChange,
   children,
 }: {
   label: string;
@@ -984,14 +1105,15 @@ function ProgressRow({
   value?: React.ReactNode;
   suffix?: React.ReactNode;
   loading?: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   children?: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
   const done = reached && !active && !paused;
   const expandable = reached;
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen}>
+    <Collapsible open={open} onOpenChange={onOpenChange}>
       <CollapsibleTrigger asChild disabled={!expandable}>
         <button
           type="button"
@@ -1026,7 +1148,7 @@ function ProgressRow({
       </CollapsibleTrigger>
       {expandable && (
         <CollapsibleContent>
-          <div className="border-t bg-muted/30 max-h-64 overflow-y-auto">
+          <div className="border-t bg-muted/30">
             {loading ? (
               <div className="flex items-center justify-center py-4">
                 <Loader2 className="size-4 animate-spin text-muted-foreground" />
