@@ -481,7 +481,7 @@ export default function GeneralSettingsPage() {
             onCheckedChange={(checked) =>
               setValues((v) => ({
                 ...v,
-                verbose_event_logging: checked ? "true" : "",
+                verbose_event_logging: checked ? "true" : "false",
               }))
             }
             disabled={!canManage}
