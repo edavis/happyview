@@ -637,6 +637,57 @@ mod tests {
     // parse_dt
     // -----------------------------------------------------------------------
 
+    // -----------------------------------------------------------------------
+    // backfill pool sizing
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn needed_backfill_connections_formula() {
+        assert_eq!(needed_backfill_connections(10, 3, 100), 134);
+        assert_eq!(needed_backfill_connections(1, 1, 1), 6);
+        assert_eq!(needed_backfill_connections(0, 0, 0), 4);
+    }
+
+    #[test]
+    fn backfill_pool_ceiling_values() {
+        assert_eq!(backfill_pool_ceiling(DatabaseBackend::Sqlite), 64);
+        assert_eq!(backfill_pool_ceiling(DatabaseBackend::Postgres), 256);
+    }
+
+    #[test]
+    fn needed_connections_capped_by_sqlite_ceiling() {
+        let needed = needed_backfill_connections(10, 3, 100);
+        let capped = needed.min(backfill_pool_ceiling(DatabaseBackend::Sqlite));
+        assert_eq!(needed, 134);
+        assert_eq!(capped, 64);
+    }
+
+    #[test]
+    fn needed_connections_capped_by_postgres_ceiling() {
+        let needed = needed_backfill_connections(50, 10, 200);
+        let capped = needed.min(backfill_pool_ceiling(DatabaseBackend::Postgres));
+        assert_eq!(needed, 704);
+        assert_eq!(capped, 256);
+    }
+
+    #[test]
+    fn needed_connections_below_ceiling_unchanged() {
+        let needed = needed_backfill_connections(2, 2, 10);
+        let capped = needed.min(backfill_pool_ceiling(DatabaseBackend::Postgres));
+        assert_eq!(needed, 18);
+        assert_eq!(capped, 18);
+    }
+
+    #[test]
+    fn needed_connections_minimum_is_overhead() {
+        let needed = needed_backfill_connections(0, 0, 0);
+        assert_eq!(needed, 4);
+    }
+
+    // -----------------------------------------------------------------------
+    // parse_dt
+    // -----------------------------------------------------------------------
+
     #[test]
     fn parse_dt_rfc3339() {
         let dt = parse_dt("2025-03-16T12:34:56Z");
