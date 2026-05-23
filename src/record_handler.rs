@@ -75,7 +75,28 @@ pub async fn handle_record_event(state: &AppState, record: &RecordEvent) {
                     .await;
 
                     match hook_result {
-                        None => return,
+                        None => {
+                            if state.verbose_event_logging.load(Ordering::Relaxed) {
+                                log_event(
+                                    db,
+                                    EventLog {
+                                        event_type: "record.skipped".to_string(),
+                                        severity: Severity::Info,
+                                        actor_did: None,
+                                        subject: Some(uri.clone()),
+                                        detail: serde_json::json!({
+                                            "collection": record.collection,
+                                            "did": record.did,
+                                            "rkey": record.rkey,
+                                            "reason": "hook returned nil",
+                                        }),
+                                    },
+                                    state.db_backend,
+                                )
+                                .await;
+                            }
+                            return;
+                        }
                         Some(v) => v,
                     }
                 } else {
@@ -118,6 +139,25 @@ pub async fn handle_record_event(state: &AppState, record: &RecordEvent) {
                         backend,
                     )
                     .await;
+
+                    if state.verbose_event_logging.load(Ordering::Relaxed) {
+                        log_event(
+                            db,
+                            EventLog {
+                                event_type: "record.created".to_string(),
+                                severity: Severity::Info,
+                                actor_did: None,
+                                subject: Some(uri.clone()),
+                                detail: serde_json::json!({
+                                    "collection": record.collection,
+                                    "did": record.did,
+                                    "rkey": record.rkey,
+                                }),
+                            },
+                            backend,
+                        )
+                        .await;
+                    }
 
                     crate::labeler::backfill_labels_for_uri(Arc::new(state.clone()), uri.clone());
                 }
@@ -187,7 +227,26 @@ pub async fn handle_record_event(state: &AppState, record: &RecordEvent) {
 
             let delete_sql = adapt_sql("DELETE FROM records WHERE uri = ?", backend);
             match sqlx::query(&delete_sql).bind(&uri).execute(db).await {
-                Ok(_) => {}
+                Ok(_) => {
+                    if state.verbose_event_logging.load(Ordering::Relaxed) {
+                        log_event(
+                            db,
+                            EventLog {
+                                event_type: "record.deleted".to_string(),
+                                severity: Severity::Info,
+                                actor_did: None,
+                                subject: Some(uri.clone()),
+                                detail: serde_json::json!({
+                                    "collection": record.collection,
+                                    "did": record.did,
+                                    "rkey": record.rkey,
+                                }),
+                            },
+                            backend,
+                        )
+                        .await;
+                    }
+                }
                 Err(e) => {
                     tracing::warn!(uri = %uri, "failed to delete record: {e}");
                     log_event(
