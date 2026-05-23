@@ -107,6 +107,10 @@ export function getStats() {
   return apiFetch<StatsResponse>("/admin/stats");
 }
 
+export function getCollections() {
+  return apiFetch<{ collections: string[] }>("/admin/records/collections");
+}
+
 // Lexicons
 export function getLexicons() {
   return apiFetch<LexiconSummary[]>("/admin/lexicons");

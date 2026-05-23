@@ -28,8 +28,11 @@ async fn main() {
 
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "happyview=debug,tower_http=debug".parse().unwrap()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                "happyview=debug,tower_http=debug,sqlx=warn"
+                    .parse()
+                    .unwrap()
+            }),
         )
         .init();
 
@@ -615,6 +618,15 @@ async fn main() {
 
     let (backfill_events_tx, _) = tokio::sync::broadcast::channel(1024);
 
+    let verbose_event_logging = {
+        let enabled =
+            happyview::admin::settings::get_setting(&db_pool, "verbose_event_logging", db_backend)
+                .await
+                .map(|v| v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false);
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(enabled))
+    };
+
     let state = AppState {
         config: config.clone(),
         http,
@@ -636,6 +648,7 @@ async fn main() {
         official_registry_config,
         proxy_config,
         backfill_events_tx,
+        verbose_event_logging,
     };
 
     jetstream::spawn(state.clone(), collections_rx);
@@ -648,6 +661,23 @@ async fn main() {
         state.config.event_log_retention_days,
         state.db_backend,
     ));
+
+    {
+        let db = state.db.clone();
+        let flag = state.verbose_event_logging.clone();
+        let backend = state.db_backend;
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                let enabled =
+                    happyview::admin::settings::get_setting(&db, "verbose_event_logging", backend)
+                        .await
+                        .map(|v| v.eq_ignore_ascii_case("true"))
+                        .unwrap_or(false);
+                flag.store(enabled, std::sync::atomic::Ordering::Relaxed);
+            }
+        });
+    }
 
     happyview::admin::backfill::resume_backfill_jobs(&state).await;
 
