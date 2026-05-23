@@ -71,6 +71,7 @@ pub fn admin_routes(_state: AppState) -> Router<AppState> {
             "/records",
             get(records::list_records).delete(records::delete_record),
         )
+        .route("/records/collections", get(records::list_collections))
         .route(
             "/records/collection",
             delete(records::delete_collection_records),
