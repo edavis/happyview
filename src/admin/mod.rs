@@ -42,6 +42,8 @@ pub fn admin_routes(_state: AppState) -> Router<AppState> {
             delete(backfill::flush_all_backfill_details),
         )
         .route("/backfill/{id}/cancel", post(backfill::cancel_backfill))
+        .route("/backfill/{id}/pause", post(backfill::pause_backfill))
+        .route("/backfill/{id}/resume", post(backfill::resume_backfill))
         .route("/backfill/{id}/events", get(backfill::backfill_events))
         .route("/backfill/{id}/repos", get(backfill::backfill_repos))
         .route(

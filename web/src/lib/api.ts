@@ -189,6 +189,20 @@ export function cancelBackfillJob(id: string) {
   );
 }
 
+export function pauseBackfillJob(id: string) {
+  return apiFetch<{ id: string; status: string }>(
+    `/admin/backfill/${id}/pause`,
+    { method: "POST" },
+  );
+}
+
+export function resumeBackfillJob(id: string) {
+  return apiFetch<{ id: string; status: string }>(
+    `/admin/backfill/${id}/resume`,
+    { method: "POST" },
+  );
+}
+
 export function getBackfillRepos(
   jobId: string,
   params: { phase?: string; cursor?: string; limit?: number } = {},
