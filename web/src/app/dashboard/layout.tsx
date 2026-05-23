@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth-context"
 import { useConfig } from "@/lib/config-context"
 import { AppSidebar } from "@/components/app-sidebar"
 import { PluginUpdateProvider } from "@/components/plugin-update-provider"
+import { RestartProvider } from "@/lib/restart-context"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { Toaster } from "@/components/ui/sonner"
 
@@ -33,17 +34,19 @@ export default function DashboardLayout({
 
   return (
     <PluginUpdateProvider>
-      <SidebarProvider
-        style={
-          {
-            "--sidebar-width": "calc(var(--spacing) * 72)",
-            "--header-height": "calc(var(--spacing) * 12)",
-          } as React.CSSProperties
-        }
-      >
-        <AppSidebar variant="inset" />
-        <SidebarInset>{children}</SidebarInset>
-      </SidebarProvider>
+      <RestartProvider>
+        <SidebarProvider
+          style={
+            {
+              "--sidebar-width": "calc(var(--spacing) * 72)",
+              "--header-height": "calc(var(--spacing) * 12)",
+            } as React.CSSProperties
+          }
+        >
+          <AppSidebar variant="inset" />
+          <SidebarInset>{children}</SidebarInset>
+        </SidebarProvider>
+      </RestartProvider>
       <Toaster />
     </PluginUpdateProvider>
   )

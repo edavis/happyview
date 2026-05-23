@@ -29,6 +29,8 @@ import { useAuth } from "@/lib/auth-context";
 import { useConfig } from "@/lib/config-context";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { usePluginUpdates } from "@/components/plugin-update-provider";
+import { useRestart } from "@/lib/restart-context";
+import { getDbInfo } from "@/lib/api";
 import { Scroller } from "@/components/ui/scroller";
 import {
   Sidebar,
@@ -138,6 +140,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { app_name, logo_url } = useConfig();
   const { hasPermission } = useCurrentUser();
   const { hasUpdates } = usePluginUpdates();
+  const { addReason, removeReason } = useRestart();
 
   const [deadLetterCount, setDeadLetterCount] = useState(0);
 
@@ -159,6 +162,25 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       clearInterval(interval);
     };
   }, []);
+
+  useEffect(() => {
+    if (!hasPermission("settings:manage")) return;
+    let cancelled = false;
+    getDbInfo()
+      .then((info) => {
+        if (!cancelled) {
+          if (info.restart_recommended) {
+            addReason("backfill-pool", "Backfill pool is undersized for current concurrency settings.");
+          } else {
+            removeReason("backfill-pool");
+          }
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [hasPermission, addReason, removeReason]);
 
   function filterByPermission(items: NavItem[]) {
     return items.filter(

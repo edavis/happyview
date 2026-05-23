@@ -384,6 +384,7 @@ export type DbInfo = {
   server_max_connections: number | null;
   main_pool_size: number;
   backfill_pool_size: number;
+  restart_recommended: boolean;
 };
 
 export function getDbInfo() {
