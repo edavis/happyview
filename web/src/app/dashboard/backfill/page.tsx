@@ -423,6 +423,8 @@ export default function BackfillPage() {
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
                     <AlertDialogAction onClick={async () => {
                       await flushAllBackfillDetails();
+                      setSelectedJobId(null);
+                      load();
                     }}>Clear</AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
