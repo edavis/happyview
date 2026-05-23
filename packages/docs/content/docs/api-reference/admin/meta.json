@@ -3,6 +3,7 @@
   "pages": [
     "admin-api",
     "lexicons",
+    "records",
     "stats",
     "backfill",
     "events",
