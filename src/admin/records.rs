@@ -219,3 +219,23 @@ pub(super) async fn delete_record(
 
     Ok(StatusCode::NO_CONTENT)
 }
+
+/// GET /admin/records/collections — list collection names (fast, no record counting).
+pub(super) async fn list_collections(
+    State(state): State<AppState>,
+    auth: UserAuth,
+) -> Result<Json<Value>, AppError> {
+    auth.require(Permission::RecordsRead).await?;
+
+    let sql = adapt_sql(
+        "SELECT id FROM lexicons WHERE json_extract(lexicon_json, '$.defs.main.type') = 'record' ORDER BY id",
+        state.db_backend,
+    );
+    let rows: Vec<(String,)> = sqlx::query_as(&sql)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to list collections: {e}")))?;
+
+    let collections: Vec<&str> = rows.iter().map(|(id,)| id.as_str()).collect();
+    Ok(Json(serde_json::json!({ "collections": collections })))
+}
