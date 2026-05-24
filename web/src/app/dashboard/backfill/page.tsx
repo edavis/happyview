@@ -1,18 +1,47 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { useCurrentUser } from "@/hooks/use-current-user";
 import {
   cancelBackfillJob,
+  pauseBackfillJob,
+  resumeBackfillJob,
   createBackfillJob,
   getBackfillJobs,
+  getBackfillRepos,
+  getBackfillPdsSummary,
+  flushBackfillDetails,
+  flushAllBackfillDetails,
   getLexicons,
 } from "@/lib/api";
-import type { BackfillJob } from "@/types/backfill";
-import { CheckCircle2, Circle, Loader2 } from "lucide-react";
+import type {
+  BackfillJob,
+  BackfillRepoEntry,
+  PdsSummaryEntry,
+  BackfillEvent,
+  BlueskyProfile,
+} from "@/types/backfill";
+import { CheckCircle2, ChevronRight, Circle, Loader2, PauseCircle } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import {
   Combobox,
@@ -78,6 +107,18 @@ function statusBadge(job: BackfillJob) {
           cancelling
         </Badge>
       );
+    case "pausing":
+      return (
+        <Badge className="bg-gray-500/15 text-gray-700 dark:text-gray-400 hover:bg-gray-500/25 border-gray-500/20">
+          pausing
+        </Badge>
+      );
+    case "paused":
+      return (
+        <Badge className="bg-gray-500/15 text-gray-700 dark:text-gray-400 hover:bg-gray-500/25 border-gray-500/20">
+          paused
+        </Badge>
+      );
     case "running":
       return (
         <Badge className="bg-blue-500/15 text-blue-700 dark:text-blue-400 hover:bg-blue-500/25 border-blue-500/20">
@@ -90,10 +131,247 @@ function statusBadge(job: BackfillJob) {
 }
 
 function phaseIndex(stage: string): number {
+  if (stage === "resolving_and_fetching") return 1;
   const idx = PROGRESS_PHASES.indexOf(
     stage as (typeof PROGRESS_PHASES)[number],
   );
   return idx;
+}
+
+// SSE via Web Worker — events are batched off the main thread and flushed periodically
+function useBackfillSSE(
+  jobId: string | null,
+  active: boolean,
+  onBatch: (events: BackfillEvent[]) => void,
+) {
+  const onBatchRef = useRef(onBatch);
+  onBatchRef.current = onBatch;
+
+  useEffect(() => {
+    if (!jobId || !active) return;
+
+    const worker = new Worker(
+      new URL("@/workers/backfill-sse.worker.ts", import.meta.url),
+    );
+
+    worker.addEventListener("message", (e: MessageEvent) => {
+      if (e.data.type === "batch") {
+        onBatchRef.current(e.data.events as BackfillEvent[]);
+      }
+    });
+
+    const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
+    worker.postMessage({ type: "connect", jobId, baseUrl: `${location.origin}${basePath}` });
+
+    return () => {
+      worker.postMessage({ type: "disconnect" });
+      worker.terminate();
+    };
+  }, [jobId, active]);
+}
+
+// Batch Bluesky profile resolution hook
+function useBlueskyProfiles(dids: string[]): Map<string, BlueskyProfile> {
+  const [profiles, setProfiles] = useState<Map<string, BlueskyProfile>>(new Map());
+  const resolvedRef = useRef<Set<string>>(new Set());
+  const pendingRef = useRef(false);
+
+  useEffect(() => {
+    const unresolved = dids.filter((d) => !resolvedRef.current.has(d));
+    if (unresolved.length === 0 || pendingRef.current) return;
+
+    pendingRef.current = true;
+
+    const batches: string[][] = [];
+    for (let i = 0; i < unresolved.length; i += 25) {
+      batches.push(unresolved.slice(i, i + 25));
+    }
+
+    // Mark all as resolved immediately to prevent re-fetching
+    for (const did of unresolved) {
+      resolvedRef.current.add(did);
+    }
+
+    Promise.all(
+      batches.map(async (batch) => {
+        const params = batch.map((d) => `actors=${encodeURIComponent(d)}`).join("&");
+        try {
+          const resp = await fetch(
+            `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfiles?${params}`
+          );
+          if (!resp.ok) return [];
+          const data = await resp.json();
+          return (data.profiles || []) as BlueskyProfile[];
+        } catch {
+          return [];
+        }
+      })
+    ).then((results) => {
+      setProfiles((prev) => {
+        const newProfiles = new Map(prev);
+        for (const batch of results) {
+          for (const p of batch) {
+            newProfiles.set(p.did, p);
+          }
+        }
+        return newProfiles;
+      });
+      pendingRef.current = false;
+    });
+  }, [dids]);
+
+  return profiles;
+}
+
+const BSKY_PDS_SUFFIX = ".bsky.network";
+const BSKY_PDS_HOSTNAMES = ["bsky.social", "staging.bsky.dev"];
+const failedFaviconUrls = new Set<string>();
+
+function isBskyPds(pdsEndpoint: string): boolean {
+  try {
+    const hostname = new URL(pdsEndpoint).hostname;
+    return BSKY_PDS_HOSTNAMES.includes(hostname) || hostname.endsWith(BSKY_PDS_SUFFIX);
+  } catch {
+    return false;
+  }
+}
+
+function PdsFavicon({ pdsEndpoint }: { pdsEndpoint: string }) {
+  let hostname: string;
+  try {
+    hostname = new URL(pdsEndpoint).hostname;
+  } catch {
+    return <PdsPlaceholderIcon />;
+  }
+
+  if (isBskyPds(pdsEndpoint)) {
+    return (
+      <svg viewBox="0 0 360 320" className="size-4 shrink-0" aria-hidden>
+        <path
+          d="M180 142c-16.3-31.7-60.7-90.8-102-120C38.5-5.9 0 1.4 0 45.6c0 31.7 18.2 266.4 67.8 266.4 45.2 0 60.4-39 112.2-130 51.8 91 67 130 112.2 130C341.8 312 360 77.3 360 45.6 360 1.4 321.5-5.9 282 22c-41.3 29.2-85.7 88.3-102 120Z"
+          fill="#1185FE"
+        />
+      </svg>
+    );
+  }
+
+  const faviconUrl = `https://twenty-icons.com/${hostname}`;
+
+  if (failedFaviconUrls.has(faviconUrl)) {
+    return <PdsPlaceholderIcon />;
+  }
+
+  return <PdsFaviconImg url={faviconUrl} />;
+}
+
+function PdsFaviconImg({ url }: { url: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (failed) return <PdsPlaceholderIcon />;
+
+  return (
+    <img
+      src={url}
+      alt=""
+      className="size-4 shrink-0 rounded"
+      onError={() => { failedFaviconUrls.add(url); setFailed(true); }}
+    />
+  );
+}
+
+function PdsPlaceholderIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="size-4 shrink-0 text-muted-foreground" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
+      <ellipse cx="8" cy="12" rx="6" ry="2.5" />
+      <ellipse cx="8" cy="8" rx="6" ry="2.5" />
+      <path d="M2 8v4M14 8v4" />
+      <ellipse cx="8" cy="4" rx="6" ry="2.5" />
+      <path d="M2 4v4M14 4v4" />
+    </svg>
+  );
+}
+
+function AnimatedNumber({ value }: { value: number }) {
+  const targetRef = useRef(value);
+  const displayedRef = useRef(value);
+  const [displayed, setDisplayed] = useState(value);
+  const rafRef = useRef<number>(0);
+
+  targetRef.current = value;
+
+  useEffect(() => {
+    cancelAnimationFrame(rafRef.current);
+
+    function tick() {
+      const current = displayedRef.current;
+      const target = targetRef.current;
+      const diff = target - current;
+
+      if (Math.abs(diff) < 0.5) {
+        displayedRef.current = target;
+        setDisplayed(target);
+        return;
+      }
+
+      const next = current + diff * 0.06;
+      displayedRef.current = next;
+      setDisplayed(next);
+      rafRef.current = requestAnimationFrame(tick);
+    }
+
+    tick();
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [value]);
+
+  return <>{Math.round(displayed).toLocaleString()}</>;
+}
+
+function CompactRepoRow({ did, profile }: {
+  did: string;
+  profile?: BlueskyProfile;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 px-3 py-1 text-xs">
+      <div className="size-4 shrink-0 rounded-full bg-muted overflow-hidden">
+        {profile?.avatar && (
+          <img src={profile.avatar} alt="" className="size-full object-cover" />
+        )}
+      </div>
+      <span className="truncate">
+        {profile?.handle ? `@${profile.handle}` : <span className="font-mono">{did}</span>}
+      </span>
+    </div>
+  );
+}
+
+function ProfileRow({ did, profile, suffix }: {
+  did: string;
+  profile?: BlueskyProfile;
+  suffix?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 text-sm">
+      <div className="size-6 shrink-0 rounded-full bg-muted overflow-hidden">
+        {profile?.avatar && (
+          <img src={profile.avatar} alt="" className="size-full object-cover" />
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="truncate text-sm">
+          {profile?.displayName || profile?.handle || did}
+        </p>
+        {profile?.handle && (
+          <p className="truncate text-xs text-muted-foreground">@{profile.handle}</p>
+        )}
+        {!profile?.handle && (
+          <p className="truncate text-xs text-muted-foreground font-mono">{did}</p>
+        )}
+      </div>
+      {suffix && (
+        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{suffix}</span>
+      )}
+    </div>
+  );
 }
 
 export default function BackfillPage() {
@@ -112,12 +390,15 @@ export default function BackfillPage() {
     load();
   }, [load]);
 
+  const selectedJob = jobs.find((j) => j.id === selectedJobId) ?? null;
+  const sseActive = selectedJob != null && (selectedJob.status === "running" || selectedJob.status === "cancelling" || selectedJob.status === "pausing");
+
   useEffect(() => {
+    if (sseActive) return;
     const interval = setInterval(load, 5000);
     return () => clearInterval(interval);
-  }, [load]);
-
-  const selectedJob = jobs.find((j) => j.id === selectedJobId) ?? null;
+  }, [load, sseActive]);
+  const canFlush = hasPermission("backfill:create");
 
   return (
     <>
@@ -127,9 +408,34 @@ export default function BackfillPage() {
 
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Backfill Jobs</h2>
-          {hasPermission("backfill:create") && (
-            <CreateDialog onSuccess={load} />
-          )}
+          <div className="flex items-center gap-2">
+            {canFlush && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" size="sm">Clear all details</Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Clear all job details?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete per-repo detail data for all backfill jobs.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={async () => {
+                      await flushAllBackfillDetails();
+                      setSelectedJobId(null);
+                      load();
+                    }}>Clear</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+            {hasPermission("backfill:create") && (
+              <CreateDialog onSuccess={load} />
+            )}
+          </div>
         </div>
 
         <div className="rounded-lg border">
@@ -192,7 +498,10 @@ export default function BackfillPage() {
         <Sheet
           open={selectedJob != null}
           onOpenChange={(open) => {
-            if (!open) setSelectedJobId(null);
+            if (!open) {
+              setSelectedJobId(null);
+              load();
+            }
           }}
         >
           <SheetContent className="sm:max-w-xl overflow-hidden flex flex-col">
@@ -200,8 +509,24 @@ export default function BackfillPage() {
               <JobDetail
                 job={selectedJob}
                 canCancel={hasPermission("backfill:create")}
+                canFlush={canFlush}
+                onJobUpdate={(updater) => {
+                  setJobs((prev) =>
+                    prev.map((j) =>
+                      j.id === selectedJob.id ? updater(j) : j,
+                    ),
+                  );
+                }}
                 onCancel={async () => {
                   await cancelBackfillJob(selectedJob.id);
+                  load();
+                }}
+                onPause={async () => {
+                  await pauseBackfillJob(selectedJob.id);
+                  load();
+                }}
+                onResume={async () => {
+                  await resumeBackfillJob(selectedJob.id);
                   load();
                 }}
               />
@@ -216,20 +541,69 @@ export default function BackfillPage() {
 function JobDetail({
   job,
   canCancel,
+  canFlush,
+  onJobUpdate,
   onCancel,
+  onPause,
+  onResume,
 }: {
   job: BackfillJob;
   canCancel: boolean;
+  canFlush: boolean;
+  onJobUpdate: (updater: (job: BackfillJob) => BackfillJob) => void;
   onCancel: () => Promise<void>;
+  onPause: () => Promise<void>;
+  onResume: () => Promise<void>;
 }) {
   const [cancelling, setCancelling] = useState(false);
+  const [pausing, setPausing] = useState(false);
+  const [resuming, setResuming] = useState(false);
   const current = phaseIndex(job.stage);
   const allDone = job.status === "completed";
-  const isActive = job.status === "running" || job.status === "cancelling";
+  const isActive = job.status === "running" || job.status === "cancelling" || job.status === "pausing";
+  const isPaused = job.status === "paused" || job.status === "pausing";
+
+  // Detail data state
+  const [discoveredRepos, setDiscoveredRepos] = useState<BackfillRepoEntry[]>([]);
+  const [discoveredCursor, setDiscoveredCursor] = useState<string | null>(null);
+  const [discoveredLoaded, setDiscoveredLoaded] = useState(false);
+
+  const [pdsSummary, setPdsSummary] = useState<PdsSummaryEntry[]>([]);
+  const [pdsLoaded, setPdsLoaded] = useState(false);
+
+  const [fetchedRepos, setFetchedRepos] = useState<BackfillRepoEntry[]>([]);
+  const [fetchedCursor, setFetchedCursor] = useState<string | null>(null);
+  const [fetchedLoaded, setFetchedLoaded] = useState(false);
+
+  // Refs for open state and callbacks so the SSE callback doesn't need to re-bind on toggle
+  const pdsOpenRef = useRef(false);
+  const fetchedOpenRef = useRef(false);
+  const onJobUpdateRef = useRef(onJobUpdate);
+  onJobUpdateRef.current = onJobUpdate;
 
   function hasReached(phase: (typeof PROGRESS_PHASES)[number]): boolean {
     if (allDone) return true;
+    if (job.stage === "resolving_and_fetching") {
+      return phase === "discovering_repos" || phase === "resolving_pds" || phase === "fetching_records";
+    }
     return current >= phaseIndex(phase);
+  }
+
+  function isPhasePaused(phase: (typeof PROGRESS_PHASES)[number]): boolean {
+    if (!isPaused) return false;
+    if (job.stage === "resolving_and_fetching") {
+      return phase === "resolving_pds" || phase === "fetching_records";
+    }
+    if (job.stage === "discovering_repos") {
+      return phase === "discovering_repos";
+    }
+    if (job.stage === "resolving_pds") {
+      return phase === "resolving_pds";
+    }
+    if (job.stage === "fetching_records") {
+      return phase === "fetching_records";
+    }
+    return false;
   }
 
   async function handleCancel() {
@@ -240,6 +614,180 @@ function JobDetail({
       setCancelling(false);
     }
   }
+
+  async function handlePause() {
+    setPausing(true);
+    try {
+      await onPause();
+    } finally {
+      setPausing(false);
+    }
+  }
+
+  async function handleResume() {
+    setResuming(true);
+    try {
+      await onResume();
+    } finally {
+      setResuming(false);
+    }
+  }
+
+  const discoveredReached = hasReached("discovering_repos");
+  const pdsReached = hasReached("resolving_pds");
+  const fetchedReached = hasReached("fetching_records") || job.stage === "resolving_and_fetching";
+
+  // Track which sections are expanded
+  const [discoveredOpen, setDiscoveredOpen] = useState(false);
+  const [pdsOpen, setPdsOpen] = useState(false);
+  const [fetchedOpen, setFetchedOpen] = useState(false);
+  pdsOpenRef.current = pdsOpen;
+  fetchedOpenRef.current = fetchedOpen;
+
+  // Lazy-load detail data only when sections are expanded
+  useEffect(() => {
+    if (discoveredOpen && discoveredReached && !discoveredLoaded) {
+      getBackfillRepos(job.id, { phase: "discovered", limit: 50 })
+        .then((resp) => { setDiscoveredRepos(resp.repos); setDiscoveredCursor(resp.cursor); setDiscoveredLoaded(true); })
+        .catch(() => {});
+    }
+  }, [job.id, discoveredOpen, discoveredReached, discoveredLoaded]);
+
+  useEffect(() => {
+    if (pdsOpen && pdsReached && !pdsLoaded) {
+      getBackfillPdsSummary(job.id)
+        .then((resp) => { setPdsSummary(resp.pds_endpoints); setPdsLoaded(true); })
+        .catch(() => {});
+    }
+  }, [job.id, pdsOpen, pdsReached, pdsLoaded]);
+
+  useEffect(() => {
+    if (fetchedOpen && fetchedReached && !fetchedLoaded) {
+      getBackfillRepos(job.id, { phase: "fetched", limit: 50 })
+        .then((resp) => { setFetchedRepos(resp.repos); setFetchedCursor(resp.cursor); setFetchedLoaded(true); })
+        .catch(() => {});
+    }
+  }, [job.id, fetchedOpen, fetchedReached, fetchedLoaded]);
+
+  const loadMoreDiscovered = useCallback(async () => {
+    if (!discoveredCursor) return;
+    try {
+      const resp = await getBackfillRepos(job.id, { phase: "discovered", cursor: discoveredCursor, limit: 50 });
+      setDiscoveredRepos((prev) => [...prev, ...resp.repos]);
+      setDiscoveredCursor(resp.cursor);
+    } catch { /* ignore */ }
+  }, [job.id, discoveredCursor]);
+
+  const loadMoreFetched = useCallback(async () => {
+    if (!fetchedCursor) return;
+    try {
+      const resp = await getBackfillRepos(job.id, { phase: "fetched", cursor: fetchedCursor, limit: 50 });
+      setFetchedRepos((prev) => [...prev, ...resp.repos]);
+      setFetchedCursor(resp.cursor);
+    } catch { /* ignore */ }
+  }, [job.id, fetchedCursor]);
+
+  // Process batched SSE events from the Web Worker.
+  // Uses refs for open state so the callback identity is stable and doesn't
+  // cause the worker to reconnect when sections are toggled.
+  const handleSSEBatch = useCallback((events: BackfillEvent[]) => {
+    const pOpen = pdsOpenRef.current;
+    const fOpen = fetchedOpenRef.current;
+
+    if (pOpen) {
+      const pdsEvents = events.filter(
+        (e) => (e.type === "repo_resolved" || e.type === "repo_fetched") && e.pds_endpoint,
+      );
+      if (pdsEvents.length > 0) {
+        setPdsSummary((prev) => {
+          const byEndpoint = new Map(prev.map((p, i) => [p.pds_endpoint, i]));
+          const next = [...prev];
+          for (const e of pdsEvents) {
+            const idx = byEndpoint.get(e.pds_endpoint!);
+            if (e.type === "repo_resolved") {
+              if (idx != null) {
+                next[idx] = { ...next[idx], total_repos: next[idx].total_repos + 1 };
+              } else {
+                const newIdx = next.length;
+                next.push({ pds_endpoint: e.pds_endpoint!, total_repos: 1, completed_repos: 0, total_records: 0 });
+                byEndpoint.set(e.pds_endpoint!, newIdx);
+              }
+            } else if (e.type === "repo_fetched" && idx != null) {
+              next[idx] = {
+                ...next[idx],
+                completed_repos: next[idx].completed_repos + 1,
+                total_records: next[idx].total_records + (e.records_fetched ?? 0),
+              };
+            }
+          }
+          return next;
+        });
+      }
+    }
+
+    if (fOpen) {
+      const fetched = events.filter((e) => e.type === "repo_fetched" && e.did);
+      if (fetched.length > 0) {
+        setFetchedRepos((prev) => {
+          const existing = new Set(prev.map((r) => r.did));
+          const newItems = fetched
+            .filter((e) => !existing.has(e.did!))
+            .map((e) => ({ did: e.did!, pds_endpoint: e.pds_endpoint ?? null, status: "completed" as const, records_fetched: e.records_fetched ?? 0 }));
+
+          if (newItems.length === 0) return prev;
+          return [...newItems, ...prev];
+        });
+      }
+    }
+
+    // Update job counters, stage, and status from SSE
+    const update = onJobUpdateRef.current;
+
+    // Increment total_repos from repo_discovered events
+    const discoveredCount = events.filter((e) => e.type === "repo_discovered").length;
+    const resolvedCount = events.filter((e) => e.type === "repo_resolved").length;
+    const fetchedEvents = events.filter((e) => e.type === "repo_fetched");
+    const fetchedCount = fetchedEvents.length;
+    const fetchedRecords = fetchedEvents.reduce((sum, e) => sum + (e.records_fetched ?? 0), 0);
+
+    if (discoveredCount > 0 || resolvedCount > 0 || fetchedCount > 0) {
+      update((j) => ({
+        ...j,
+        total_repos: (j.total_repos ?? 0) + discoveredCount,
+        resolved_repos: (j.resolved_repos ?? 0) + resolvedCount,
+        processed_repos: (j.processed_repos ?? 0) + fetchedCount,
+        total_records: (j.total_records ?? 0) + fetchedRecords,
+      }));
+    }
+
+    for (const e of events) {
+      if (e.type === "job_stage_changed" && e.stage) {
+        update((j) => ({ ...j, stage: e.stage! }));
+      } else if (e.type === "job_completed" && e.status) {
+        update((j) => ({ ...j, status: e.status!, error: e.error ?? null }));
+      }
+    }
+  }, []);
+
+  useBackfillSSE(job.id, isActive, handleSSEBatch);
+
+  // Track visible DIDs from virtualized lists (only items in viewport)
+  const [visibleDiscoveredDids, setVisibleDiscoveredDids] = useState<string[]>([]);
+  const [visibleFetchedDids, setVisibleFetchedDids] = useState<string[]>([]);
+
+  const allVisibleDids = useMemo(() => {
+    const dids = new Set<string>();
+    for (const d of visibleDiscoveredDids) dids.add(d);
+    for (const d of visibleFetchedDids) dids.add(d);
+    return Array.from(dids);
+  }, [visibleDiscoveredDids, visibleFetchedDids]);
+
+  const profiles = useBlueskyProfiles(allVisibleDids);
+
+  const fetchedWithRecords = useMemo(
+    () => fetchedRepos.filter((r) => r.records_fetched > 0),
+    [fetchedRepos],
+  );
 
   return (
     <>
@@ -302,40 +850,166 @@ function JobDetail({
               label="Discovering repos"
               active={isActive && job.stage === "discovering_repos"}
               reached={hasReached("discovering_repos")}
-              value={job.total_repos?.toLocaleString()}
+              paused={isPhasePaused("discovering_repos")}
+              value={job.total_repos != null ? <AnimatedNumber value={job.total_repos} /> : undefined}
               suffix="repos found"
-            />
+              loading={discoveredOpen && discoveredReached && !discoveredLoaded}
+              open={discoveredOpen}
+              onOpenChange={setDiscoveredOpen}
+            >
+              {discoveredRepos.length > 0 ? (
+                <VirtualRepoList
+                  repos={discoveredRepos}
+                  onVisibleDidsChange={setVisibleDiscoveredDids}
+                  hasMore={!!discoveredCursor}
+                  onLoadMore={loadMoreDiscovered}
+                  rowHeight={28}
+                  renderRow={(repo) => (
+                    <CompactRepoRow
+                      did={repo.did}
+                      profile={profiles.get(repo.did)}
+                    />
+                  )}
+                />
+              ) : discoveredLoaded ? (
+                <p className="py-3 text-center text-xs text-muted-foreground">No repos discovered yet.</p>
+              ) : null}
+            </ProgressRow>
             <ProgressRow
               label="Resolving PDS"
-              active={isActive && job.stage === "resolving_pds"}
+              active={
+                isActive &&
+                (job.stage === "resolving_pds" ||
+                  job.stage === "resolving_and_fetching")
+              }
               reached={hasReached("resolving_pds")}
+              paused={isPhasePaused("resolving_pds")}
               value={
                 hasReached("resolving_pds")
-                  ? `${job.processed_repos?.toLocaleString() ?? "0"} / ${job.total_repos?.toLocaleString() ?? "0"}`
+                  ? <><AnimatedNumber value={job.resolved_repos ?? job.processed_repos ?? 0} /> / <AnimatedNumber value={job.total_repos ?? 0} /></>
                   : undefined
               }
               suffix="resolved"
-            />
+              loading={pdsOpen && pdsReached && !pdsLoaded}
+              open={pdsOpen}
+              onOpenChange={setPdsOpen}
+            >
+              {pdsSummary.length > 0 ? (
+                <div className="divide-y text-sm max-h-64 overflow-y-auto">
+                  {pdsSummary
+                    .sort((a, b) => b.total_repos - a.total_repos)
+                    .map((pds) => (
+                      <div key={pds.pds_endpoint} className="flex items-center gap-2 px-3 py-1.5">
+                        <PdsFavicon pdsEndpoint={pds.pds_endpoint} />
+                        <span className="flex-1 truncate font-mono text-xs">{new URL(pds.pds_endpoint).hostname}</span>
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          <AnimatedNumber value={pds.completed_repos} />/<AnimatedNumber value={pds.total_repos} /> repos · <AnimatedNumber value={pds.total_records} /> records
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              ) : pdsLoaded ? (
+                <p className="py-3 text-center text-xs text-muted-foreground">No PDS data yet.</p>
+              ) : null}
+            </ProgressRow>
             <ProgressRow
               label="Fetching records"
-              active={isActive && job.stage === "fetching_records"}
+              active={
+                isActive &&
+                (job.stage === "fetching_records" ||
+                  job.stage === "resolving_and_fetching")
+              }
               reached={hasReached("fetching_records")}
+              paused={isPhasePaused("fetching_records")}
               value={
-                hasReached("fetching_records")
-                  ? `${job.processed_repos?.toLocaleString() ?? "0"} / ${job.total_repos?.toLocaleString() ?? "0"} repos`
+                hasReached("fetching_records") ||
+                job.stage === "resolving_and_fetching"
+                  ? <><AnimatedNumber value={job.processed_repos ?? 0} /> / <AnimatedNumber value={job.total_repos ?? 0} /> repos</>
                   : undefined
               }
               suffix={
-                hasReached("fetching_records")
-                  ? `${job.total_records?.toLocaleString() ?? "0"} records`
+                hasReached("fetching_records") ||
+                job.stage === "resolving_and_fetching"
+                  ? <><AnimatedNumber value={job.total_records ?? 0} /> records</>
                   : undefined
               }
-            />
+              loading={fetchedOpen && fetchedReached && !fetchedLoaded}
+              open={fetchedOpen}
+              onOpenChange={setFetchedOpen}
+            >
+              {fetchedWithRecords.length > 0 ? (
+                <VirtualRepoList
+                  repos={fetchedWithRecords}
+                  onVisibleDidsChange={setVisibleFetchedDids}
+                  hasMore={!!fetchedCursor}
+                  onLoadMore={loadMoreFetched}
+                  rowHeight={40}
+                  renderRow={(repo) => (
+                    <ProfileRow
+                      did={repo.did}
+                      profile={profiles.get(repo.did)}
+                      suffix={<span className="flex items-center gap-1"><CheckCircle2 className="size-3 text-emerald-500" /><AnimatedNumber value={repo.records_fetched} /> records</span>}
+                    />
+                  )}
+                />
+              ) : fetchedLoaded ? (
+                <p className="py-3 text-center text-xs text-muted-foreground">No repos fetched yet.</p>
+              ) : null}
+            </ProgressRow>
           </div>
         </div>
       </div>
-      {canCancel && isActive && (
-        <SheetFooter className="border-t flex-row justify-end">
+      <SheetFooter className="border-t flex-row justify-end gap-2">
+        {canFlush && !isActive && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="outline" size="sm">Clear details</Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Clear job details?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete per-repo detail data for this backfill job.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={async () => {
+                  await flushBackfillDetails(job.id);
+                  setDiscoveredRepos([]);
+                  setDiscoveredCursor(null);
+                  setDiscoveredLoaded(false);
+                  setPdsSummary([]);
+                  setPdsLoaded(false);
+                  setFetchedRepos([]);
+                  setFetchedCursor(null);
+                  setFetchedLoaded(false);
+                }}>Clear</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
+        {canCancel && (job.status === "running" || job.status === "pausing") && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={pausing || job.status === "pausing"}
+            onClick={handlePause}
+          >
+            {pausing || job.status === "pausing" ? "Pausing…" : "Pause Job"}
+          </Button>
+        )}
+        {canCancel && job.status === "paused" && (
+          <Button
+            variant="default"
+            size="sm"
+            disabled={resuming}
+            onClick={handleResume}
+          >
+            {resuming ? "Resuming…" : "Resume Job"}
+          </Button>
+        )}
+        {canCancel && isActive && (
           <Button
             variant="destructive"
             size="sm"
@@ -344,9 +1018,92 @@ function JobDetail({
           >
             {job.status === "cancelling" ? "Cancelling…" : "Cancel Job"}
           </Button>
-        </SheetFooter>
-      )}
+        )}
+        {canCancel && job.status === "paused" && (
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={cancelling}
+            onClick={handleCancel}
+          >
+            Cancel Job
+          </Button>
+        )}
+      </SheetFooter>
     </>
+  );
+}
+
+function VirtualRepoList({
+  repos,
+  onVisibleDidsChange,
+  hasMore,
+  onLoadMore,
+  rowHeight,
+  renderRow,
+}: {
+  repos: BackfillRepoEntry[];
+  onVisibleDidsChange: (dids: string[]) => void;
+  hasMore: boolean;
+  onLoadMore: () => void;
+  rowHeight: number;
+  renderRow: (repo: BackfillRepoEntry) => React.ReactNode;
+}) {
+  const parentRef = useRef<HTMLDivElement>(null);
+  const loadMoreTriggered = useRef(false);
+
+  const virtualizer = useVirtualizer({
+    count: repos.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => rowHeight,
+    overscan: 5,
+  });
+
+  const virtualItems = virtualizer.getVirtualItems();
+
+  const visibleDidsKey = virtualItems.map((item) => repos[item.index]?.did).filter(Boolean).join(",");
+  useEffect(() => {
+    onVisibleDidsChange(visibleDidsKey.split(",").filter(Boolean));
+  }, [visibleDidsKey, onVisibleDidsChange]);
+
+  useEffect(() => {
+    if (!hasMore) return;
+    const lastItem = virtualItems[virtualItems.length - 1];
+    if (lastItem && lastItem.index >= repos.length - 5 && !loadMoreTriggered.current) {
+      loadMoreTriggered.current = true;
+      onLoadMore();
+    }
+    if (lastItem && lastItem.index < repos.length - 5) {
+      loadMoreTriggered.current = false;
+    }
+  }, [virtualItems, repos.length, hasMore, onLoadMore]);
+
+  return (
+    <div ref={parentRef} className="max-h-64 overflow-y-auto">
+      <div
+        style={{ height: virtualizer.getTotalSize(), width: "100%", position: "relative" }}
+      >
+        {virtualItems.map((virtualRow) => {
+          const repo = repos[virtualRow.index];
+          if (!repo) return null;
+          return (
+            <div
+              key={repo.did}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                height: `${virtualRow.size}px`,
+                transform: `translateY(${virtualRow.start}px)`,
+              }}
+            >
+              {renderRow(repo)}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -354,44 +1111,74 @@ function ProgressRow({
   label,
   active,
   reached,
+  paused,
   value,
   suffix,
+  loading,
+  open,
+  onOpenChange,
+  children,
 }: {
   label: string;
   active: boolean;
   reached: boolean;
-  value?: string;
-  suffix?: string;
+  paused?: boolean;
+  value?: React.ReactNode;
+  suffix?: React.ReactNode;
+  loading?: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children?: React.ReactNode;
 }) {
-  const done = reached && !active;
+  const done = reached && !active && !paused;
+  const expandable = reached;
 
   return (
-    <div
-      className={`flex items-center gap-2 px-3 py-2 text-sm ${
-        active
-          ? "bg-blue-500/5"
-          : reached
-            ? ""
-            : "text-muted-foreground opacity-50"
-      }`}
-    >
-      <span className="shrink-0">
-        {active ? (
-          <Loader2 className="size-4 animate-spin text-blue-500" />
-        ) : done ? (
-          <CheckCircle2 className="size-4 text-emerald-500" />
-        ) : (
-          <Circle className="size-4" />
-        )}
-      </span>
-      <span className={`flex-1 ${active ? "font-medium" : ""}`}>{label}</span>
-      {reached && value && (
-        <span className="tabular-nums text-xs text-muted-foreground">
-          {value}
-          {suffix ? ` · ${suffix}` : ""}
-        </span>
+    <Collapsible open={open} onOpenChange={onOpenChange}>
+      <CollapsibleTrigger asChild disabled={!expandable}>
+        <button
+          type="button"
+          className={`flex w-full items-center gap-2 px-3 py-2 text-sm text-left ${
+            expandable ? "cursor-pointer hover:bg-accent/50" : ""
+          } ${
+            active ? "bg-blue-500/5" : reached ? "" : "text-muted-foreground opacity-50"
+          }`}
+        >
+          <span className="shrink-0">
+            {active ? (
+              <Loader2 className="size-4 animate-spin text-blue-500" />
+            ) : paused ? (
+              <PauseCircle className="size-4 text-gray-500" />
+            ) : done ? (
+              <CheckCircle2 className="size-4 text-emerald-500" />
+            ) : (
+              <Circle className="size-4" />
+            )}
+          </span>
+          <span className={`flex-1 ${active ? "font-medium" : ""}`}>{label}</span>
+          {reached && value && (
+            <span className="tabular-nums text-xs text-muted-foreground">
+              {value}
+              {suffix && <> · {suffix}</>}
+            </span>
+          )}
+          {expandable && (
+            <ChevronRight className={`size-4 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
+          )}
+        </button>
+      </CollapsibleTrigger>
+      {expandable && (
+        <CollapsibleContent>
+          <div className="border-t bg-muted/30">
+            {loading ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="size-4 animate-spin text-muted-foreground" />
+              </div>
+            ) : children}
+          </div>
+        </CollapsibleContent>
       )}
-    </div>
+    </Collapsible>
   );
 }
 

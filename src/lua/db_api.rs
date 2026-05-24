@@ -755,6 +755,7 @@ mod tests {
             config,
             http: reqwest::Client::new(),
             db: test_db.clone(),
+            backfill_db: test_db.clone(),
             db_backend: DatabaseBackend::Sqlite,
             domain_cache: crate::domain::DomainCache::new(),
             lexicons: LexiconRegistry::new(),
@@ -790,6 +791,8 @@ mod tests {
             proxy_config: std::sync::Arc::new(arc_swap::ArcSwap::new(std::sync::Arc::new(
                 crate::proxy_config::ProxyConfig::default(),
             ))),
+            backfill_events_tx: tokio::sync::broadcast::channel(16).0,
+            verbose_event_logging: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
