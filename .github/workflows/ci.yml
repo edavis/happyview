@@ -160,6 +160,182 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
 
   # ---------------------------------------------------------------------------
+  # PR binaries — build on every PR push so reviewers can test
+  # ---------------------------------------------------------------------------
+  pr-binary:
+    needs: changes
+    if: >-
+      github.event_name == 'pull_request'
+      && needs.changes.outputs.server == 'true'
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runs-on: depot-ubuntu-24.04
+            arch: amd64
+          - runs-on: depot-ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-release-${{ matrix.arch }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-release-${{ matrix.arch }}-
+
+      - name: Build release binary
+        run: |
+          docker run --rm \
+            -v "$PWD:/app" \
+            -v "$HOME/.cargo/registry:/usr/local/cargo/registry" \
+            -v "$HOME/.cargo/git:/usr/local/cargo/git" \
+            -w /app \
+            -e SQLX_OFFLINE=true \
+            rust:1.93-bookworm \
+            cargo build --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: happyview-linux-${{ matrix.arch }}
+          path: target/release/happyview
+
+  pr-docker:
+    needs: pr-binary
+    runs-on: ${{ matrix.runs-on }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runs-on: depot-ubuntu-24.04
+            arch: amd64
+          - platform: linux/arm64
+            runs-on: depot-ubuntu-24.04-arm
+            arch: arm64
+    env:
+      GHCR_IMAGE: ghcr.io/${{ github.repository }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Download pre-built binary
+        uses: actions/download-artifact@v4
+        with:
+          name: happyview-linux-${{ matrix.arch }}
+          path: .binary
+
+      - name: Prepare binary override
+        run: |
+          mkdir -p .builder-override/app/target/release
+          cp .binary/happyview .builder-override/app/target/release/happyview
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.GHCR_IMAGE }}
+          tags: |
+            type=raw,value=pr-${{ github.event.pull_request.number }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-contexts: |
+            builder=.builder-override
+          cache-from: type=gha,scope=pr-${{ matrix.platform }}
+          cache-to: type=gha,scope=pr-${{ matrix.platform }},mode=max,ignore-error=true
+          outputs: type=image,"name=${{ env.GHCR_IMAGE }}",push-by-digest=true,name-canonical=true,push=true
+
+      - name: Create manifest
+        run: |
+          TAGS=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<< '${{ steps.meta.outputs.json }}')
+          docker buildx imagetools create --append $TAGS \
+            ${{ env.GHCR_IMAGE }}@${{ steps.build.outputs.digest }} 2>/dev/null || \
+          docker buildx imagetools create $TAGS \
+            ${{ env.GHCR_IMAGE }}@${{ steps.build.outputs.digest }}
+
+  pr-build-comment:
+    needs: pr-docker
+    runs-on: depot-ubuntu-24.04
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.payload.pull_request.head.sha.substring(0, 7);
+            const prNumber = context.payload.pull_request.number;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const image = `ghcr.io/${context.repo.owner}/${context.repo.repo}`;
+            const body = [
+              '### PR Build',
+              '',
+              `Builds for \`${sha}\`:`,
+              '',
+              '**Docker**',
+              '```sh',
+              `docker pull ${image}:pr-${prNumber}`,
+              '```',
+              '',
+              '**Binaries**',
+              '```sh',
+              `gh run download ${context.runId} -n happyview-linux-amd64`,
+              `gh run download ${context.runId} -n happyview-linux-arm64`,
+              '```',
+              '',
+              `Or download binaries from the [workflow run](${runUrl}).`,
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.startsWith('### PR Build'));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+  # ---------------------------------------------------------------------------
   # Server release
   # ---------------------------------------------------------------------------
   release:

@@ -50,7 +50,8 @@ AUTH="Authorization: Bearer $TOKEN"
 | [API Keys](api-keys.md) | Create, list, and revoke API keys |
 | [Users](users.md) | Create, list, update, and delete admin users |
 | [Labelers](labelers.md) | Manage external labeler subscriptions |
-| [Instance Settings](settings.md) | Configure app name, logo, and policy URLs |
+| [Records](records.md) | List and delete indexed records |
+| [Instance Settings](settings.md) | Configure app name, logo, policy URLs, and concurrency settings |
 | [Domains](domains.md) | Manage domains and their OAuth client identities |
 | [Script Variables](script-variables.md) | Encrypted key/value pairs for Lua scripts |
 | [API Clients](api-clients.md) | Register and manage third-party XRPC clients |
@@ -72,6 +73,14 @@ Each admin API endpoint requires a specific permission. See the [Permissions gui
 | `GET /admin/stats`                       | `stats:read`               |
 | `POST /admin/backfill`                   | `backfill:create`          |
 | `GET /admin/backfill/status`             | `backfill:read`            |
+| `POST /admin/backfill/{id}/cancel`       | `backfill:create`          |
+| `POST /admin/backfill/{id}/pause`        | `backfill:create`          |
+| `POST /admin/backfill/{id}/resume`       | `backfill:create`          |
+| `GET /admin/backfill/{id}/events`        | `backfill:read`            |
+| `GET /admin/backfill/{id}/repos`         | `backfill:read`            |
+| `GET /admin/backfill/{id}/pds-summary`   | `backfill:read`            |
+| `DELETE /admin/backfill/{id}/details`    | `backfill:create`          |
+| `DELETE /admin/backfill/details`         | `backfill:create`          |
 | `GET /admin/events`                      | `events:read`              |
 | `POST /admin/api-keys`                   | `api-keys:create`          |
 | `GET /admin/api-keys`                    | `api-keys:read`            |
@@ -89,7 +98,12 @@ Each admin API endpoint requires a specific permission. See the [Permissions gui
 | `GET /admin/labelers`                    | `labelers:read`            |
 | `PATCH /admin/labelers/{did}`            | `labelers:create`          |
 | `DELETE /admin/labelers/{did}`           | `labelers:delete`          |
+| `GET /admin/records`                     | `records:read`             |
+| `GET /admin/records/collections`         | `records:read`             |
+| `DELETE /admin/records`                  | `records:delete`           |
+| `DELETE /admin/records/collection`       | `records:delete-collection`|
 | `GET /admin/settings`                    | `settings:manage`          |
+| `GET /admin/settings/db-info`            | `settings:manage`          |
 | `PUT /admin/settings/{key}`              | `settings:manage`          |
 | `DELETE /admin/settings/{key}`           | `settings:manage`          |
 | `PUT /admin/settings/logo`              | `settings:manage`          |

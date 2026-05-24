@@ -13,13 +13,12 @@ See the [admin API](../api-reference/admin/backfill.md) for endpoint details.
 
 ## How it works
 
-A backfill job runs through three sequential phases:
+A backfill job starts with a discovery phase and then pipelines resolution and fetching concurrently:
 
 1. **Discovering repos** — HappyView calls the relay's `com.atproto.sync.listReposByCollection` to find repos that contain records for each target collection. Discovered DIDs are stored in a tracking table so progress can be resumed.
-2. **Resolving PDS** — For each discovered DID, HappyView resolves the DID document (via PLC directory or `did:web`) to find the user's PDS endpoint.
-3. **Fetching records** — HappyView calls `com.atproto.repo.listRecords` on each PDS for the target collection(s), upserting each record into the local database. PDS endpoints are processed concurrently (up to 10 PDS hosts, 3 DIDs per host).
+2. **Resolving PDS + Fetching records** (pipelined) — Resolution and fetching run concurrently. As each DID is resolved (via PLC directory or `did:web`), it's immediately handed off for record fetching — there's no need to wait for all DIDs to resolve before fetching begins. HappyView calls `com.atproto.repo.listRecords` on each PDS for the target collection(s), upserting each record into the local database. PDS endpoints are processed concurrently (up to 10 PDS hosts, 3 DIDs per host).
 
-Progress counters (`total_repos`, `processed_repos`, `total_records`) and the current `stage` are updated in real time. The dashboard's Backfill page shows live progress, and clicking a job opens a detail sheet with a stage-by-stage progress log.
+Progress counters (`total_repos`, `resolved_repos`, `processed_repos`, `total_records`) and the current `stage` are updated in real time. The dashboard's Backfill page shows live progress, and clicking a job opens a detail sheet with a stage-by-stage progress log.
 
 ### Rate limiting
 
@@ -37,7 +36,7 @@ A backfill job has both a `status` (overall state) and a `stage` (current phase)
 | `completed`  | Worker finished processing all resolvable repos      |
 | `failed`     | An error occurred                                    |
 
-The `stage` field tracks which phase the job is in: `pending`, `discovering_repos`, `resolving_pds`, `fetching_records`, `completed`, `failed`, or `cancelled`.
+The `stage` field tracks which phase the job is in: `pending`, `discovering_repos`, `resolving_and_fetching`, `completed`, `failed`, or `cancelled`.
 
 ## Cancelling a job
 
@@ -64,6 +63,31 @@ Re-running a backfill for a collection that's already been backfilled is safe. E
 ## Restoring deleted records
 
 Deleting records from HappyView (via the dashboard or API) only removes them from the local database — the records still exist on the atproto network. To restore deleted records, create a backfill job for the affected collection. The backfill will re-discover the repos and re-fetch all records from each PDS, restoring any that were previously deleted.
+
+## Diagnostics
+
+The dashboard's backfill detail panel includes expandable sections for each processing phase. Clicking a phase row reveals per-repo and per-PDS detail data in real time.
+
+### Per-repo tracking
+
+Every DID discovered during a backfill job is tracked in the database with its PDS endpoint, processing status, and record count. This data powers three expandable sections:
+
+- **Discovering repos** — lists all DIDs discovered for the job, with profile avatars and handles resolved from the Bluesky API.
+- **Resolving PDS** — summarises PDS endpoints involved in the job, showing how many repos each PDS is responsible for and how many have been processed.
+- **Fetching records** — lists completed repos with their record counts and PDS hostnames.
+
+All three sections update in real time via SSE (Server-Sent Events) while the job is running.
+
+### Data retention
+
+Per-repo detail data is retained after job completion to support post-mortem analysis. A background task runs daily and deletes detail rows for jobs completed more than 28 days ago (configurable via the `backfill_retention_days` setting in **Settings > General**, or the `BACKFILL_RETENTION_DAYS` environment variable). Set to `0` to keep data indefinitely.
+
+You can also manually clear detail data:
+
+- **Per-job**: "Clear details" button in the job detail panel footer.
+- **All completed jobs**: "Clear all details" button on the Backfill page header.
+
+Both actions require the `backfill:create` permission.
 
 ## Next steps
 

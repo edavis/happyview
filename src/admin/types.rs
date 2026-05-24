@@ -76,12 +76,84 @@ pub(crate) struct BackfillJob {
     pub(crate) status: String,
     pub(crate) stage: String,
     pub(crate) total_repos: Option<i32>,
+    pub(crate) resolved_repos: Option<i32>,
     pub(crate) processed_repos: Option<i32>,
     pub(crate) total_records: Option<i32>,
     pub(crate) error: Option<String>,
     pub(crate) started_at: Option<String>,
     pub(crate) completed_at: Option<String>,
     pub(crate) created_at: String,
+}
+
+// ---------------------------------------------------------------------------
+// Backfill event types
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum BackfillEvent {
+    RepoDiscovered {
+        job_id: String,
+        did: String,
+    },
+    RepoResolved {
+        job_id: String,
+        did: String,
+        pds_endpoint: String,
+    },
+    RepoFetched {
+        job_id: String,
+        did: String,
+        pds_endpoint: String,
+        records_fetched: i32,
+    },
+    JobCounters {
+        job_id: String,
+        total_repos: Option<i32>,
+        resolved_repos: Option<i32>,
+        processed_repos: Option<i32>,
+        total_records: Option<i32>,
+    },
+    JobStageChanged {
+        job_id: String,
+        stage: String,
+    },
+    JobCompleted {
+        job_id: String,
+        status: String,
+        error: Option<String>,
+    },
+}
+
+// ---------------------------------------------------------------------------
+// Backfill detail response types
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+pub(crate) struct BackfillRepoEntry {
+    pub(crate) did: String,
+    pub(crate) pds_endpoint: Option<String>,
+    pub(crate) status: String,
+    pub(crate) records_fetched: i32,
+}
+
+#[derive(Serialize)]
+pub(crate) struct BackfillReposResponse {
+    pub(crate) repos: Vec<BackfillRepoEntry>,
+    pub(crate) cursor: Option<String>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct PdsSummaryEntry {
+    pub(crate) pds_endpoint: String,
+    pub(crate) total_repos: i32,
+    pub(crate) completed_repos: i32,
+    pub(crate) total_records: i32,
+}
+
+#[derive(Serialize)]
+pub(crate) struct PdsSummaryResponse {
+    pub(crate) pds_endpoints: Vec<PdsSummaryEntry>,
 }
 
 // ---------------------------------------------------------------------------

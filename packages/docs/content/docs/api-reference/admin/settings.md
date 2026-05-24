@@ -58,7 +58,22 @@ resp, err := http.DefaultClient.Do(req)
 curl http://127.0.0.1:3000/admin/settings -H "$AUTH"
 ```
 
-Returns all key/value pairs stored in the `instance_settings` table.
+Returns all key/value pairs stored in the `instance_settings` table, plus any env-var fallback values for keys not stored in the database. Each entry includes a `source` field: `"database"` for stored values, `"env"` for env-var fallbacks.
+
+### Known settings
+
+| Key | Env var | Default | Description |
+|-----|---------|---------|-------------|
+| `app_name` | `APP_NAME` | --- | Application name shown in sidebar and OAuth consent screen |
+| `client_uri` | `CLIENT_URI` | --- | Public URL for this instance, linked from OAuth consent screen |
+| `logo_uri` | `LOGO_URI` | --- | External URL to a logo image |
+| `tos_uri` | `TOS_URI` | --- | Link to terms of service |
+| `policy_uri` | `POLICY_URI` | --- | Link to privacy policy |
+| `backfill_concurrent_pds` | `BACKFILL_CONCURRENT_PDS` | `10` | How many PDS servers to fetch from simultaneously during backfill |
+| `backfill_concurrent_dids_per_pds` | `BACKFILL_CONCURRENT_DIDS_PER_PDS` | `3` | How many repos to fetch concurrently from each PDS |
+| `backfill_concurrent_resolution` | `BACKFILL_CONCURRENT_RESOLUTION` | `100` | How many DID document lookups to run in parallel during PDS resolution |
+| `backfill_retention_days` | `BACKFILL_RETENTION_DAYS` | `28` | Days to keep per-repo detail data from completed backfill jobs. `0` = keep indefinitely |
+| `verbose_event_logging` | `VERBOSE_EVENT_LOGGING` | `false` | Log every record index, hook execution, and hook skip to the event log. High write volume — recommended only for debugging |
 
 ## Upsert a setting
 
@@ -115,6 +130,38 @@ DELETE /admin/settings/{key}
 ```
 
 Removes the override; the corresponding environment variable (if any) takes effect again.
+
+## Database info
+
+```
+GET /admin/settings/db-info
+```
+
+Returns database backend, connection pool sizes, and whether a server restart is recommended to resize the backfill pool for current concurrency settings.
+
+```sh tab="cURL" tab-group="language"
+curl http://127.0.0.1:3000/admin/settings/db-info -H "$AUTH"
+```
+
+**Response**: `200 OK`
+
+```json
+{
+  "backend": "sqlite",
+  "server_max_connections": null,
+  "main_pool_size": 32,
+  "backfill_pool_size": 64,
+  "restart_recommended": false
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `backend` | string | `"sqlite"` or `"postgres"` |
+| `server_max_connections` | number \| null | Postgres `max_connections` setting. `null` for SQLite |
+| `main_pool_size` | number | Current main connection pool size |
+| `backfill_pool_size` | number | Current backfill connection pool size |
+| `restart_recommended` | boolean | `true` if concurrency settings have changed and a restart would resize the pool |
 
 ## Upload / delete logo
 

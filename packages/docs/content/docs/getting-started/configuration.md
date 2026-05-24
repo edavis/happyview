@@ -26,7 +26,13 @@ HappyView is configured via environment variables. A `.env` file in the project 
 | `ATTESTATION_PRIVATE_KEY` | no | auto-generated | Hex-encoded 32-byte secp256k1 private key for [attestation signing](../guides/attestation-signing.md). Auto-generated and persisted to database on first run |
 | `ATTESTATION_KEY_ID` | no | `did:web:{host}#attestation` | Key identifier included in attestation signatures. Derived from `PUBLIC_URL` by default |
 | `ATTESTATION_SIG_TYPE` | no | app-specific NSID | `$type` value used in attestation signature objects |
-| `RUST_LOG` | no | `happyview=debug,tower_http=debug` | Log filter (uses `tracing_subscriber::EnvFilter`) |
+| `BACKFILL_CONCURRENT_PDS` | no | `10` | How many PDS servers to fetch from simultaneously during backfill. Overridden by database setting if set via admin API |
+| `BACKFILL_CONCURRENT_DIDS_PER_PDS` | no | `3` | How many repos to fetch concurrently from each PDS during backfill. Overridden by database setting if set via admin API |
+| `BACKFILL_CONCURRENT_RESOLUTION` | no | `100` | How many DID document lookups to run in parallel during PDS resolution. Overridden by database setting if set via admin API |
+| `BACKFILL_RETENTION_DAYS` | no | `28` | Days to keep per-repo detail data from completed backfill jobs. `0` to keep indefinitely. Overridden by database setting if set via admin API |
+| `BACKFILL_DATABASE_MAX_CONNECTIONS` | no | auto-calculated | Override the backfill connection pool size. Auto-calculated from concurrency settings if not set |
+| `VERBOSE_EVENT_LOGGING` | no | `false` | Log every record index, hook execution, and hook skip to the event log. High write volume — recommended only for debugging. Overridden by database setting if set via admin API |
+| `RUST_LOG` | no | `happyview=debug,tower_http=debug,sqlx=warn` | Log filter (uses `tracing_subscriber::EnvFilter`) |
 | `APP_NAME` | no | --- | Application name shown on OAuth authorization screens. Overridden by database setting if set via admin API |
 | `LOGO_URI` | no | --- | URL to application logo for OAuth screens. Overridden by database setting or logo upload |
 | `TOS_URI` | no | --- | URL to terms of service. Overridden by database setting if set via admin API |
@@ -59,7 +65,12 @@ SESSION_SECRET=change-me-in-production
 # TOKEN_ENCRYPTION_KEY=base64-encoded-32-byte-key
 # DEFAULT_RATE_LIMIT_CAPACITY=100
 # DEFAULT_RATE_LIMIT_REFILL_RATE=2.0
-# RUST_LOG=happyview=debug,tower_http=debug
+# BACKFILL_CONCURRENT_PDS=10
+# BACKFILL_CONCURRENT_DIDS_PER_PDS=3
+# BACKFILL_CONCURRENT_RESOLUTION=100
+# BACKFILL_RETENTION_DAYS=28
+# VERBOSE_EVENT_LOGGING=false
+# RUST_LOG=happyview=debug,tower_http=debug,sqlx=warn
 # APP_NAME=My App
 # LOGO_URI=https://example.com/logo.png
 # TOS_URI=https://example.com/tos

@@ -37,7 +37,23 @@ pub fn admin_routes(_state: AppState) -> Router<AppState> {
         .route("/stats", get(stats::stats))
         .route("/backfill", post(backfill::create_backfill))
         .route("/backfill/status", get(backfill::backfill_status))
+        .route(
+            "/backfill/details",
+            delete(backfill::flush_all_backfill_details),
+        )
         .route("/backfill/{id}/cancel", post(backfill::cancel_backfill))
+        .route("/backfill/{id}/pause", post(backfill::pause_backfill))
+        .route("/backfill/{id}/resume", post(backfill::resume_backfill))
+        .route("/backfill/{id}/events", get(backfill::backfill_events))
+        .route("/backfill/{id}/repos", get(backfill::backfill_repos))
+        .route(
+            "/backfill/{id}/pds-summary",
+            get(backfill::backfill_pds_summary),
+        )
+        .route(
+            "/backfill/{id}/details",
+            delete(backfill::flush_backfill_details),
+        )
         .route("/events", get(events::list_events))
         .route("/users", post(users::create_user).get(users::list_users))
         .route("/users/transfer-super", post(users::transfer_super))
@@ -55,6 +71,7 @@ pub fn admin_routes(_state: AppState) -> Router<AppState> {
             "/records",
             get(records::list_records).delete(records::delete_record),
         )
+        .route("/records/collections", get(records::list_collections))
         .route(
             "/records/collection",
             delete(records::delete_collection_records),
@@ -80,6 +97,7 @@ pub fn admin_routes(_state: AppState) -> Router<AppState> {
         )
         .route("/feature-flags", get(feature_flags::list))
         .route("/settings", get(settings::list))
+        .route("/settings/db-info", get(settings::db_info))
         .route(
             "/settings/logo",
             put(settings::upload_logo).delete(settings::delete_logo),
