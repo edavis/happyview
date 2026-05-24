@@ -8,7 +8,7 @@ interface BackfillEvent {
 interface ConnectMessage {
   type: "connect";
   jobId: string;
-  basePath: string;
+  baseUrl: string;
 }
 
 interface DisconnectMessage {
@@ -30,10 +30,10 @@ function flush() {
   self.postMessage({ type: "batch", events: batch });
 }
 
-function connect(jobId: string, basePath: string) {
+function connect(jobId: string, baseUrl: string) {
   disconnect();
 
-  eventSource = new EventSource(`${basePath}/admin/backfill/${jobId}/events`, {
+  eventSource = new EventSource(`${baseUrl}/admin/backfill/${jobId}/events`, {
     withCredentials: true,
   });
 
@@ -68,7 +68,7 @@ function disconnect() {
 self.addEventListener("message", (e: MessageEvent<WorkerMessage>) => {
   const msg = e.data;
   if (msg.type === "connect") {
-    connect(msg.jobId, msg.basePath);
+    connect(msg.jobId, msg.baseUrl);
   } else if (msg.type === "disconnect") {
     disconnect();
   }

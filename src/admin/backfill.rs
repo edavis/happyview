@@ -325,7 +325,7 @@ async fn run_discovery_phase(
         );
     } else {
         stream::iter(collections.iter())
-            .for_each_concurrent(collections.len(), |collection| async move {
+            .for_each_concurrent(5, |collection| async move {
                 if should_stop_worker(state, job_id).await {
                     return;
                 }
@@ -432,6 +432,16 @@ async fn discover_repos_from_relay(
         }
 
         update_job_counter(state, job_id, "total_repos", running_total).await;
+        publish_event(
+            state,
+            super::types::BackfillEvent::JobCounters {
+                job_id: job_id.to_string(),
+                total_repos: Some(running_total),
+                resolved_repos: None,
+                processed_repos: None,
+                total_records: None,
+            },
+        );
 
         if should_stop_worker(state, job_id).await {
             return Ok(());
@@ -1283,6 +1293,7 @@ async fn fetch_records_from_pds(
     let base = pds_endpoint.trim_end_matches('/');
     let mut cursor: Option<String> = None;
     let mut count: u32 = 0;
+    let index_hook = state.lexicons.get_index_hook(collection).await;
 
     loop {
         if cancelled.load(Ordering::Relaxed) {
@@ -1326,12 +1337,11 @@ async fn fetch_records_from_pds(
             let rkey = entry.uri.rsplit('/').next().unwrap_or_default().to_string();
             let uri = format!("at://{did}/{collection}/{rkey}");
 
-            let rec_to_store = if let Some(script) = state.lexicons.get_index_hook(collection).await
-            {
+            let rec_to_store = if let Some(ref script) = index_hook {
                 let hook_result = crate::lua::execute_hook_script(&crate::lua::HookEvent {
                     state,
                     lexicon_id: collection,
-                    script: &script,
+                    script,
                     action: "create",
                     uri: &uri,
                     did,
@@ -1781,7 +1791,7 @@ pub(super) async fn backfill_status(
         Option<String>,
         String,
     )> = sqlx::query_as(&sql)
-        .fetch_all(&state.db)
+        .fetch_all(&state.backfill_db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to list backfill jobs: {e}")))?;
 
