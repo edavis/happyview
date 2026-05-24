@@ -161,7 +161,7 @@ function useBackfillSSE(
     });
 
     const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
-    worker.postMessage({ type: "connect", jobId, basePath });
+    worker.postMessage({ type: "connect", jobId, baseUrl: `${location.origin}${basePath}` });
 
     return () => {
       worker.postMessage({ type: "disconnect" });
@@ -390,12 +390,14 @@ export default function BackfillPage() {
     load();
   }, [load]);
 
+  const selectedJob = jobs.find((j) => j.id === selectedJobId) ?? null;
+  const sseActive = selectedJob != null && (selectedJob.status === "running" || selectedJob.status === "cancelling" || selectedJob.status === "pausing");
+
   useEffect(() => {
+    if (sseActive) return;
     const interval = setInterval(load, 5000);
     return () => clearInterval(interval);
-  }, [load]);
-
-  const selectedJob = jobs.find((j) => j.id === selectedJobId) ?? null;
+  }, [load, sseActive]);
   const canFlush = hasPermission("backfill:create");
 
   return (
@@ -496,7 +498,10 @@ export default function BackfillPage() {
         <Sheet
           open={selectedJob != null}
           onOpenChange={(open) => {
-            if (!open) setSelectedJobId(null);
+            if (!open) {
+              setSelectedJobId(null);
+              load();
+            }
           }}
         >
           <SheetContent className="sm:max-w-xl overflow-hidden flex flex-col">
@@ -505,6 +510,13 @@ export default function BackfillPage() {
                 job={selectedJob}
                 canCancel={hasPermission("backfill:create")}
                 canFlush={canFlush}
+                onJobUpdate={(updater) => {
+                  setJobs((prev) =>
+                    prev.map((j) =>
+                      j.id === selectedJob.id ? updater(j) : j,
+                    ),
+                  );
+                }}
                 onCancel={async () => {
                   await cancelBackfillJob(selectedJob.id);
                   load();
@@ -530,6 +542,7 @@ function JobDetail({
   job,
   canCancel,
   canFlush,
+  onJobUpdate,
   onCancel,
   onPause,
   onResume,
@@ -537,6 +550,7 @@ function JobDetail({
   job: BackfillJob;
   canCancel: boolean;
   canFlush: boolean;
+  onJobUpdate: (updater: (job: BackfillJob) => BackfillJob) => void;
   onCancel: () => Promise<void>;
   onPause: () => Promise<void>;
   onResume: () => Promise<void>;
@@ -561,10 +575,11 @@ function JobDetail({
   const [fetchedCursor, setFetchedCursor] = useState<string | null>(null);
   const [fetchedLoaded, setFetchedLoaded] = useState(false);
 
-  // Refs for open state so the SSE callback doesn't need to re-bind on toggle
-  const discoveredOpenRef = useRef(false);
+  // Refs for open state and callbacks so the SSE callback doesn't need to re-bind on toggle
   const pdsOpenRef = useRef(false);
   const fetchedOpenRef = useRef(false);
+  const onJobUpdateRef = useRef(onJobUpdate);
+  onJobUpdateRef.current = onJobUpdate;
 
   function hasReached(phase: (typeof PROGRESS_PHASES)[number]): boolean {
     if (allDone) return true;
@@ -626,7 +641,6 @@ function JobDetail({
   const [discoveredOpen, setDiscoveredOpen] = useState(false);
   const [pdsOpen, setPdsOpen] = useState(false);
   const [fetchedOpen, setFetchedOpen] = useState(false);
-  discoveredOpenRef.current = discoveredOpen;
   pdsOpenRef.current = pdsOpen;
   fetchedOpenRef.current = fetchedOpen;
 
@@ -677,28 +691,8 @@ function JobDetail({
   // Uses refs for open state so the callback identity is stable and doesn't
   // cause the worker to reconnect when sections are toggled.
   const handleSSEBatch = useCallback((events: BackfillEvent[]) => {
-    const dOpen = discoveredOpenRef.current;
     const pOpen = pdsOpenRef.current;
     const fOpen = fetchedOpenRef.current;
-
-    if (dOpen) {
-      const discovered = events.filter((e) => e.type === "repo_discovered" && e.did);
-      const resolved = events.filter((e) => e.type === "repo_resolved" && e.did);
-      if (discovered.length > 0 || resolved.length > 0) {
-        setDiscoveredRepos((prev) => {
-          let next = prev;
-          for (const e of discovered) {
-            if (!next.some((r) => r.did === e.did)) {
-              next = [{ did: e.did!, pds_endpoint: null, status: "pending", records_fetched: 0 }, ...next];
-            }
-          }
-          for (const e of resolved) {
-            next = next.map((r) => r.did === e.did ? { ...r, pds_endpoint: e.pds_endpoint! } : r);
-          }
-          return next;
-        });
-      }
-    }
 
     if (pOpen) {
       const pdsEvents = events.filter(
@@ -706,23 +700,24 @@ function JobDetail({
       );
       if (pdsEvents.length > 0) {
         setPdsSummary((prev) => {
-          let next = [...prev];
+          const byEndpoint = new Map(prev.map((p, i) => [p.pds_endpoint, i]));
+          const next = [...prev];
           for (const e of pdsEvents) {
-            const idx = next.findIndex((p) => p.pds_endpoint === e.pds_endpoint);
+            const idx = byEndpoint.get(e.pds_endpoint!);
             if (e.type === "repo_resolved") {
-              if (idx >= 0) {
+              if (idx != null) {
                 next[idx] = { ...next[idx], total_repos: next[idx].total_repos + 1 };
               } else {
+                const newIdx = next.length;
                 next.push({ pds_endpoint: e.pds_endpoint!, total_repos: 1, completed_repos: 0, total_records: 0 });
+                byEndpoint.set(e.pds_endpoint!, newIdx);
               }
-            } else if (e.type === "repo_fetched") {
-              if (idx >= 0) {
-                next[idx] = {
-                  ...next[idx],
-                  completed_repos: next[idx].completed_repos + 1,
-                  total_records: next[idx].total_records + (e.records_fetched ?? 0),
-                };
-              }
+            } else if (e.type === "repo_fetched" && idx != null) {
+              next[idx] = {
+                ...next[idx],
+                completed_repos: next[idx].completed_repos + 1,
+                total_records: next[idx].total_records + (e.records_fetched ?? 0),
+              };
             }
           }
           return next;
@@ -734,14 +729,42 @@ function JobDetail({
       const fetched = events.filter((e) => e.type === "repo_fetched" && e.did);
       if (fetched.length > 0) {
         setFetchedRepos((prev) => {
-          let next = prev;
-          for (const e of fetched) {
-            if (!next.some((r) => r.did === e.did)) {
-              next = [{ did: e.did!, pds_endpoint: e.pds_endpoint ?? null, status: "completed", records_fetched: e.records_fetched ?? 0 }, ...next];
-            }
-          }
-          return next;
+          const existing = new Set(prev.map((r) => r.did));
+          const newItems = fetched
+            .filter((e) => !existing.has(e.did!))
+            .map((e) => ({ did: e.did!, pds_endpoint: e.pds_endpoint ?? null, status: "completed" as const, records_fetched: e.records_fetched ?? 0 }));
+
+          if (newItems.length === 0) return prev;
+          return [...newItems, ...prev];
         });
+      }
+    }
+
+    // Update job counters, stage, and status from SSE
+    const update = onJobUpdateRef.current;
+
+    // Increment total_repos from repo_discovered events
+    const discoveredCount = events.filter((e) => e.type === "repo_discovered").length;
+    const resolvedCount = events.filter((e) => e.type === "repo_resolved").length;
+    const fetchedEvents = events.filter((e) => e.type === "repo_fetched");
+    const fetchedCount = fetchedEvents.length;
+    const fetchedRecords = fetchedEvents.reduce((sum, e) => sum + (e.records_fetched ?? 0), 0);
+
+    if (discoveredCount > 0 || resolvedCount > 0 || fetchedCount > 0) {
+      update((j) => ({
+        ...j,
+        total_repos: (j.total_repos ?? 0) + discoveredCount,
+        resolved_repos: (j.resolved_repos ?? 0) + resolvedCount,
+        processed_repos: (j.processed_repos ?? 0) + fetchedCount,
+        total_records: (j.total_records ?? 0) + fetchedRecords,
+      }));
+    }
+
+    for (const e of events) {
+      if (e.type === "job_stage_changed" && e.stage) {
+        update((j) => ({ ...j, stage: e.stage! }));
+      } else if (e.type === "job_completed" && e.status) {
+        update((j) => ({ ...j, status: e.status!, error: e.error ?? null }));
       }
     }
   }, []);
@@ -837,7 +860,6 @@ function JobDetail({
               {discoveredRepos.length > 0 ? (
                 <VirtualRepoList
                   repos={discoveredRepos}
-                  profiles={profiles}
                   onVisibleDidsChange={setVisibleDiscoveredDids}
                   hasMore={!!discoveredCursor}
                   onLoadMore={loadMoreDiscovered}
@@ -918,7 +940,6 @@ function JobDetail({
               {fetchedWithRecords.length > 0 ? (
                 <VirtualRepoList
                   repos={fetchedWithRecords}
-                  profiles={profiles}
                   onVisibleDidsChange={setVisibleFetchedDids}
                   hasMore={!!fetchedCursor}
                   onLoadMore={loadMoreFetched}
@@ -972,10 +993,10 @@ function JobDetail({
           <Button
             variant="outline"
             size="sm"
-            disabled={job.status === "pausing"}
+            disabled={pausing || job.status === "pausing"}
             onClick={handlePause}
           >
-            {job.status === "pausing" ? "Pausing…" : "Pause Job"}
+            {pausing || job.status === "pausing" ? "Pausing…" : "Pause Job"}
           </Button>
         )}
         {canCancel && job.status === "paused" && (
@@ -1015,7 +1036,6 @@ function JobDetail({
 
 function VirtualRepoList({
   repos,
-  profiles,
   onVisibleDidsChange,
   hasMore,
   onLoadMore,
@@ -1023,7 +1043,6 @@ function VirtualRepoList({
   renderRow,
 }: {
   repos: BackfillRepoEntry[];
-  profiles: Map<string, BlueskyProfile>;
   onVisibleDidsChange: (dids: string[]) => void;
   hasMore: boolean;
   onLoadMore: () => void;
@@ -1042,10 +1061,10 @@ function VirtualRepoList({
 
   const virtualItems = virtualizer.getVirtualItems();
 
+  const visibleDidsKey = virtualItems.map((item) => repos[item.index]?.did).filter(Boolean).join(",");
   useEffect(() => {
-    const dids = virtualItems.map((item) => repos[item.index]?.did).filter(Boolean) as string[];
-    onVisibleDidsChange(dids);
-  }, [virtualItems, repos, onVisibleDidsChange]);
+    onVisibleDidsChange(visibleDidsKey.split(",").filter(Boolean));
+  }, [visibleDidsKey, onVisibleDidsChange]);
 
   useEffect(() => {
     if (!hasMore) return;
