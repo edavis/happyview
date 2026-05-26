@@ -71,6 +71,7 @@ pub async fn handle_record_event(state: &AppState, record: &RecordEvent) {
                         collection: &record.collection,
                         rkey: &record.rkey,
                         record: Some(rec),
+                        cached_env_vars: None,
                     })
                     .await;
 
@@ -198,6 +199,7 @@ pub async fn handle_record_event(state: &AppState, record: &RecordEvent) {
                     collection: &record.collection,
                     rkey: &record.rkey,
                     record: None,
+                    cached_env_vars: None,
                 })
                 .await;
 

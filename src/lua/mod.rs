@@ -11,6 +11,7 @@ mod xrpc_api;
 #[allow(unused_imports)]
 pub(crate) use context::SpaceContext;
 pub(crate) use execute::{
-    HookEvent, execute_hook_script, execute_procedure_script, execute_query_script, run_hook_once,
+    HookEvent, execute_hook_script, execute_procedure_script, execute_query_script,
+    load_env_vars_cached, run_hook_once,
 };
 pub(crate) use sandbox::validate_script;

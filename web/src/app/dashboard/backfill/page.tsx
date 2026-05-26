@@ -576,8 +576,6 @@ function JobDetail({
   const [fetchedLoaded, setFetchedLoaded] = useState(false);
 
   // Refs for open state and callbacks so the SSE callback doesn't need to re-bind on toggle
-  const pdsOpenRef = useRef(false);
-  const fetchedOpenRef = useRef(false);
   const onJobUpdateRef = useRef(onJobUpdate);
   onJobUpdateRef.current = onJobUpdate;
 
@@ -641,8 +639,6 @@ function JobDetail({
   const [discoveredOpen, setDiscoveredOpen] = useState(false);
   const [pdsOpen, setPdsOpen] = useState(false);
   const [fetchedOpen, setFetchedOpen] = useState(false);
-  pdsOpenRef.current = pdsOpen;
-  fetchedOpenRef.current = fetchedOpen;
 
   // Lazy-load detail data only when sections are expanded
   useEffect(() => {
@@ -691,77 +687,18 @@ function JobDetail({
   // Uses refs for open state so the callback identity is stable and doesn't
   // cause the worker to reconnect when sections are toggled.
   const handleSSEBatch = useCallback((events: BackfillEvent[]) => {
-    const pOpen = pdsOpenRef.current;
-    const fOpen = fetchedOpenRef.current;
-
-    if (pOpen) {
-      const pdsEvents = events.filter(
-        (e) => (e.type === "repo_resolved" || e.type === "repo_fetched") && e.pds_endpoint,
-      );
-      if (pdsEvents.length > 0) {
-        setPdsSummary((prev) => {
-          const byEndpoint = new Map(prev.map((p, i) => [p.pds_endpoint, i]));
-          const next = [...prev];
-          for (const e of pdsEvents) {
-            const idx = byEndpoint.get(e.pds_endpoint!);
-            if (e.type === "repo_resolved") {
-              if (idx != null) {
-                next[idx] = { ...next[idx], total_repos: next[idx].total_repos + 1 };
-              } else {
-                const newIdx = next.length;
-                next.push({ pds_endpoint: e.pds_endpoint!, total_repos: 1, completed_repos: 0, total_records: 0 });
-                byEndpoint.set(e.pds_endpoint!, newIdx);
-              }
-            } else if (e.type === "repo_fetched" && idx != null) {
-              next[idx] = {
-                ...next[idx],
-                completed_repos: next[idx].completed_repos + 1,
-                total_records: next[idx].total_records + (e.records_fetched ?? 0),
-              };
-            }
-          }
-          return next;
-        });
-      }
-    }
-
-    if (fOpen) {
-      const fetched = events.filter((e) => e.type === "repo_fetched" && e.did);
-      if (fetched.length > 0) {
-        setFetchedRepos((prev) => {
-          const existing = new Set(prev.map((r) => r.did));
-          const newItems = fetched
-            .filter((e) => !existing.has(e.did!))
-            .map((e) => ({ did: e.did!, pds_endpoint: e.pds_endpoint ?? null, status: "completed" as const, records_fetched: e.records_fetched ?? 0 }));
-
-          if (newItems.length === 0) return prev;
-          return [...newItems, ...prev];
-        });
-      }
-    }
-
-    // Update job counters, stage, and status from SSE
     const update = onJobUpdateRef.current;
 
-    // Increment total_repos from repo_discovered events
-    const discoveredCount = events.filter((e) => e.type === "repo_discovered").length;
-    const resolvedCount = events.filter((e) => e.type === "repo_resolved").length;
-    const fetchedEvents = events.filter((e) => e.type === "repo_fetched");
-    const fetchedCount = fetchedEvents.length;
-    const fetchedRecords = fetchedEvents.reduce((sum, e) => sum + (e.records_fetched ?? 0), 0);
-
-    if (discoveredCount > 0 || resolvedCount > 0 || fetchedCount > 0) {
-      update((j) => ({
-        ...j,
-        total_repos: (j.total_repos ?? 0) + discoveredCount,
-        resolved_repos: (j.resolved_repos ?? 0) + resolvedCount,
-        processed_repos: (j.processed_repos ?? 0) + fetchedCount,
-        total_records: (j.total_records ?? 0) + fetchedRecords,
-      }));
-    }
-
     for (const e of events) {
-      if (e.type === "job_stage_changed" && e.stage) {
+      if (e.type === "job_counters") {
+        update((j) => ({
+          ...j,
+          ...(e.total_repos != null && { total_repos: e.total_repos }),
+          ...(e.resolved_repos != null && { resolved_repos: e.resolved_repos }),
+          ...(e.processed_repos != null && { processed_repos: e.processed_repos }),
+          ...(e.total_records != null && { total_records: e.total_records }),
+        }));
+      } else if (e.type === "job_stage_changed" && e.stage) {
         update((j) => ({ ...j, stage: e.stage! }));
       } else if (e.type === "job_completed" && e.status) {
         update((j) => ({ ...j, status: e.status!, error: e.error ?? null }));
@@ -783,6 +720,11 @@ function JobDetail({
   }, [visibleDiscoveredDids, visibleFetchedDids]);
 
   const profiles = useBlueskyProfiles(allVisibleDids);
+
+  const sortedPdsSummary = useMemo(
+    () => [...pdsSummary].sort((a, b) => b.total_repos - a.total_repos),
+    [pdsSummary],
+  );
 
   const fetchedWithRecords = useMemo(
     () => fetchedRepos.filter((r) => r.records_fetched > 0),
@@ -858,9 +800,10 @@ function JobDetail({
               onOpenChange={setDiscoveredOpen}
             >
               {discoveredRepos.length > 0 ? (
-                <VirtualRepoList
-                  repos={discoveredRepos}
-                  onVisibleDidsChange={setVisibleDiscoveredDids}
+                <VirtualList
+                  items={discoveredRepos}
+                  getKey={(r) => r.did}
+                  onVisibleKeysChange={setVisibleDiscoveredDids}
                   hasMore={!!discoveredCursor}
                   onLoadMore={loadMoreDiscovered}
                   rowHeight={28}
@@ -894,20 +837,23 @@ function JobDetail({
               open={pdsOpen}
               onOpenChange={setPdsOpen}
             >
-              {pdsSummary.length > 0 ? (
-                <div className="divide-y text-sm max-h-64 overflow-y-auto">
-                  {pdsSummary
-                    .sort((a, b) => b.total_repos - a.total_repos)
-                    .map((pds) => (
-                      <div key={pds.pds_endpoint} className="flex items-center gap-2 px-3 py-1.5">
-                        <PdsFavicon pdsEndpoint={pds.pds_endpoint} />
-                        <span className="flex-1 truncate font-mono text-xs">{new URL(pds.pds_endpoint).hostname}</span>
-                        <span className="text-xs text-muted-foreground tabular-nums">
-                          <AnimatedNumber value={pds.completed_repos} />/<AnimatedNumber value={pds.total_repos} /> repos · <AnimatedNumber value={pds.total_records} /> records
-                        </span>
-                      </div>
-                    ))}
-                </div>
+              {sortedPdsSummary.length > 0 ? (
+                <VirtualList
+                  items={sortedPdsSummary}
+                  getKey={(p) => p.pds_endpoint}
+                  hasMore={false}
+                  onLoadMore={() => {}}
+                  rowHeight={32}
+                  renderRow={(pds) => (
+                    <div className="flex items-center gap-2 px-3 py-1.5">
+                      <PdsFavicon pdsEndpoint={pds.pds_endpoint} />
+                      <span className="flex-1 truncate font-mono text-xs">{new URL(pds.pds_endpoint).hostname}</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        <AnimatedNumber value={pds.completed_repos} />/<AnimatedNumber value={pds.total_repos} /> repos · <AnimatedNumber value={pds.total_records} /> records
+                      </span>
+                    </div>
+                  )}
+                />
               ) : pdsLoaded ? (
                 <p className="py-3 text-center text-xs text-muted-foreground">No PDS data yet.</p>
               ) : null}
@@ -938,9 +884,10 @@ function JobDetail({
               onOpenChange={setFetchedOpen}
             >
               {fetchedWithRecords.length > 0 ? (
-                <VirtualRepoList
-                  repos={fetchedWithRecords}
-                  onVisibleDidsChange={setVisibleFetchedDids}
+                <VirtualList
+                  items={fetchedWithRecords}
+                  getKey={(r) => r.did}
+                  onVisibleKeysChange={setVisibleFetchedDids}
                   hasMore={!!fetchedCursor}
                   onLoadMore={loadMoreFetched}
                   rowHeight={40}
@@ -1034,26 +981,28 @@ function JobDetail({
   );
 }
 
-function VirtualRepoList({
-  repos,
-  onVisibleDidsChange,
+function VirtualList<T>({
+  items,
+  getKey,
   hasMore,
   onLoadMore,
   rowHeight,
   renderRow,
+  onVisibleKeysChange,
 }: {
-  repos: BackfillRepoEntry[];
-  onVisibleDidsChange: (dids: string[]) => void;
+  items: T[];
+  getKey: (item: T) => string;
   hasMore: boolean;
   onLoadMore: () => void;
   rowHeight: number;
-  renderRow: (repo: BackfillRepoEntry) => React.ReactNode;
+  renderRow: (item: T) => React.ReactNode;
+  onVisibleKeysChange?: (keys: string[]) => void;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
   const loadMoreTriggered = useRef(false);
 
   const virtualizer = useVirtualizer({
-    count: repos.length,
+    count: items.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => rowHeight,
     overscan: 5,
@@ -1061,22 +1010,22 @@ function VirtualRepoList({
 
   const virtualItems = virtualizer.getVirtualItems();
 
-  const visibleDidsKey = virtualItems.map((item) => repos[item.index]?.did).filter(Boolean).join(",");
+  const visibleKeysStr = virtualItems.map((item) => getKey(items[item.index])).filter(Boolean).join(",");
   useEffect(() => {
-    onVisibleDidsChange(visibleDidsKey.split(",").filter(Boolean));
-  }, [visibleDidsKey, onVisibleDidsChange]);
+    onVisibleKeysChange?.(visibleKeysStr.split(",").filter(Boolean));
+  }, [visibleKeysStr, onVisibleKeysChange]);
 
   useEffect(() => {
     if (!hasMore) return;
     const lastItem = virtualItems[virtualItems.length - 1];
-    if (lastItem && lastItem.index >= repos.length - 5 && !loadMoreTriggered.current) {
+    if (lastItem && lastItem.index >= items.length - 5 && !loadMoreTriggered.current) {
       loadMoreTriggered.current = true;
       onLoadMore();
     }
-    if (lastItem && lastItem.index < repos.length - 5) {
+    if (lastItem && lastItem.index < items.length - 5) {
       loadMoreTriggered.current = false;
     }
-  }, [virtualItems, repos.length, hasMore, onLoadMore]);
+  }, [virtualItems, items.length, hasMore, onLoadMore]);
 
   return (
     <div ref={parentRef} className="max-h-64 overflow-y-auto">
@@ -1084,11 +1033,11 @@ function VirtualRepoList({
         style={{ height: virtualizer.getTotalSize(), width: "100%", position: "relative" }}
       >
         {virtualItems.map((virtualRow) => {
-          const repo = repos[virtualRow.index];
-          if (!repo) return null;
+          const item = items[virtualRow.index];
+          if (!item) return null;
           return (
             <div
-              key={repo.did}
+              key={getKey(item)}
               style={{
                 position: "absolute",
                 top: 0,
@@ -1098,7 +1047,7 @@ function VirtualRepoList({
                 transform: `translateY(${virtualRow.start}px)`,
               }}
             >
-              {renderRow(repo)}
+              {renderRow(item)}
             </div>
           );
         })}

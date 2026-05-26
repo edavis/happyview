@@ -42,6 +42,7 @@ fn is_valid_json_field_path(path: &str) -> bool {
     true
 }
 
+#[derive(Debug)]
 enum FilterNode {
     Condition {
         field: String,
@@ -944,6 +945,200 @@ mod tests {
         let encoded = BASE64.encode("no-pipe-here");
         assert!(super::decode_cursor(&encoded).is_none());
     }
+
+    // -----------------------------------------------------------------------
+    // parse_filter_node / build_filter_sql
+    // -----------------------------------------------------------------------
+
+    fn make_condition_table(lua: &Lua, field: &str, op: &str, value: &str) -> mlua::Table {
+        let t = lua.create_table().unwrap();
+        t.set("field", field).unwrap();
+        t.set("op", op).unwrap();
+        t.set("value", value).unwrap();
+        t
+    }
+
+    #[test]
+    fn filter_simple_condition() {
+        let lua = Lua::new();
+        let t = make_condition_table(&lua, "name", "=", "alice");
+        let node = parse_filter_node(&t, 0).unwrap();
+        let mut binds = Vec::new();
+        let sql = build_filter_sql(&node, &mut binds);
+        assert_eq!(sql, "json_extract(record, '$.value.name') = ?");
+        assert_eq!(binds, vec!["alice"]);
+    }
+
+    #[test]
+    fn filter_defaults_op_to_equals() {
+        let lua = Lua::new();
+        let t = lua.create_table().unwrap();
+        t.set("field", "status").unwrap();
+        t.set("value", "active").unwrap();
+        let node = parse_filter_node(&t, 0).unwrap();
+        let mut binds = Vec::new();
+        let sql = build_filter_sql(&node, &mut binds);
+        assert_eq!(sql, "json_extract(record, '$.value.status') = ?");
+    }
+
+    #[test]
+    fn filter_rejects_invalid_op() {
+        let lua = Lua::new();
+        let t = make_condition_table(&lua, "name", "DROP", "x");
+        let err = parse_filter_node(&t, 0).unwrap_err();
+        assert!(err.to_string().contains("invalid filter op"));
+    }
+
+    #[test]
+    fn filter_rejects_invalid_field() {
+        let lua = Lua::new();
+        let t = make_condition_table(&lua, "name; DROP TABLE", "=", "x");
+        let err = parse_filter_node(&t, 0).unwrap_err();
+        assert!(err.to_string().contains("invalid filter field"));
+    }
+
+    #[test]
+    fn filter_and_group() {
+        let lua = Lua::new();
+        let group = lua.create_table().unwrap();
+        group.set("combine", "AND").unwrap();
+        let c1 = make_condition_table(&lua, "status", "=", "active");
+        let c2 = make_condition_table(&lua, "age", ">", "18");
+        group.set(1, c1).unwrap();
+        group.set(2, c2).unwrap();
+        let node = parse_filter_node(&group, 0).unwrap();
+        let mut binds = Vec::new();
+        let sql = build_filter_sql(&node, &mut binds);
+        assert_eq!(
+            sql,
+            "(json_extract(record, '$.value.status') = ? AND json_extract(record, '$.value.age') > ?)"
+        );
+        assert_eq!(binds, vec!["active", "18"]);
+    }
+
+    #[test]
+    fn filter_or_group() {
+        let lua = Lua::new();
+        let group = lua.create_table().unwrap();
+        group.set("combine", "OR").unwrap();
+        let c1 = make_condition_table(&lua, "role", "=", "admin");
+        let c2 = make_condition_table(&lua, "role", "=", "mod");
+        group.set(1, c1).unwrap();
+        group.set(2, c2).unwrap();
+        let node = parse_filter_node(&group, 0).unwrap();
+        let mut binds = Vec::new();
+        let sql = build_filter_sql(&node, &mut binds);
+        assert_eq!(
+            sql,
+            "(json_extract(record, '$.value.role') = ? OR json_extract(record, '$.value.role') = ?)"
+        );
+        assert_eq!(binds, vec!["admin", "mod"]);
+    }
+
+    #[test]
+    fn filter_single_child_group_unwraps() {
+        let lua = Lua::new();
+        let group = lua.create_table().unwrap();
+        group.set("combine", "AND").unwrap();
+        let c1 = make_condition_table(&lua, "x", "=", "1");
+        group.set(1, c1).unwrap();
+        let node = parse_filter_node(&group, 0).unwrap();
+        let mut binds = Vec::new();
+        let sql = build_filter_sql(&node, &mut binds);
+        assert_eq!(sql, "json_extract(record, '$.value.x') = ?");
+    }
+
+    #[test]
+    fn filter_rejects_invalid_combine() {
+        let lua = Lua::new();
+        let group = lua.create_table().unwrap();
+        group.set("combine", "XOR").unwrap();
+        let c1 = make_condition_table(&lua, "x", "=", "1");
+        group.set(1, c1).unwrap();
+        let err = parse_filter_node(&group, 0).unwrap_err();
+        assert!(err.to_string().contains("invalid filter combine"));
+    }
+
+    #[test]
+    fn filter_rejects_empty_group() {
+        let lua = Lua::new();
+        let group = lua.create_table().unwrap();
+        group.set("combine", "AND").unwrap();
+        let err = parse_filter_node(&group, 0).unwrap_err();
+        assert!(err.to_string().contains("filter group has no conditions"));
+    }
+
+    #[test]
+    fn filter_rejects_excessive_depth() {
+        let lua = Lua::new();
+        let c = make_condition_table(&lua, "x", "=", "1");
+        let err = parse_filter_node(&c, MAX_FILTER_DEPTH).unwrap_err();
+        assert!(err.to_string().contains("filter nesting too deep"));
+    }
+
+    #[test]
+    fn filter_accepts_all_ops() {
+        let lua = Lua::new();
+        for op in ALLOWED_OPS {
+            let t = make_condition_table(&lua, "field", op, "val");
+            assert!(
+                parse_filter_node(&t, 0).is_ok(),
+                "op '{op}' should be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn filter_op_case_insensitive() {
+        let lua = Lua::new();
+        let t = make_condition_table(&lua, "name", "like", "alice%");
+        let node = parse_filter_node(&t, 0).unwrap();
+        let mut binds = Vec::new();
+        let sql = build_filter_sql(&node, &mut binds);
+        assert_eq!(sql, "json_extract(record, '$.value.name') LIKE ?");
+    }
+
+    #[test]
+    fn filter_integer_value() {
+        let lua = Lua::new();
+        let t = lua.create_table().unwrap();
+        t.set("field", "count").unwrap();
+        t.set("op", ">").unwrap();
+        t.set("value", 42).unwrap();
+        let node = parse_filter_node(&t, 0).unwrap();
+        let mut binds = Vec::new();
+        build_filter_sql(&node, &mut binds);
+        assert_eq!(binds, vec!["42"]);
+    }
+
+    #[test]
+    fn filter_boolean_value() {
+        let lua = Lua::new();
+        let t = lua.create_table().unwrap();
+        t.set("field", "active").unwrap();
+        t.set("value", true).unwrap();
+        let node = parse_filter_node(&t, 0).unwrap();
+        let mut binds = Vec::new();
+        build_filter_sql(&node, &mut binds);
+        assert_eq!(binds, vec!["true"]);
+    }
+
+    #[test]
+    fn filter_nested_field_path() {
+        let lua = Lua::new();
+        let t = make_condition_table(&lua, "author.websites[0].url", "=", "https://example.com");
+        let node = parse_filter_node(&t, 0).unwrap();
+        let mut binds = Vec::new();
+        let sql = build_filter_sql(&node, &mut binds);
+        assert_eq!(
+            sql,
+            "json_extract(record, '$.value.author.websites[0].url') = ?"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // query sort direction
+    // -----------------------------------------------------------------------
 
     #[tokio::test]
     async fn query_accepts_valid_sort_direction() {

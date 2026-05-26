@@ -527,6 +527,7 @@ async fn retry_single(state: &AppState, id: &str) -> Result<(), AppError> {
         collection: &dl.collection,
         rkey: &dl.rkey,
         record: record.as_ref(),
+        cached_env_vars: None,
     };
 
     match run_hook_once(&event).await {
