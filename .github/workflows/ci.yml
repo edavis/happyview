@@ -10,6 +10,9 @@ on:
 env:
   SQLX_OFFLINE: true
 
+permissions:
+  id-token: write # Required for OIDC
+
 jobs:
   # ---------------------------------------------------------------------------
   # Path detection — determines which job groups should run.
