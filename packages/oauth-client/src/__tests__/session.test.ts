@@ -8,7 +8,7 @@ async function generateTestKey(): Promise<WebcryptoKey> {
     true,
     ["sign", "verify"],
   );
-  return WebcryptoKey.fromKeypair(keyPair);
+  return WebcryptoKey.fromKeypair(keyPair, crypto.randomUUID());
 }
 
 function createSession(overrides?: {

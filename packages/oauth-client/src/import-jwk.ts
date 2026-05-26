@@ -23,5 +23,6 @@ export async function importJwk(jwk: JsonWebKey): Promise<WebcryptoKey> {
     ["verify"],
   );
 
-  return WebcryptoKey.fromKeypair({ privateKey, publicKey });
+  const kid = (jwk as JsonWebKey & { kid?: string }).kid ?? crypto.randomUUID();
+  return WebcryptoKey.fromKeypair({ privateKey, publicKey }, kid);
 }
