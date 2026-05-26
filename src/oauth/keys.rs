@@ -186,6 +186,29 @@ pub async fn get_dpop_key_thumbprint(
         .ok_or_else(|| AppError::NotFound("DPoP key not found".into()))
 }
 
+/// Look up a DPoP key ID by api_client_id and JWK thumbprint.
+pub async fn get_dpop_key_id_by_thumbprint(
+    pool: &sqlx::AnyPool,
+    backend: DatabaseBackend,
+    api_client_id: &str,
+    thumbprint: &str,
+) -> Result<String, AppError> {
+    let sql = adapt_sql(
+        "SELECT id FROM dpop_keys WHERE api_client_id = ? AND jwk_thumbprint = ?",
+        backend,
+    );
+
+    let row: Option<(String,)> = sqlx::query_as(&sql)
+        .bind(api_client_id)
+        .bind(thumbprint)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to look up DPoP key: {e}")))?;
+
+    row.map(|(id,)| id)
+        .ok_or_else(|| AppError::Auth("no DPoP key matching proof thumbprint".into()))
+}
+
 /// Delete a DPoP key and its associated session.
 pub async fn delete_dpop_key(
     pool: &sqlx::AnyPool,

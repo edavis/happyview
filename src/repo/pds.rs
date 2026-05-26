@@ -19,6 +19,7 @@ pub(crate) enum PdsAuth {
     OAuth(Arc<HappyViewOAuthSession>),
     Dpop {
         api_client_id: String,
+        dpop_key_id: String,
         encryption_key: [u8; 32],
     },
 }
@@ -35,6 +36,7 @@ impl PdsAuth {
             PdsAuth::OAuth(session) => pds_post_json_raw(state, session, xrpc_method, body).await,
             PdsAuth::Dpop {
                 api_client_id,
+                dpop_key_id,
                 encryption_key,
             } => {
                 crate::oauth::pds_write::dpop_pds_post(
@@ -46,6 +48,7 @@ impl PdsAuth {
                     &state.config.plc_url,
                     api_client_id,
                     user_did,
+                    dpop_key_id,
                     xrpc_method,
                     body,
                 )
