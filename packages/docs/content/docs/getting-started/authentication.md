@@ -241,7 +241,7 @@ A request that only carries an `X-Client-Key` header (no DPoP token) can hit que
 
 Third-party apps that want HappyView to make PDS writes on behalf of their users use the **DPoP key provisioning** flow. This avoids browser-based redirects through HappyView's domain, which can be blocked by Firefox's Bounce Tracker Protection.
 
-The idea: the app gets a DPoP keypair from HappyView, uses that keypair during its own OAuth flow with the user's PDS, then registers the resulting tokens back with HappyView. From that point on, XRPC requests authenticated with `Authorization: DPoP <access_token>` plus a `DPoP` proof header and `X-Client-Key` will have HappyView proxy writes using the stored session.
+The idea: for each device, the app gets a DPoP keypair from HappyView, uses that keypair during its own OAuth flow with the user's PDS, then registers the resulting tokens back with HappyView. Each device gets its own keypair and session, so a user can be signed in on multiple devices simultaneously. From that point on, XRPC requests authenticated with `Authorization: DPoP <access_token>` plus a `DPoP` proof header and `X-Client-Key` will have HappyView proxy writes using the stored session that matches the request's DPoP key.
 
 The client app and HappyView share the same DPoP keypair, so both can generate valid proofs that the PDS will accept. The PDS binds tokens to a key's thumbprint but it doesn't care who signs the proof, only that it was signed by the right key.
 
@@ -466,7 +466,7 @@ HappyView validates the DPoP proof, looks up the stored session, and proxies the
 
 #### 5. Logout
 
-Confidential clients authenticate with `X-Client-Key` + `X-Client-Secret`:
+Confidential clients authenticate with `X-Client-Key` + `X-Client-Secret`. This revokes **all** device sessions for the user under this client — useful for a full sign-out:
 
 ```
 DELETE /oauth/sessions/did:plc:user123
@@ -474,7 +474,7 @@ X-Client-Key: hvc_...
 X-Client-Secret: hvs_...
 ```
 
-Public clients must provide a valid DPoP proof to prove they hold the key:
+Public clients must provide a valid DPoP proof to prove they hold the key. This revokes only the session that matches the DPoP key used in the proof — other device sessions for the same user are unaffected:
 
 ```
 DELETE /oauth/sessions/did:plc:user123
@@ -483,7 +483,61 @@ Authorization: DPoP <access_token>
 DPoP: <proof_jwt>
 ```
 
-This deletes the stored session and the associated DPoP key.
+To revoke a specific device session (for either client type), use the [device management endpoints](#6-managing-device-sessions) instead.
+
+#### 6. Managing device sessions
+
+When a user registers sessions from multiple devices (each with its own DPoP keypair), each session is tracked separately. You can list and revoke individual device sessions without affecting the others.
+
+**List device sessions:**
+
+Confidential clients authenticate with `X-Client-Key` + `X-Client-Secret`. Public clients authenticate with DPoP proof.
+
+```
+GET /oauth/sessions/did:plc:user123/devices
+X-Client-Key: hvc_...
+X-Client-Secret: hvs_...
+```
+
+Response:
+
+```json
+[
+  {
+    "id": "uuid-session-1",
+    "dpop_key_id": "uuid-key-1",
+    "scopes": ["atproto", "transition:generic"],
+    "created_at": "2026-05-20T12:00:00Z",
+    "updated_at": "2026-05-20T12:00:00Z"
+  },
+  {
+    "id": "uuid-session-2",
+    "dpop_key_id": "uuid-key-2",
+    "scopes": ["atproto", "transition:generic"],
+    "created_at": "2026-05-21T08:30:00Z",
+    "updated_at": "2026-05-21T08:30:00Z"
+  }
+]
+```
+
+**Delete a specific device session:**
+
+```
+DELETE /oauth/sessions/did:plc:user123/devices/uuid-session-1
+X-Client-Key: hvc_...
+X-Client-Secret: hvs_...
+```
+
+For public clients, use DPoP auth instead of `X-Client-Secret`:
+
+```
+DELETE /oauth/sessions/did:plc:user123/devices/uuid-session-1
+X-Client-Key: hvc_...
+Authorization: DPoP <access_token>
+DPoP: <proof_jwt>
+```
+
+Returns `204 No Content` on success, `404 Not Found` if the session doesn't exist or doesn't belong to the client/user.
 
 ### Security notes
 
