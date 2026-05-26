@@ -163,23 +163,30 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
 
   # ---------------------------------------------------------------------------
-  # PR binaries — build on every PR push so reviewers can test
+  # PR builds — compile + Docker on every PR push so reviewers can test
   # ---------------------------------------------------------------------------
-  pr-binary:
+  pr-build:
     needs: changes
     if: >-
       github.event_name == 'pull_request'
       && github.head_ref != 'dev'
       && needs.changes.outputs.server == 'true'
     runs-on: ${{ matrix.runs-on }}
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - runs-on: depot-ubuntu-24.04
+          - platform: linux/amd64
+            runs-on: depot-ubuntu-24.04
             arch: amd64
-          - runs-on: depot-ubuntu-24.04-arm
+          - platform: linux/arm64
+            runs-on: depot-ubuntu-24.04-arm
             arch: arm64
+    env:
+      GHCR_IMAGE: ghcr.io/${{ github.repository }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -211,38 +218,10 @@ jobs:
           name: happyview-linux-${{ matrix.arch }}
           path: target/release/happyview
 
-  pr-docker:
-    needs: pr-binary
-    runs-on: ${{ matrix.runs-on }}
-    permissions:
-      contents: read
-      packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: linux/amd64
-            runs-on: depot-ubuntu-24.04
-            arch: amd64
-          - platform: linux/arm64
-            runs-on: depot-ubuntu-24.04-arm
-            arch: arm64
-    env:
-      GHCR_IMAGE: ghcr.io/${{ github.repository }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Download pre-built binary
-        uses: actions/download-artifact@v4
-        with:
-          name: happyview-linux-${{ matrix.arch }}
-          path: .binary
-
       - name: Prepare binary override
         run: |
           mkdir -p .builder-override/app/target/release
-          cp .binary/happyview .builder-override/app/target/release/happyview
+          cp target/release/happyview .builder-override/app/target/release/happyview
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -284,7 +263,7 @@ jobs:
             ${{ env.GHCR_IMAGE }}@${{ steps.build.outputs.digest }}
 
   pr-build-comment:
-    needs: pr-docker
+    needs: pr-build
     runs-on: depot-ubuntu-24.04
     permissions:
       pull-requests: write
@@ -370,14 +349,16 @@ jobs:
         run: npx -p semantic-release -p semantic-release-gha-output semantic-release
 
   # ---------------------------------------------------------------------------
-  # Build binaries — compile per-platform and upload to GitHub release
+  # Build + Docker — compile per-platform, upload to GitHub release, push image
   # ---------------------------------------------------------------------------
-  build-binary:
+  build:
     needs: release
     if: needs.release.outputs.version != ''
     runs-on: ${{ matrix.runs-on }}
     permissions:
       contents: write
+      packages: write
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -388,6 +369,9 @@ jobs:
           - platform: linux/arm64
             runs-on: depot-ubuntu-24.04-arm
             arch: arm64
+    env:
+      GHCR_IMAGE: ghcr.io/${{ github.repository }}
+      ATCR_IMAGE: atcr.io/${{ secrets.ATCR_NAMESPACE }}/happyview
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -422,6 +406,111 @@ jobs:
           gh release upload "v${{ needs.release.outputs.version }}" \
             happyview-linux-${{ matrix.arch }} \
             --clobber
+
+      - name: Prepare binary override
+        run: |
+          mkdir -p .builder-override/app/target/release
+          cp target/release/happyview .builder-override/app/target/release/happyview
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # TODO: Re-enable once ATCR rate limit issue is resolved
+      # - name: Log in to ATCR
+      #   uses: docker/login-action@v3
+      #   with:
+      #     registry: atcr.io
+      #     username: ${{ secrets.ATCR_USERNAME }}
+      #     password: ${{ secrets.ATCR_PASSWORD }}
+
+      - name: Parse version
+        id: version
+        run: |
+          VERSION="${{ needs.release.outputs.version }}"
+          MAJOR="${VERSION%%.*}"
+          MINOR="${VERSION#*.}"
+          MINOR="${MINOR%%.*}"
+          echo "full=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "major=${MAJOR}" >> "$GITHUB_OUTPUT"
+          echo "major_minor=${MAJOR}.${MINOR}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract GHCR metadata
+        id: meta-ghcr
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.GHCR_IMAGE }}
+          tags: |
+            type=raw,value=${{ steps.version.outputs.full }}
+            type=raw,value=${{ steps.version.outputs.major_minor }}
+            type=raw,value=${{ steps.version.outputs.major }}
+            type=sha
+
+      # TODO: Re-enable once ATCR rate limit issue is resolved
+      # - name: Extract ATCR metadata
+      #   id: meta-atcr
+      #   uses: docker/metadata-action@v5
+      #   with:
+      #     images: ${{ env.ATCR_IMAGE }}
+      #     tags: |
+      #       type=semver,pattern={{version}}
+      #       type=semver,pattern={{major}}.{{minor}}
+      #       type=semver,pattern={{major}}
+      #       type=sha
+
+      - name: Build and push to GHCR by digest
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta-ghcr.outputs.labels }}
+          build-contexts: |
+            builder=.builder-override
+          cache-from: type=gha,scope=build-${{ matrix.platform }}
+          cache-to: type=gha,scope=build-${{ matrix.platform }},mode=max,ignore-error=true
+          outputs: type=image,"name=${{ env.GHCR_IMAGE }}",push-by-digest=true,name-canonical=true,push=true
+
+      # TODO: Re-enable once ATCR rate limit issue is resolved
+      # - name: Push to ATCR by digest
+      #   id: build-atcr
+      #   continue-on-error: true
+      #   uses: docker/build-push-action@v5
+      #   with:
+      #     context: .
+      #     platforms: ${{ matrix.platform }}
+      #     labels: ${{ steps.meta-atcr.outputs.labels }}
+      #     build-contexts: |
+      #       builder=.builder-override
+      #     cache-from: type=gha,scope=build-${{ matrix.platform }}
+      #     outputs: type=image,"name=${{ env.ATCR_IMAGE }}",push-by-digest=true,name-canonical=true,push=true
+
+      - name: Create GHCR manifest
+        run: |
+          GHCR_TAGS=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<< '${{ steps.meta-ghcr.outputs.json }}')
+          docker buildx imagetools create --append $GHCR_TAGS \
+            ${{ env.GHCR_IMAGE }}@${{ steps.build.outputs.digest }} 2>/dev/null || \
+          docker buildx imagetools create $GHCR_TAGS \
+            ${{ env.GHCR_IMAGE }}@${{ steps.build.outputs.digest }}
+
+      # TODO: Re-enable once ATCR rate limit issue is resolved
+      # - name: Create ATCR manifest
+      #   if: steps.build-atcr.outcome == 'success'
+      #   continue-on-error: true
+      #   run: |
+      #     ATCR_TAGS=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<< '${{ steps.meta-atcr.outputs.json }}')
+      #     if [ -n "$ATCR_TAGS" ]; then
+      #       docker buildx imagetools create --append $ATCR_TAGS \
+      #         ${{ env.ATCR_IMAGE }}@${{ steps.build-atcr.outputs.digest }} 2>/dev/null || \
+      #       docker buildx imagetools create $ATCR_TAGS \
+      #         ${{ env.ATCR_IMAGE }}@${{ steps.build-atcr.outputs.digest }}
+      #     fi
 
   # ---------------------------------------------------------------------------
   # SDK — per-package tests + releases
@@ -738,144 +827,6 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         working-directory: packages/lex-agent
         run: npx semantic-release
-
-  # ---------------------------------------------------------------------------
-  # Docker — main app image (triggered by GitHub release)
-  # ---------------------------------------------------------------------------
-  docker:
-    needs: [release, build-binary]
-    if: needs.release.outputs.version != ''
-    runs-on: ${{ matrix.runs-on }}
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: linux/amd64
-            runs-on: depot-ubuntu-24.04
-            arch: amd64
-          - platform: linux/arm64
-            runs-on: depot-ubuntu-24.04-arm
-            arch: arm64
-    env:
-      GHCR_IMAGE: ghcr.io/${{ github.repository }}
-      ATCR_IMAGE: atcr.io/${{ secrets.ATCR_NAMESPACE }}/happyview
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Download pre-built binary
-        env:
-          GH_TOKEN: ${{ secrets.DISPATCH_GH_TOKEN }}
-        run: |
-          gh release download "v${{ needs.release.outputs.version }}" \
-            --pattern "happyview-linux-${{ matrix.arch }}" \
-            --dir .
-          mkdir -p .builder-override/app/target/release
-          cp happyview-linux-${{ matrix.arch }} .builder-override/app/target/release/happyview
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      # TODO: Re-enable once ATCR rate limit issue is resolved
-      # - name: Log in to ATCR
-      #   uses: docker/login-action@v3
-      #   with:
-      #     registry: atcr.io
-      #     username: ${{ secrets.ATCR_USERNAME }}
-      #     password: ${{ secrets.ATCR_PASSWORD }}
-
-      - name: Parse version
-        id: version
-        run: |
-          VERSION="${{ needs.release.outputs.version }}"
-          MAJOR="${VERSION%%.*}"
-          MINOR="${VERSION#*.}"
-          MINOR="${MINOR%%.*}"
-          echo "full=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "major=${MAJOR}" >> "$GITHUB_OUTPUT"
-          echo "major_minor=${MAJOR}.${MINOR}" >> "$GITHUB_OUTPUT"
-
-      - name: Extract GHCR metadata
-        id: meta-ghcr
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.GHCR_IMAGE }}
-          tags: |
-            type=raw,value=${{ steps.version.outputs.full }}
-            type=raw,value=${{ steps.version.outputs.major_minor }}
-            type=raw,value=${{ steps.version.outputs.major }}
-            type=sha
-
-      # TODO: Re-enable once ATCR rate limit issue is resolved
-      # - name: Extract ATCR metadata
-      #   id: meta-atcr
-      #   uses: docker/metadata-action@v5
-      #   with:
-      #     images: ${{ env.ATCR_IMAGE }}
-      #     tags: |
-      #       type=semver,pattern={{version}}
-      #       type=semver,pattern={{major}}.{{minor}}
-      #       type=semver,pattern={{major}}
-      #       type=sha
-
-      - name: Build and push to GHCR by digest
-        id: build
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: ${{ matrix.platform }}
-          labels: ${{ steps.meta-ghcr.outputs.labels }}
-          build-contexts: |
-            builder=.builder-override
-          cache-from: type=gha,scope=build-${{ matrix.platform }}
-          cache-to: type=gha,scope=build-${{ matrix.platform }},mode=max,ignore-error=true
-          outputs: type=image,"name=${{ env.GHCR_IMAGE }}",push-by-digest=true,name-canonical=true,push=true
-
-      # TODO: Re-enable once ATCR rate limit issue is resolved
-      # - name: Push to ATCR by digest
-      #   id: build-atcr
-      #   continue-on-error: true
-      #   uses: docker/build-push-action@v5
-      #   with:
-      #     context: .
-      #     platforms: ${{ matrix.platform }}
-      #     labels: ${{ steps.meta-atcr.outputs.labels }}
-      #     build-contexts: |
-      #       builder=.builder-override
-      #     cache-from: type=gha,scope=build-${{ matrix.platform }}
-      #     outputs: type=image,"name=${{ env.ATCR_IMAGE }}",push-by-digest=true,name-canonical=true,push=true
-
-      - name: Create GHCR manifest
-        run: |
-          GHCR_TAGS=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<< '${{ steps.meta-ghcr.outputs.json }}')
-          docker buildx imagetools create --append $GHCR_TAGS \
-            ${{ env.GHCR_IMAGE }}@${{ steps.build.outputs.digest }} 2>/dev/null || \
-          docker buildx imagetools create $GHCR_TAGS \
-            ${{ env.GHCR_IMAGE }}@${{ steps.build.outputs.digest }}
-
-      # TODO: Re-enable once ATCR rate limit issue is resolved
-      # - name: Create ATCR manifest
-      #   if: steps.build-atcr.outcome == 'success'
-      #   continue-on-error: true
-      #   run: |
-      #     ATCR_TAGS=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<< '${{ steps.meta-atcr.outputs.json }}')
-      #     if [ -n "$ATCR_TAGS" ]; then
-      #       docker buildx imagetools create --append $ATCR_TAGS \
-      #         ${{ env.ATCR_IMAGE }}@${{ steps.build-atcr.outputs.digest }} 2>/dev/null || \
-      #       docker buildx imagetools create $ATCR_TAGS \
-      #         ${{ env.ATCR_IMAGE }}@${{ steps.build-atcr.outputs.digest }}
-      #     fi
 
   # ---------------------------------------------------------------------------
   # Mirror to Tangled
