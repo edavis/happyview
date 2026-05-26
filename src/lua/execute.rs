@@ -33,6 +33,38 @@ async fn load_env_vars(db: &sqlx::AnyPool, backend: DatabaseBackend) -> HashMap<
         .collect()
 }
 
+/// Load env vars, reusing a cached result if less than 30 seconds old.
+/// Avoids per-record DB queries during backfill.
+pub(crate) async fn load_env_vars_cached(
+    db: &sqlx::AnyPool,
+    backend: DatabaseBackend,
+) -> HashMap<String, String> {
+    use std::sync::Mutex;
+
+    static CACHE: std::sync::OnceLock<Mutex<(Instant, HashMap<String, String>)>> =
+        std::sync::OnceLock::new();
+
+    let cache = CACHE.get_or_init(|| {
+        Mutex::new((
+            Instant::now() - std::time::Duration::from_secs(60),
+            HashMap::new(),
+        ))
+    });
+    {
+        let guard = cache.lock().unwrap();
+        if guard.0.elapsed() < std::time::Duration::from_secs(30) {
+            return guard.1.clone();
+        }
+    }
+
+    let vars = load_env_vars(db, backend).await;
+    {
+        let mut guard = cache.lock().unwrap();
+        *guard = (Instant::now(), vars.clone());
+    }
+    vars
+}
+
 /// Execute a Lua script for a procedure endpoint.
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_procedure_script(
@@ -889,6 +921,7 @@ pub struct HookEvent<'a> {
     pub collection: &'a str,
     pub rkey: &'a str,
     pub record: Option<&'a Value>,
+    pub cached_env_vars: Option<&'a HashMap<String, String>>,
 }
 
 /// Execute a Lua hook script triggered by a record index event.
@@ -1040,7 +1073,14 @@ pub async fn run_hook_once(event: &HookEvent<'_>) -> Result<Option<Value>, Strin
     )
     .map_err(|e| format!("failed to set hook context: {e}"))?;
 
-    context::set_env_context(&lua, &load_env_vars(&event.state.db, backend).await)
+    let owned_env_vars;
+    let env_vars = if let Some(cached) = event.cached_env_vars {
+        cached
+    } else {
+        owned_env_vars = load_env_vars(&event.state.db, backend).await;
+        &owned_env_vars
+    };
+    context::set_env_context(&lua, env_vars)
         .map_err(|e| format!("failed to set env context: {e}"))?;
 
     lua.load(event.script)
@@ -1205,6 +1245,7 @@ mod tests {
             collection: "test.collection",
             rkey: "rkey1",
             record,
+            cached_env_vars: None,
         }
     }
 

@@ -338,6 +338,16 @@ async fn run_discovery_phase(
 
     let total = count_repos(state, job_id).await;
     update_job_counter(state, job_id, "total_repos", total).await;
+    publish_event(
+        state,
+        super::types::BackfillEvent::JobCounters {
+            job_id: job_id.to_string(),
+            total_repos: Some(total),
+            resolved_repos: None,
+            processed_repos: None,
+            total_records: None,
+        },
+    );
 }
 
 async fn discover_repos_from_relay(
@@ -418,15 +428,6 @@ async fn discover_repos_from_relay(
                 }
                 if let Ok(result) = query.execute(&state.backfill_db).await {
                     running_total += result.rows_affected() as i32;
-                }
-                for repo in chunk {
-                    publish_event(
-                        state,
-                        super::types::BackfillEvent::RepoDiscovered {
-                            job_id: job_id.to_string(),
-                            did: repo.did.clone(),
-                        },
-                    );
                 }
             }
         }
@@ -1275,9 +1276,20 @@ async fn batch_upsert_records(state: &AppState, batch: &[PreparedRecord]) {
         let _ = ref_query.execute(&state.backfill_db).await;
     }
 
-    // Queue label backfill for each record
-    for rec in batch {
-        crate::labeler::backfill_labels_for_uri(Arc::new(state.clone()), rec.uri.clone());
+    // Queue label backfill only if there are active labeler subscriptions.
+    // Check once per batch instead of spawning a task per record.
+    let has_subscriptions: bool = sqlx::query_as::<_, (i64,)>(
+        "SELECT COUNT(*) FROM labeler_subscriptions WHERE status = 'active'",
+    )
+    .fetch_one(&state.db)
+    .await
+    .map(|(c,)| c > 0)
+    .unwrap_or(false);
+
+    if has_subscriptions {
+        for rec in batch {
+            crate::labeler::backfill_labels_for_uri(Arc::new(state.clone()), rec.uri.clone());
+        }
     }
 }
 
@@ -1294,6 +1306,7 @@ async fn fetch_records_from_pds(
     let mut cursor: Option<String> = None;
     let mut count: u32 = 0;
     let index_hook = state.lexicons.get_index_hook(collection).await;
+    let env_vars = crate::lua::load_env_vars_cached(&state.db, state.db_backend).await;
 
     loop {
         if cancelled.load(Ordering::Relaxed) {
@@ -1348,6 +1361,7 @@ async fn fetch_records_from_pds(
                     collection,
                     rkey: &rkey,
                     record: Some(&entry.value),
+                    cached_env_vars: Some(&env_vars),
                 })
                 .await;
 

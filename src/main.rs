@@ -616,7 +616,7 @@ async fn main() {
         std::sync::Arc::new(arc_swap::ArcSwap::new(std::sync::Arc::new(config)))
     };
 
-    let (backfill_events_tx, _) = tokio::sync::broadcast::channel(1024);
+    let (backfill_events_tx, _) = tokio::sync::broadcast::channel(16384);
 
     let verbose_event_logging = {
         let enabled =
