@@ -345,3 +345,146 @@ async fn db_raw_select_works() {
     let cnt: i64 = first_row.get("cnt").unwrap();
     assert_eq!(cnt, 3);
 }
+
+#[tokio::test]
+#[serial]
+async fn db_query_filter_equals() {
+    common::require_db!();
+    let pool = db::test_pool().await;
+    let backend = db::test_backend();
+    db::truncate_all(&pool).await;
+    seed_records(&pool, backend).await;
+    let state = test_state_with_pool(pool, backend).await;
+    let lua = setup_lua(&state);
+
+    let result: mlua::Table = lua
+        .load(
+            r#"return db.query({
+                collection = "test.collection",
+                filter = { field = "name", value = "Test One" }
+            })"#,
+        )
+        .eval_async()
+        .await
+        .unwrap();
+
+    let records: mlua::Table = result.get("records").unwrap();
+    assert_eq!(records.raw_len(), 1);
+    let first: mlua::Table = records.get(1).unwrap();
+    assert_eq!(first.get::<String>("name").unwrap(), "Test One");
+}
+
+#[tokio::test]
+#[serial]
+async fn db_query_filter_not_equals() {
+    common::require_db!();
+    let pool = db::test_pool().await;
+    let backend = db::test_backend();
+    db::truncate_all(&pool).await;
+    seed_records(&pool, backend).await;
+    let state = test_state_with_pool(pool, backend).await;
+    let lua = setup_lua(&state);
+
+    let result: mlua::Table = lua
+        .load(
+            r#"return db.query({
+                collection = "test.collection",
+                filter = { field = "name", op = "!=", value = "Test One" }
+            })"#,
+        )
+        .eval_async()
+        .await
+        .unwrap();
+
+    let records: mlua::Table = result.get("records").unwrap();
+    assert_eq!(records.raw_len(), 2);
+}
+
+#[tokio::test]
+#[serial]
+async fn db_query_filter_no_match_returns_empty() {
+    common::require_db!();
+    let pool = db::test_pool().await;
+    let backend = db::test_backend();
+    db::truncate_all(&pool).await;
+    seed_records(&pool, backend).await;
+    let state = test_state_with_pool(pool, backend).await;
+    let lua = setup_lua(&state);
+
+    let result: mlua::Table = lua
+        .load(
+            r#"return db.query({
+                collection = "test.collection",
+                filter = { field = "name", value = "Nonexistent" }
+            })"#,
+        )
+        .eval_async()
+        .await
+        .unwrap();
+
+    let records: mlua::Table = result.get("records").unwrap();
+    assert_eq!(records.raw_len(), 0);
+}
+
+#[tokio::test]
+#[serial]
+async fn db_query_filter_and_group() {
+    common::require_db!();
+    let pool = db::test_pool().await;
+    let backend = db::test_backend();
+    db::truncate_all(&pool).await;
+    seed_records(&pool, backend).await;
+    let state = test_state_with_pool(pool, backend).await;
+    let lua = setup_lua(&state);
+
+    let result: mlua::Table = lua
+        .load(
+            r#"return db.query({
+                collection = "test.collection",
+                filter = {
+                    combine = "AND",
+                    { field = "name", op = "LIKE", value = "Test%" },
+                    { field = "value", op = ">", value = "1" }
+                }
+            })"#,
+        )
+        .eval_async()
+        .await
+        .unwrap();
+
+    let records: mlua::Table = result.get("records").unwrap();
+    assert_eq!(records.raw_len(), 1);
+    let first: mlua::Table = records.get(1).unwrap();
+    assert_eq!(first.get::<String>("name").unwrap(), "Test Two");
+}
+
+#[tokio::test]
+#[serial]
+async fn db_query_sort_by_json_field() {
+    common::require_db!();
+    let pool = db::test_pool().await;
+    let backend = db::test_backend();
+    db::truncate_all(&pool).await;
+    seed_records(&pool, backend).await;
+    let state = test_state_with_pool(pool, backend).await;
+    let lua = setup_lua(&state);
+
+    let result: mlua::Table = lua
+        .load(
+            r#"return db.query({
+                collection = "test.collection",
+                sort = "name",
+                sortDirection = "asc"
+            })"#,
+        )
+        .eval_async()
+        .await
+        .unwrap();
+
+    let records: mlua::Table = result.get("records").unwrap();
+    assert_eq!(records.raw_len(), 3);
+    let first: mlua::Table = records.get(1).unwrap();
+    let last: mlua::Table = records.get(3).unwrap();
+    assert_eq!(first.get::<String>("name").unwrap(), "Other Record");
+    assert_eq!(last.get::<String>("name").unwrap(), "Test Two");
+}

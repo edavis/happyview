@@ -126,7 +126,7 @@ fn build_filter_sql(node: &FilterNode, binds: &mut Vec<String>) -> String {
     match node {
         FilterNode::Condition { field, op, value } => {
             binds.push(value.clone());
-            format!("json_extract(record, '$.value.{field}') {op} ?")
+            format!("json_extract(record, '$.{field}') {op} ?")
         }
         FilterNode::Group { combine, children } => {
             let parts: Vec<String> = children
@@ -205,7 +205,7 @@ pub fn register_db_api(lua: &Lua, state: Arc<AppState>) -> LuaResult<()> {
                 let order_expr = if top_level_columns.contains(&sort_field.as_str()) {
                     format!("{sort_field} {direction}")
                 } else {
-                    format!("json_extract(record, '$.value.{sort_field}') {direction}")
+                    format!("json_extract(record, '$.{sort_field}') {direction}")
                 };
 
                 let did_clause = if did.is_some() { " AND did = ?" } else { "" };
@@ -965,7 +965,7 @@ mod tests {
         let node = parse_filter_node(&t, 0).unwrap();
         let mut binds = Vec::new();
         let sql = build_filter_sql(&node, &mut binds);
-        assert_eq!(sql, "json_extract(record, '$.value.name') = ?");
+        assert_eq!(sql, "json_extract(record, '$.name') = ?");
         assert_eq!(binds, vec!["alice"]);
     }
 
@@ -978,7 +978,7 @@ mod tests {
         let node = parse_filter_node(&t, 0).unwrap();
         let mut binds = Vec::new();
         let sql = build_filter_sql(&node, &mut binds);
-        assert_eq!(sql, "json_extract(record, '$.value.status') = ?");
+        assert_eq!(sql, "json_extract(record, '$.status') = ?");
     }
 
     #[test]
@@ -1011,7 +1011,7 @@ mod tests {
         let sql = build_filter_sql(&node, &mut binds);
         assert_eq!(
             sql,
-            "(json_extract(record, '$.value.status') = ? AND json_extract(record, '$.value.age') > ?)"
+            "(json_extract(record, '$.status') = ? AND json_extract(record, '$.age') > ?)"
         );
         assert_eq!(binds, vec!["active", "18"]);
     }
@@ -1030,7 +1030,7 @@ mod tests {
         let sql = build_filter_sql(&node, &mut binds);
         assert_eq!(
             sql,
-            "(json_extract(record, '$.value.role') = ? OR json_extract(record, '$.value.role') = ?)"
+            "(json_extract(record, '$.role') = ? OR json_extract(record, '$.role') = ?)"
         );
         assert_eq!(binds, vec!["admin", "mod"]);
     }
@@ -1045,7 +1045,7 @@ mod tests {
         let node = parse_filter_node(&group, 0).unwrap();
         let mut binds = Vec::new();
         let sql = build_filter_sql(&node, &mut binds);
-        assert_eq!(sql, "json_extract(record, '$.value.x') = ?");
+        assert_eq!(sql, "json_extract(record, '$.x') = ?");
     }
 
     #[test]
@@ -1095,7 +1095,7 @@ mod tests {
         let node = parse_filter_node(&t, 0).unwrap();
         let mut binds = Vec::new();
         let sql = build_filter_sql(&node, &mut binds);
-        assert_eq!(sql, "json_extract(record, '$.value.name') LIKE ?");
+        assert_eq!(sql, "json_extract(record, '$.name') LIKE ?");
     }
 
     #[test]
@@ -1130,10 +1130,7 @@ mod tests {
         let node = parse_filter_node(&t, 0).unwrap();
         let mut binds = Vec::new();
         let sql = build_filter_sql(&node, &mut binds);
-        assert_eq!(
-            sql,
-            "json_extract(record, '$.value.author.websites[0].url') = ?"
-        );
+        assert_eq!(sql, "json_extract(record, '$.author.websites[0].url') = ?");
     }
 
     // -----------------------------------------------------------------------
