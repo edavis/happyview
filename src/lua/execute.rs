@@ -125,8 +125,13 @@ pub async fn execute_procedure_script(
                 return Err(e);
             }
         };
+        let dpop_key_id = claims
+            .dpop_key_id()
+            .ok_or_else(|| AppError::Internal("DPoP key ID not available in claims".into()))?
+            .to_string();
         repo::PdsAuth::Dpop {
             api_client_id,
+            dpop_key_id,
             encryption_key: *encryption_key,
         }
     } else {
