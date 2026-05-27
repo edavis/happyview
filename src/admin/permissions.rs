@@ -488,6 +488,8 @@ pub fn catalog() -> Vec<PermissionInfo> {
         RecordsRead,
         RecordsDelete,
         RecordsDeleteCollection,
+        ScriptsRead,
+        ScriptsManage,
         ScriptVariablesCreate,
         ScriptVariablesRead,
         ScriptVariablesDelete,
