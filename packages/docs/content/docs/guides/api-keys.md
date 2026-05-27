@@ -45,6 +45,7 @@ interface LexiconsResponse {
 
 const data: LexiconsResponse = await response.json();
 ```
+
 ```js tab="JavaScript" tab-group="language"
 const TOKEN = "hv_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4";
 
@@ -54,6 +55,7 @@ const response = await fetch("http://127.0.0.1:3000/admin/lexicons", {
 
 const data = await response.json();
 ```
+
 ```rust tab="Rust" tab-group="language"
 let client = reqwest::Client::new();
 let token = "hv_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4";
@@ -66,6 +68,7 @@ let response = client
 
 let data: serde_json::Value = response.json().await?;
 ```
+
 ```go tab="Go" tab-group="language"
 token := "hv_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
 
@@ -74,6 +77,7 @@ req.Header.Set("Authorization", "Bearer "+token)
 
 resp, err := http.DefaultClient.Do(req)
 ```
+
 ```sh tab="cURL" tab-group="language"
 curl http://127.0.0.1:3000/admin/lexicons \
   -H "Authorization: Bearer hv_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
@@ -105,4 +109,4 @@ The **Last Used** column in the API Keys table shows when each key was last used
 
 - [Admin API reference](../api-reference/admin/admin-api.md) — full endpoint documentation
 - [Scripting](./lua-scripting.md) — automate record processing with Lua scripts
-- [Index hooks](./index-hooks.md) — push records to external services on write
+- [Record & label scripts](./label-scripts) — react to record changes and label events

@@ -39,7 +39,7 @@ If key loading fails for any reason, signing is disabled and `atproto.sign` / `a
 
 ## Using in Lua scripts
 
-Available in queries, procedures, and index hooks via the [atproto API](../api-reference/lua/atproto-api.md).
+Available in queries, procedures, and record/label scripts via the [atproto API](../api-reference/lua/atproto-api.md).
 
 ### Signing a record
 

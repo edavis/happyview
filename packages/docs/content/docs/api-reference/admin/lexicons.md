@@ -172,8 +172,7 @@ curl -X POST http://127.0.0.1:3000/admin/lexicons \
 | `lexicon_json`      | object  | yes      | Raw lexicon JSON (must have `lexicon: 1` and `id`)                    |
 | `backfill`          | boolean | no       | Whether uploading triggers historical backfill (default `true`)       |
 | `target_collection` | string  | no       | For query/procedure lexicons, the record collection they operate on   |
-| `script`            | string  | no       | Lua script for query/procedure endpoints                              |
-| `index_hook`        | string  | no       | [Index hook](../../guides/index-hooks.md) Lua script for record lexicons |
+| `token_cost`        | integer | no       | Token cost for query/procedure endpoints (overrides instance default) |
 
 **Response**: `201 Created` (new) or `200 OK` (upsert)
 
