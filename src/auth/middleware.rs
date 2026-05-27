@@ -197,14 +197,6 @@ pub async fn resolve_dpop_claims(
     )
     .await?;
 
-    // Check token expiry
-    if let Some(ref expires_at) = session.token_expires_at
-        && let Ok(exp) = chrono::DateTime::parse_from_rfc3339(expires_at)
-        && exp < chrono::Utc::now()
-    {
-        return Err(AppError::Auth("token_expired".into()));
-    }
-
     // Build the request URL for htu validation
     let scheme = if state.config.public_url.starts_with("https") {
         "https"
