@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { IconPlus } from "@tabler/icons-react";
+import { IconPlus, IconScript, IconScriptX } from "@tabler/icons-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
@@ -19,12 +19,6 @@ import type { Script, TriggerKind } from "@/types/scripts";
 import { SiteHeader } from "@/components/site-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -237,9 +231,16 @@ export default function LexiconDetailPage() {
             )}
           </div>
 
-          {/* Trigger-keyed scripts that target this lexicon. Each row
-              either links to the existing script or to the New Script
-              page pre-filled with the trigger id. */}
+        </div>
+
+        <div className="flex flex-col md:flex-row flex-1 min-h-0 gap-6 px-4 md:px-6 overflow-auto">
+          <CodePanels
+            className="flex-1 min-h-0"
+            jsonValue={jsonText}
+            onJsonChange={isNetwork ? undefined : setJsonText}
+            jsonReadOnly={isNetwork}
+          />
+
           {targetingTriggers.length > 0 && (
             <ScriptsTargetingPanel
               lexiconId={lexicon.id}
@@ -249,16 +250,6 @@ export default function LexiconDetailPage() {
             />
           )}
         </div>
-
-        {/* JSON editor only — scripts (record-event handlers, XRPC
-            handlers, label-arrival handlers) are managed via the
-            "Scripts targeting this lexicon" panel above. */}
-        <CodePanels
-          className="flex-1 min-h-0 px-4 md:px-6"
-          jsonValue={jsonText}
-          onJsonChange={isNetwork ? undefined : setJsonText}
-          jsonReadOnly={isNetwork}
-        />
 
         {/* Actions */}
         <footer className="bg-sidebar-accent flex justify-between gap-2 ps-4 py-2 md:px-6 md:py-4 rounded-b-md">
@@ -285,16 +276,6 @@ export default function LexiconDetailPage() {
   );
 }
 
-/**
- * Lists scripts targeting this lexicon and offers a "+ New" dropdown
- * for the slots that don't yet have a script.
- *
- * Existing scripts (those whose trigger id matches one of `entries`)
- * appear as rows linking to the Scripts detail page. Missing slots
- * are surfaced via a single "+ New script" dropdown so the operator
- * picks the kind of handler they want without seeing four "Create"
- * buttons stacked. The dropdown hides when every slot is taken.
- */
 function ScriptsTargetingPanel({
   lexiconId,
   scripts,
@@ -307,91 +288,65 @@ function ScriptsTargetingPanel({
   canManage: boolean;
 }) {
   const byId = new Map(scripts.map((s) => [s.id, s]));
-  const existing = entries
-    .map((e) => ({ ...e, triggerId: `${e.kind}:${lexiconId}` }))
-    .filter((e) => byId.has(e.triggerId));
-  const available = entries
-    .map((e) => ({ ...e, triggerId: `${e.kind}:${lexiconId}` }))
-    .filter((e) => !byId.has(e.triggerId));
+  const slots = entries.map((e) => ({
+    ...e,
+    triggerId: `${e.kind}:${lexiconId}`,
+    exists: byId.has(`${e.kind}:${lexiconId}`),
+  }));
 
   return (
-    <div className="mt-6 rounded-md border p-4">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <div>
-          <h3 className="text-sm font-semibold">
-            Scripts targeting this lexicon
-          </h3>
-          <p className="text-muted-foreground text-xs">
-            Each row is a{" "}
-            <Link
-              href="/dashboard/settings/scripts"
-              className="underline hover:no-underline"
-            >
-              trigger
-            </Link>{" "}
-            the dispatcher resolves at firing time.
-          </p>
-        </div>
-        {canManage && available.length > 0 && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                <IconPlus className="size-4" />
-                New script
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {available.map(({ kind, label, triggerId }) => (
-                <DropdownMenuItem key={kind} asChild>
-                  <Link
-                    href={`/dashboard/settings/scripts/new?id=${encodeURIComponent(triggerId)}`}
-                    className="flex flex-col items-start gap-0.5"
-                  >
-                    <span className="text-sm">{label}</span>
-                    <span className="text-muted-foreground font-mono text-[11px]">
-                      {triggerId}
-                    </span>
-                  </Link>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-      </div>
-      {existing.length === 0 ? (
-        <p className="text-muted-foreground text-sm py-2">
-          No scripts yet.
-          {canManage && available.length > 0 && (
-            <> Use the &ldquo;New script&rdquo; menu to add one.</>
-          )}
-        </p>
-      ) : (
-        <ul className="flex flex-col divide-y">
-          {existing.map(({ kind, label, triggerId }) => (
-            <li
-              key={kind}
-              className="flex items-center justify-between gap-2 py-2"
-            >
+    <div className="md:w-80 lg:w-96 md:flex-shrink-0">
+      <Label className="text-muted-foreground mb-3 block">
+        Scripts
+      </Label>
+
+      <ul className="flex flex-col gap-2">
+        {slots.map(({ kind, label, triggerId, exists }) => (
+          <li key={kind}>
+            {exists ? (
               <Link
                 href={`/dashboard/settings/scripts/${encodeURIComponent(triggerId)}`}
-                className="flex flex-col gap-0.5 hover:underline"
+                className="group flex items-start gap-3 rounded-md border p-3 transition-colors hover:bg-accent/50"
               >
-                <span className="text-sm">{label}</span>
-                <span className="text-muted-foreground font-mono text-xs">
-                  {triggerId}
-                </span>
+                <IconScript className="text-muted-foreground mt-0.5 size-4 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium group-hover:underline">
+                    {label}
+                  </div>
+                  <div className="text-muted-foreground font-mono text-xs break-all mt-0.5">
+                    {triggerId}
+                  </div>
+                </div>
               </Link>
-              <Button asChild variant="ghost" size="sm">
-                <Link
-                  href={`/dashboard/settings/scripts/${encodeURIComponent(triggerId)}`}
-                >
-                  Edit
-                </Link>
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
+            ) : canManage ? (
+              <Link
+                href={`/dashboard/settings/scripts/new?id=${encodeURIComponent(triggerId)}`}
+                className="group flex items-start gap-3 rounded-md border border-dashed p-3 transition-colors hover:bg-accent/50"
+              >
+                <IconPlus className="text-muted-foreground mt-0.5 size-4 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-muted-foreground text-sm group-hover:text-foreground group-hover:underline">
+                    {label}
+                  </div>
+                  <div className="text-muted-foreground/60 font-mono text-xs break-all mt-0.5">
+                    {triggerId}
+                  </div>
+                </div>
+              </Link>
+            ) : (
+              <div className="flex items-start gap-3 rounded-md border border-dashed p-3 opacity-50">
+                <IconScriptX className="text-muted-foreground mt-0.5 size-4 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-muted-foreground text-sm">{label}</div>
+                  <div className="text-muted-foreground/60 font-mono text-xs break-all mt-0.5">
+                    {triggerId}
+                  </div>
+                </div>
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
