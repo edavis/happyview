@@ -288,11 +288,11 @@ function ScriptsTargetingPanel({
   canManage: boolean;
 }) {
   const byId = new Map(scripts.map((s) => [s.id, s]));
-  const slots = entries.map((e) => ({
-    ...e,
-    triggerId: `${e.kind}:${lexiconId}`,
-    exists: byId.has(`${e.kind}:${lexiconId}`),
-  }));
+  const slots = entries.map((e) => {
+    const triggerId = `${e.kind}:${lexiconId}`;
+    const script = byId.get(triggerId);
+    return { ...e, triggerId, script };
+  });
 
   return (
     <div className="md:w-80 lg:w-96 md:flex-shrink-0">
@@ -301,9 +301,9 @@ function ScriptsTargetingPanel({
       </Label>
 
       <ul className="flex flex-col gap-2">
-        {slots.map(({ kind, label, triggerId, exists }) => (
+        {slots.map(({ kind, label, triggerId, script }) => (
           <li key={kind}>
-            {exists ? (
+            {script ? (
               <Link
                 href={`/dashboard/settings/scripts/${encodeURIComponent(triggerId)}`}
                 className="group flex items-start gap-3 rounded-md border p-3 transition-colors hover:bg-accent/50"
@@ -313,9 +313,11 @@ function ScriptsTargetingPanel({
                   <div className="text-sm font-medium group-hover:underline">
                     {label}
                   </div>
-                  <div className="text-muted-foreground font-mono text-xs break-all mt-0.5">
-                    {triggerId}
-                  </div>
+                  {script.description && (
+                    <div className="text-muted-foreground text-xs mt-0.5">
+                      {script.description}
+                    </div>
+                  )}
                 </div>
               </Link>
             ) : canManage ? (
@@ -324,24 +326,14 @@ function ScriptsTargetingPanel({
                 className="group flex items-start gap-3 rounded-md border border-dashed p-3 transition-colors hover:bg-accent/50"
               >
                 <IconPlus className="text-muted-foreground mt-0.5 size-4 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <div className="text-muted-foreground text-sm group-hover:text-foreground group-hover:underline">
-                    {label}
-                  </div>
-                  <div className="text-muted-foreground/60 font-mono text-xs break-all mt-0.5">
-                    {triggerId}
-                  </div>
+                <div className="text-muted-foreground text-sm group-hover:text-foreground group-hover:underline">
+                  {label}
                 </div>
               </Link>
             ) : (
               <div className="flex items-start gap-3 rounded-md border border-dashed p-3 opacity-50">
                 <IconScriptX className="text-muted-foreground mt-0.5 size-4 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <div className="text-muted-foreground text-sm">{label}</div>
-                  <div className="text-muted-foreground/60 font-mono text-xs break-all mt-0.5">
-                    {triggerId}
-                  </div>
-                </div>
+                <div className="text-muted-foreground text-sm">{label}</div>
               </div>
             )}
           </li>
