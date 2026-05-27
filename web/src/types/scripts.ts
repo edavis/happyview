@@ -129,7 +129,7 @@ export const DEFAULT_SCRIPT_BODY = `-- Trigger script: receives an \`event\` tab
 -- Available APIs: db.*, http.*, xrpc.*, atproto.*, Record.*, env.<KEY>
 
 function handle()
-    log("script fired")
-    return event
+  log("script fired")
+  return event
 end
 `
