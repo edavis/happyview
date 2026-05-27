@@ -1,7 +1,7 @@
 ---
 title: "HappyView v2.9"
 description: "Trigger-keyed scripts, backfill concurrency, db.query filters, multi-device DPoP sessions, plus bugs fixes and performance improvements."
-date: 2026-05-26
+date: 2026-05-27
 author:
   name: "Trezy"
   avatar: "/authors/trezy.webp"
