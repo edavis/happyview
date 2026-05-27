@@ -89,6 +89,12 @@ const accessItems: NavItem[] = [
 
 const integrationItems: NavItem[] = [
   {
+    title: "Scripts",
+    url: "/dashboard/settings/scripts",
+    icon: IconCode,
+    requiredPermissions: ["scripts:read"],
+  },
+  {
     title: "Plugins",
     url: "/dashboard/settings/plugins",
     icon: IconPuzzle,
@@ -99,12 +105,6 @@ const integrationItems: NavItem[] = [
     url: "/dashboard/settings/labelers",
     icon: IconTag,
     requiredPermissions: ["labelers:read"],
-  },
-  {
-    title: "Scripts",
-    url: "/dashboard/settings/scripts",
-    icon: IconCode,
-    requiredPermissions: ["scripts:read"],
   },
 ];
 

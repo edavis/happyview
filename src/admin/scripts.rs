@@ -31,6 +31,8 @@ use crate::lua::{ParsedTrigger, ScriptLanguage};
 use super::auth::UserAuth;
 use super::permissions::Permission;
 
+const MAX_DESCRIPTION_LEN: usize = 300;
+
 // ---------------------------------------------------------------------------
 // Wire types
 // ---------------------------------------------------------------------------
@@ -162,6 +164,14 @@ pub(super) async fn upsert(
     // Validate the trigger id grammar up-front (400 with a clear message).
     let _trigger = ParsedTrigger::parse(&body.id).map_err(AppError::BadRequest)?;
 
+    if let Some(ref desc) = body.description
+        && desc.len() > MAX_DESCRIPTION_LEN
+    {
+        return Err(AppError::BadRequest(format!(
+            "description must be at most {MAX_DESCRIPTION_LEN} characters"
+        )));
+    }
+
     let script_type = body.script_type.unwrap_or_default();
     validate_body_for_type(&body.body, script_type)?;
 
@@ -256,6 +266,13 @@ pub(super) async fn patch(
     if let Some(ref new_body) = body.body {
         let lang = body.script_type.unwrap_or_default();
         validate_body_for_type(new_body, lang)?;
+    }
+    if let Some(Some(ref desc)) = body.description
+        && desc.len() > MAX_DESCRIPTION_LEN
+    {
+        return Err(AppError::BadRequest(format!(
+            "description must be at most {MAX_DESCRIPTION_LEN} characters"
+        )));
     }
 
     // Existence check + fetch current values.

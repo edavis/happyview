@@ -156,6 +156,7 @@ export function ScriptForm({
           id="description"
           value={state.description}
           onChange={(e) => onChange({ ...state, description: e.target.value })}
+          maxLength={300}
           rows={2}
           placeholder="What does this script do?"
           className="text-sm"
