@@ -99,6 +99,10 @@ If you tried to use `@happyview/oauth-client` with the latest versions of the `@
 
 - **Binary releases** — Rust binaries are now published to GitHub Releases alongside Docker images, so you can grab a prebuilt binary directly if you're not into Docker.
 
+## Contributors
+
+**Huge thanks** to [Chris Pardy](https://bsky.app/profile/chris.pardy.family) for doing the bulk of the work for the new script system. 🥰
+
 ## Go play
 
 Full changelog is on [GitHub](https://github.com/gamesgamesgamesgamesgames/happyview/releases/tag/v2.9.0). If you have questions, feature requests, or just need a little help, join the [Cartridge](https://cartridge.dev) [Discord Server](https://discord.gg/BUPnjaBwRZ) and hop into the `#happyview` channel.
