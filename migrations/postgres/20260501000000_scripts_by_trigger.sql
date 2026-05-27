@@ -45,14 +45,15 @@ CREATE INDEX idx_dead_letter_scripts_resolved_at
     ON dead_letter_scripts (resolved_at);
 
 -- Permissions: management for users who can manage lexicons; read for those who can read.
-INSERT INTO user_permissions (user_id, permission)
-SELECT user_id, 'scripts:manage'
+-- granted_at lost its DEFAULT in 20260318 (type change to TEXT), so we must supply it.
+INSERT INTO user_permissions (user_id, permission, granted_at)
+SELECT user_id, 'scripts:manage', granted_at
   FROM user_permissions
  WHERE permission = 'lexicons:create'
 ON CONFLICT (user_id, permission) DO NOTHING;
 
-INSERT INTO user_permissions (user_id, permission)
-SELECT user_id, 'scripts:read'
+INSERT INTO user_permissions (user_id, permission, granted_at)
+SELECT user_id, 'scripts:read', granted_at
   FROM user_permissions
  WHERE permission = 'lexicons:read'
 ON CONFLICT (user_id, permission) DO NOTHING;
