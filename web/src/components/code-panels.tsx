@@ -98,7 +98,7 @@ export function CodePanels({
 
       {/* Single set of editors — CSS controls narrow/wide layout */}
       <div
-        className="border lg:grid flex-1 min-h-0 overflow-hidden rounded-md"
+        className="border flex flex-col lg:grid flex-1 min-h-0 overflow-hidden rounded-md"
         style={{
           gridTemplateColumns: hasLua ? "1fr 1fr" : "1fr 0fr",
           transition: "grid-template-columns 300ms ease-in-out",

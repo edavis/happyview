@@ -100,22 +100,39 @@ pub fn adapt_sql(sql: &str, backend: DatabaseBackend) -> String {
 }
 
 /// Convert `json_extract(col, '$.seg1.seg2.leaf')` to Postgres `col::jsonb->'seg1'->'seg2'->>'leaf'`.
+/// Handles array indices: `seg[0].leaf` becomes `->seg->0->>'leaf'`.
 fn adapt_json_extract_to_postgres(sql: &str) -> String {
     JSON_EXTRACT_RE
         .replace_all(sql, |caps: &regex::Captures| {
             let col = &caps[1];
-            let path = &caps[2]; // e.g. "defs.main.type" or "title"
+            let path = &caps[2];
 
-            let segments: Vec<&str> = path.split('.').collect();
+            let mut parts: Vec<(String, bool)> = Vec::new();
+            for segment in path.split('.') {
+                let bracket_start = segment.find('[').unwrap_or(segment.len());
+                let field_name = &segment[..bracket_start];
+                if !field_name.is_empty() {
+                    parts.push((field_name.to_string(), false));
+                }
+                let mut rest = &segment[bracket_start..];
+                while rest.starts_with('[') {
+                    if let Some(close) = rest.find(']') {
+                        parts.push((rest[1..close].to_string(), true));
+                        rest = &rest[close + 1..];
+                    } else {
+                        break;
+                    }
+                }
+            }
+
             let mut chain = format!("{col}::jsonb");
-
-            for (i, seg) in segments.iter().enumerate() {
-                if i == segments.len() - 1 {
-                    // Last segment uses ->> (text extraction)
-                    chain.push_str(&format!("->>'{seg}'"));
+            let last = parts.len().saturating_sub(1);
+            for (i, (text, is_index)) in parts.iter().enumerate() {
+                let arrow = if i == last { "->>" } else { "->" };
+                if *is_index {
+                    chain.push_str(&format!("{arrow}{text}"));
                 } else {
-                    // Intermediate segments use -> (JSON traversal)
-                    chain.push_str(&format!("->'{seg}'"));
+                    chain.push_str(&format!("{arrow}'{text}'"));
                 }
             }
 
@@ -266,6 +283,78 @@ pub async fn connect(url: &str, backend: DatabaseBackend) -> AnyPool {
     pool
 }
 
+pub fn backfill_pool_ceiling(backend: DatabaseBackend) -> u32 {
+    match backend {
+        DatabaseBackend::Sqlite => 64,
+        DatabaseBackend::Postgres => 256,
+    }
+}
+
+pub fn needed_backfill_connections(pds: u32, dids_per_pds: u32, resolution: u32) -> u32 {
+    (pds * dids_per_pds) + resolution + 4
+}
+
+pub fn compute_backfill_pool_size(
+    backend: DatabaseBackend,
+    pds: u32,
+    dids_per_pds: u32,
+    resolution: u32,
+) -> u32 {
+    std::env::var("BACKFILL_DATABASE_MAX_CONNECTIONS")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or_else(|| {
+            needed_backfill_connections(pds, dids_per_pds, resolution)
+                .min(backfill_pool_ceiling(backend))
+        })
+        .max(1)
+}
+
+pub async fn connect_backfill_pool(url: &str, backend: DatabaseBackend) -> AnyPool {
+    let pds: u32 = std::env::var("BACKFILL_CONCURRENT_PDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10);
+    let dids: u32 = std::env::var("BACKFILL_CONCURRENT_DIDS_PER_PDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3);
+    let resolution: u32 = std::env::var("BACKFILL_CONCURRENT_RESOLUTION")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100);
+    let max_connections = compute_backfill_pool_size(backend, pds, dids, resolution);
+
+    tracing::info!(max_connections, "backfill pool sized");
+
+    let pool = PoolOptions::<sqlx::Any>::new()
+        .max_connections(max_connections)
+        .acquire_timeout(std::time::Duration::from_secs(30))
+        .idle_timeout(std::time::Duration::from_secs(300))
+        .connect(url)
+        .await
+        .expect("Failed to connect backfill database pool");
+
+    if backend == DatabaseBackend::Sqlite {
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .expect("Failed to enable foreign keys on backfill pool");
+
+        sqlx::query("PRAGMA journal_mode = WAL")
+            .execute(&pool)
+            .await
+            .expect("Failed to enable WAL mode on backfill pool");
+
+        sqlx::query("PRAGMA busy_timeout = 5000")
+            .execute(&pool)
+            .await
+            .expect("Failed to set busy timeout on backfill pool");
+    }
+
+    pool
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,6 +474,24 @@ mod tests {
         assert_eq!(
             adapt_sql(sql, DatabaseBackend::Postgres),
             "WHERE lexicon_json::jsonb->'defs'->'main'->>'type' = 'record'"
+        );
+    }
+
+    #[test]
+    fn adapt_sql_postgres_converts_array_index_json_extract() {
+        let sql = "WHERE json_extract(record, '$.value.websites[0].url') = ?";
+        assert_eq!(
+            adapt_sql(sql, DatabaseBackend::Postgres),
+            "WHERE record::jsonb->'value'->'websites'->0->>'url' = $1"
+        );
+    }
+
+    #[test]
+    fn adapt_sql_sqlite_keeps_array_index_json_extract() {
+        let sql = "WHERE json_extract(record, '$.value.tags[0]') = ?";
+        assert_eq!(
+            adapt_sql(sql, DatabaseBackend::Sqlite),
+            "WHERE json_extract(record, '$.value.tags[0]') = ?"
         );
     }
 
@@ -524,6 +631,57 @@ mod tests {
             adapt_sql(sql, DatabaseBackend::Postgres),
             "SELECT COUNT(*) FROM records WHERE collection = $1"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // parse_dt
+    // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // backfill pool sizing
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn needed_backfill_connections_formula() {
+        assert_eq!(needed_backfill_connections(10, 3, 100), 134);
+        assert_eq!(needed_backfill_connections(1, 1, 1), 6);
+        assert_eq!(needed_backfill_connections(0, 0, 0), 4);
+    }
+
+    #[test]
+    fn backfill_pool_ceiling_values() {
+        assert_eq!(backfill_pool_ceiling(DatabaseBackend::Sqlite), 64);
+        assert_eq!(backfill_pool_ceiling(DatabaseBackend::Postgres), 256);
+    }
+
+    #[test]
+    fn needed_connections_capped_by_sqlite_ceiling() {
+        let needed = needed_backfill_connections(10, 3, 100);
+        let capped = needed.min(backfill_pool_ceiling(DatabaseBackend::Sqlite));
+        assert_eq!(needed, 134);
+        assert_eq!(capped, 64);
+    }
+
+    #[test]
+    fn needed_connections_capped_by_postgres_ceiling() {
+        let needed = needed_backfill_connections(50, 10, 200);
+        let capped = needed.min(backfill_pool_ceiling(DatabaseBackend::Postgres));
+        assert_eq!(needed, 704);
+        assert_eq!(capped, 256);
+    }
+
+    #[test]
+    fn needed_connections_below_ceiling_unchanged() {
+        let needed = needed_backfill_connections(2, 2, 10);
+        let capped = needed.min(backfill_pool_ceiling(DatabaseBackend::Postgres));
+        assert_eq!(needed, 18);
+        assert_eq!(capped, 18);
+    }
+
+    #[test]
+    fn needed_connections_minimum_is_overhead() {
+        let needed = needed_backfill_connections(0, 0, 0);
+        assert_eq!(needed, 4);
     }
 
     // -----------------------------------------------------------------------

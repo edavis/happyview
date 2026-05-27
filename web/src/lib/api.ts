@@ -2,11 +2,12 @@ import type { ApiKeySummary, CreateApiKeyResponse } from "@/types/api-keys";
 import type { StatsResponse } from "@/types/stats";
 import type { LexiconSummary, LexiconDetail } from "@/types/lexicons";
 import type { NetworkLexiconSummary } from "@/types/network-lexicons";
-import type { BackfillJob } from "@/types/backfill";
+import type { BackfillJob, BackfillReposResponse, PdsSummaryResponse } from "@/types/backfill";
 import type { UserSummary } from "@/types/users";
 import type { AdminListRecordsResponse } from "@/types/records";
 import type { EventsListResponse } from "@/types/events";
 import type { ScriptVariableSummary } from "@/types/script-variables";
+import type { Script, UpsertScriptBody, PatchScriptBody } from "@/types/scripts";
 import type { LabelerSummary } from "@/types/labelers";
 import type {
   ApiClientSummary,
@@ -32,11 +33,26 @@ export type { ApiKeySummary, CreateApiKeyResponse } from "@/types/api-keys";
 export type { CollectionStat, StatsResponse } from "@/types/stats";
 export type { LexiconSummary, LexiconDetail } from "@/types/lexicons";
 export type { NetworkLexiconSummary } from "@/types/network-lexicons";
-export type { BackfillJob } from "@/types/backfill";
+export type { BackfillJob, BackfillRepoEntry, BackfillReposResponse, PdsSummaryEntry, PdsSummaryResponse, BackfillEvent, BlueskyProfile } from "@/types/backfill";
 export type { UserSummary } from "@/types/users";
 export type { AdminRecord, AdminListRecordsResponse } from "@/types/records";
 export type { EventLogEntry, EventsListResponse } from "@/types/events";
 export type { ScriptVariableSummary } from "@/types/script-variables";
+export type {
+  Script,
+  ScriptLanguage,
+  TriggerKind,
+  TriggerFamily,
+  UpsertScriptBody,
+  PatchScriptBody,
+} from "@/types/scripts";
+export {
+  TRIGGER_KIND_LABELS,
+  TRIGGER_FAMILY_LABELS,
+  familyOf,
+  parseTriggerId,
+  DEFAULT_SCRIPT_BODY,
+} from "@/types/scripts";
 export type { LabelerSummary } from "@/types/labelers";
 export type { RecordLabel } from "@/types/records";
 export type {
@@ -107,6 +123,10 @@ export function getStats() {
   return apiFetch<StatsResponse>("/admin/stats");
 }
 
+export function getCollections() {
+  return apiFetch<{ collections: string[] }>("/admin/records/collections");
+}
+
 // Lexicons
 export function getLexicons() {
   return apiFetch<LexiconSummary[]>("/admin/lexicons");
@@ -121,8 +141,6 @@ export function uploadLexicon(body: {
   backfill?: boolean;
   target_collection?: string;
   action?: string;
-  script?: string;
-  index_hook?: string;
   token_cost?: number | null;
 }) {
   return apiFetch<{ id: string; revision: number }>("/admin/lexicons", {
@@ -187,6 +205,48 @@ export function cancelBackfillJob(id: string) {
     `/admin/backfill/${id}/cancel`,
     { method: "POST" },
   );
+}
+
+export function pauseBackfillJob(id: string) {
+  return apiFetch<{ id: string; status: string }>(
+    `/admin/backfill/${id}/pause`,
+    { method: "POST" },
+  );
+}
+
+export function resumeBackfillJob(id: string) {
+  return apiFetch<{ id: string; status: string }>(
+    `/admin/backfill/${id}/resume`,
+    { method: "POST" },
+  );
+}
+
+export function getBackfillRepos(
+  jobId: string,
+  params: { phase?: string; cursor?: string; limit?: number } = {},
+) {
+  const search = new URLSearchParams();
+  if (params.phase) search.set("phase", params.phase);
+  if (params.cursor) search.set("cursor", params.cursor);
+  if (params.limit) search.set("limit", String(params.limit));
+  const qs = search.toString();
+  return apiFetch<BackfillReposResponse>(
+    `/admin/backfill/${jobId}/repos${qs ? `?${qs}` : ""}`,
+  );
+}
+
+export function getBackfillPdsSummary(jobId: string) {
+  return apiFetch<PdsSummaryResponse>(
+    `/admin/backfill/${jobId}/pds-summary`,
+  );
+}
+
+export function flushBackfillDetails(jobId: string) {
+  return apiFetch(`/admin/backfill/${jobId}/details`, { method: "DELETE" });
+}
+
+export function flushAllBackfillDetails() {
+  return apiFetch(`/admin/backfill/details`, { method: "DELETE" });
 }
 
 // Users
@@ -335,6 +395,18 @@ export function deleteScriptVariable(key: string) {
 // Settings
 export function getSettings() {
   return apiFetch<SettingEntry[]>("/admin/settings");
+}
+
+export type DbInfo = {
+  backend: "sqlite" | "postgres";
+  server_max_connections: number | null;
+  main_pool_size: number;
+  backfill_pool_size: number;
+  restart_recommended: boolean;
+};
+
+export function getDbInfo() {
+  return apiFetch<DbInfo>("/admin/settings/db-info");
 }
 
 export function upsertSetting(key: string, value: string) {
@@ -724,4 +796,36 @@ export function bulkReindexDeadLetters(body: {
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+// Scripts (trigger-keyed)
+export function getScripts(opts?: { suffix?: string }) {
+  const params = new URLSearchParams();
+  if (opts?.suffix) params.set("suffix", opts.suffix);
+  const qs = params.toString();
+  return apiFetch<Script[]>(`/admin/scripts${qs ? `?${qs}` : ""}`)
+}
+
+export function getScript(id: string) {
+  return apiFetch<Script>(`/admin/scripts/${encodeURIComponent(id)}`)
+}
+
+export function upsertScript(body: UpsertScriptBody) {
+  return apiFetch<Script>("/admin/scripts", {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
+}
+
+export function patchScript(id: string, body: PatchScriptBody) {
+  return apiFetch<Script>(`/admin/scripts/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  })
+}
+
+export function deleteScript(id: string) {
+  return apiFetch(`/admin/scripts/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  })
 }

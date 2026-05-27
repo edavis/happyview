@@ -167,6 +167,9 @@ impl TestApp {
             proxy_config: std::sync::Arc::new(arc_swap::ArcSwap::new(std::sync::Arc::new(
                 happyview::proxy_config::ProxyConfig::default(),
             ))),
+            backfill_db: pool.clone(),
+            backfill_events_tx: tokio::sync::broadcast::channel(16).0,
+            verbose_event_logging: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
         let router = server::router(state.clone()).layer(axum::middleware::from_fn(

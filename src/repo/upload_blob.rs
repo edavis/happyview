@@ -55,6 +55,9 @@ pub async fn upload_blob(
             .ok_or_else(|| AppError::Internal("TOKEN_ENCRYPTION_KEY not configured".into()))?;
 
         let api_client_id = crate::repo::get_dpop_client_id(&state, client_key).await?;
+        let dpop_key_id = claims
+            .dpop_key_id()
+            .ok_or_else(|| AppError::Internal("DPoP key ID not available in claims".into()))?;
 
         let resp = crate::oauth::pds_write::dpop_pds_post_blob(
             &state.http,
@@ -65,6 +68,7 @@ pub async fn upload_blob(
             &state.config.plc_url,
             &api_client_id,
             claims.did(),
+            dpop_key_id,
             content_type,
             body,
         )

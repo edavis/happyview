@@ -2,7 +2,7 @@
 title: "Database API"
 ---
 
-The `db` table provides access to the database. Available in queries, procedures, and [index hooks](../../guides/index-hooks.md).
+The `db` table provides access to the database. Available in all [Lua scripts](../../guides/lua-scripting.md) — queries, procedures, and [record/label scripts](../../guides/label-scripts).
 
 ## db.query
 
@@ -14,6 +14,7 @@ local result = db.query({
   cursor = params.cursor,                 -- optional: opaque cursor from a previous response
   sort = "name",                          -- optional: field to sort by, default "indexed_at"
   sortDirection = "asc",                  -- optional: "asc" or "desc", default "desc"
+  filter = { field = "status", value = "active" },  -- optional: filter conditions
 })
 
 -- result.records — array of record tables (each includes a "uri" field)
@@ -22,7 +23,80 @@ local result = db.query({
 
 The `cursor` is an opaque string returned in a previous response. Pass it through directly — don't parse or modify it. When no `sort` field is specified, `db.query` uses keyset pagination (based on `created_at` and `uri`), which is stable even when records are inserted between pages. When a custom `sort` field is specified, offset-based pagination is used instead.
 
-The `sort` field can be a top-level column (`indexed_at`, `did`, `uri`) or any field inside the record's `value` object (e.g. `name`, `createdAt`). Field names must contain only alphanumeric characters and underscores.
+The `sort` field can be a top-level column (`indexed_at`, `did`, `uri`) or any field inside the record (e.g. `name`, `createdAt`). Nested paths are supported with dot notation and array indices (e.g. `author.handle`, `scores[0]`).
+
+### Filtering
+
+The `filter` option lets you restrict results by record field values. Field names correspond to the fields defined in your lexicon schema (e.g. `streamer`, `status`, `viewers`).
+
+**Simple condition** — match a single field (operator defaults to `=`):
+
+```lua
+db.query({
+  collection = "xyz.statusphere.status",
+  filter = { field = "streamer", value = "did:plc:abc" },
+})
+```
+
+**With operator** — specify a comparison operator:
+
+```lua
+db.query({
+  collection = "xyz.statusphere.status",
+  filter = { field = "viewers", op = ">", value = 100 },
+})
+```
+
+Supported operators: `=`, `!=`, `<`, `>`, `<=`, `>=`, `LIKE`, `NOT LIKE`.
+
+**Combining conditions** — group multiple conditions with `AND` or `OR`:
+
+```lua
+db.query({
+  collection = "xyz.statusphere.status",
+  filter = {
+    combine = "AND",
+    { field = "streamer", value = "did:plc:abc" },
+    { field = "viewers", op = ">", value = 50 },
+  },
+})
+```
+
+When `combine` is omitted it defaults to `"AND"`.
+
+**Nesting** — groups can contain other groups, up to 5 levels deep:
+
+```lua
+db.query({
+  collection = "xyz.statusphere.status",
+  filter = {
+    combine = "AND",
+    { field = "streamer", value = "did:plc:abc" },
+    {
+      combine = "OR",
+      { field = "status", value = "live" },
+      { field = "viewers", op = ">=", value = 100 },
+    },
+  },
+})
+```
+
+This matches records where `streamer` is `did:plc:abc` **and** either `status` is `live` **or** `viewers` is at least 100.
+
+Field names support dot notation for nested objects and bracket syntax for array indices:
+
+```lua
+-- Nested object field
+filter = { field = "author.handle", value = "alice.bsky.social" }
+
+-- Array index
+filter = { field = "tags[0]", value = "gaming" }
+
+-- Combined
+filter = { field = "links[0].url", op = "LIKE", value = "%twitch.tv%" }
+```
+
+Each path segment must be alphanumeric or underscores. Values can be strings, numbers, or booleans.
 
 ## db.get
 
@@ -101,15 +175,15 @@ Write SQL in **SQLite syntax** — HappyView translates it to Postgres at runtim
 
 ### Column type mapping
 
-| SQLite type            | Postgres type          | Lua type |
-| ---------------------- | ---------------------- | -------- |
-| `TEXT`                 | `TEXT`, `VARCHAR`      | string   |
-| `INTEGER`              | `INT4`, `INT8`         | integer  |
-| `REAL`                 | `FLOAT4`, `FLOAT8`     | number   |
-| `INTEGER` (0/1)        | `BOOL`                 | boolean  |
-| `TEXT` (JSON)          | `JSON`, `JSONB`        | table    |
-| `TEXT` (ISO 8601)      | `TIMESTAMPTZ`          | string (ISO 8601) |
-| Other                  | Other                  | string (fallback)  |
+| SQLite type       | Postgres type      | Lua type          |
+| ----------------- | ------------------ | ----------------- |
+| `TEXT`            | `TEXT`, `VARCHAR`  | string            |
+| `INTEGER`         | `INT4`, `INT8`     | integer           |
+| `REAL`            | `FLOAT4`, `FLOAT8` | number            |
+| `INTEGER` (0/1)   | `BOOL`             | boolean           |
+| `TEXT` (JSON)     | `JSON`, `JSONB`    | table             |
+| `TEXT` (ISO 8601) | `TIMESTAMPTZ`      | string (ISO 8601) |
+| Other             | Other              | string (fallback) |
 
 ## db.backend
 

@@ -18,7 +18,14 @@ pub(crate) async fn handle_procedure(
     params: &std::collections::HashMap<String, Value>,
     lexicon: &crate::lexicon::ParsedLexicon,
 ) -> Result<Response, AppError> {
-    if let Some(ref script) = lexicon.script {
+    // Trigger-keyed dispatch: a script bound at `xrpc.procedure:<id>`
+    // overrides the default PDS-write flow.
+    let trigger = format!("xrpc.procedure:{}", lexicon.id);
+    if let Some(resolved) = crate::lua::resolve(state, &trigger).await {
+        // Delegation guard preserved from origin/dev: scripts that run
+        // under a `delegateDid` must come from a caller who is an
+        // active write-capable delegate of that account, scoped to the
+        // calling api_client.
         let delegate_did = input
             .get("delegateDid")
             .and_then(|v| v.as_str())
@@ -71,7 +78,7 @@ pub(crate) async fn handle_procedure(
             &script_input,
             params,
             lexicon,
-            script,
+            &resolved.body,
             None,
             delegate_did.as_deref(),
         )
@@ -359,39 +366,56 @@ async fn handle_dpop_procedure(
 ) -> Result<Response, AppError> {
     // If delegating, verify the caller has write access and resolve the
     // api_client_id that owns the delegated session.
-    let (target_did, effective_api_client_id) = if let Some(did) = delegate_did {
-        let role = crate::delegation::db::get_delegate_role(
-            &state.db,
-            state.db_backend,
-            did,
-            claims.did(),
-        )
-        .await?
-        .ok_or_else(|| AppError::Forbidden("you are not a delegate of this account".into()))?;
+    let (target_did, effective_api_client_id, effective_dpop_key_id) =
+        if let Some(did) = delegate_did {
+            let role = crate::delegation::db::get_delegate_role(
+                &state.db,
+                state.db_backend,
+                did,
+                claims.did(),
+            )
+            .await?
+            .ok_or_else(|| AppError::Forbidden("you are not a delegate of this account".into()))?;
 
-        if !role.can_write() {
-            return Err(AppError::Forbidden(
-                "your role does not have write access to this account".into(),
-            ));
-        }
+            if !role.can_write() {
+                return Err(AppError::Forbidden(
+                    "your role does not have write access to this account".into(),
+                ));
+            }
 
-        let stored_client_id =
-            crate::delegation::db::get_api_client_id(&state.db, state.db_backend, did)
-                .await?
-                .ok_or_else(|| {
-                    AppError::Internal("delegated account missing api_client_id".into())
-                })?;
+            let stored_client_id =
+                crate::delegation::db::get_api_client_id(&state.db, state.db_backend, did)
+                    .await?
+                    .ok_or_else(|| {
+                        AppError::Internal("delegated account missing api_client_id".into())
+                    })?;
 
-        if api_client_id != stored_client_id {
-            return Err(AppError::Forbidden(
-                "delegation is scoped to a different application".into(),
-            ));
-        }
+            if api_client_id != stored_client_id {
+                return Err(AppError::Forbidden(
+                    "delegation is scoped to a different application".into(),
+                ));
+            }
 
-        (did, stored_client_id)
-    } else {
-        (claims.did(), api_client_id.to_string())
-    };
+            // TODO: delegated_accounts needs a dpop_key_id column to identify
+            // which session to use for PDS writes. For now, look up by
+            // (api_client_id, user_did) which works when there's one session.
+            let target_session = crate::oauth::sessions::get_dpop_session_for_user(
+                &state.db,
+                state.db_backend,
+                encryption_key,
+                &stored_client_id,
+                did,
+            )
+            .await?;
+
+            (did, stored_client_id, target_session.dpop_key_id)
+        } else {
+            let dpop_key_id = claims
+                .dpop_key_id()
+                .ok_or_else(|| AppError::Internal("DPoP key ID not available in claims".into()))?
+                .to_string();
+            (claims.did(), api_client_id.to_string(), dpop_key_id)
+        };
 
     // Strip delegateDid from input — it's a control field, not record data
     let mut input = input.clone();
@@ -512,6 +536,7 @@ async fn handle_dpop_procedure(
         &state.config.plc_url,
         &effective_api_client_id,
         target_did,
+        &effective_dpop_key_id,
         xrpc_method,
         &pds_body,
     )

@@ -10,9 +10,9 @@ Without Lua scripts, HappyView's query endpoints return raw records and procedur
 - Compose multi-record operations
 - Build entirely custom behavior
 
-Scripts are attached to query and procedure lexicons and run in a sandboxed Lua VM with access to the [Record API](#record-api), a [database API](#database-api), an [HTTP client API](#http-api), a [JSON API](#json-api), and a set of [context globals](#context-globals).
+Scripts run in a sandboxed Lua VM with access to the [Record API](#record-api), a [database API](#database-api), an [HTTP client API](#http-api), a [JSON API](#json-api), and a set of [context globals](#context-globals).
 
-For scripts that react to record changes from the network (rather than XRPC requests), see [Index Hooks](index-hooks.md).
+For scripts that react to record changes or label events (rather than XRPC requests), see [Record & Label Scripts](label-scripts).
 
 ## Script structure
 
@@ -57,24 +57,24 @@ These globals are set automatically before `handle()` is called.
 
 ### Query globals
 
-| Global       | Type    | Description                                      |
-| ------------ | ------- | ------------------------------------------------ |
-| `method`     | string  | The XRPC method name                             |
-| `params`     | table   | Query string parameters (all values are strings) |
-| `collection` | string  | Target collection NSID                           |
+| Global       | Type    | Description                                            |
+| ------------ | ------- | ------------------------------------------------------ |
+| `method`     | string  | The XRPC method name                                   |
+| `params`     | table   | Query string parameters (all values are strings)       |
+| `collection` | string  | Target collection NSID                                 |
 | `caller_did` | string? | DID of the authenticated user (nil if unauthenticated) |
-| `env`        | table   | Script variables configured in the dashboard     |
+| `env`        | table   | Script variables configured in the dashboard           |
 
 ## Utility globals
 
 Available in both queries and procedures:
 
-| Function         | Returns | Description                                                         |
-| ---------------- | ------- | ------------------------------------------------------------------- |
-| `now()`          | string  | Current UTC timestamp in ISO 8601 format                            |
-| `log(message)`   | —       | Log a message (appears in server logs at debug level)               |
+| Function         | Returns | Description                                                                                                                                                                       |
+| ---------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `now()`          | string  | Current UTC timestamp in ISO 8601 format                                                                                                                                          |
+| `log(message)`   | —       | Log a message (appears in server logs at debug level)                                                                                                                             |
 | `TID()`          | string  | Generate a fresh atproto TID (13-character sortable identifier). Also provides conversion methods — see [Utility Globals reference](../api-reference/lua/utility-globals.md#tid). |
-| `toarray(table)` | table   | Mark a table as a JSON array for serialization (see [below](#toarray)) |
+| `toarray(table)` | table   | Mark a table as a JSON array for serialization (see [below](#toarray))                                                                                                            |
 
 ### toarray
 
@@ -195,6 +195,7 @@ The **full error message** is logged server-side at error level. Check the serve
 See the example script references for complete, ready-to-use scripts:
 
 **Queries:**
+
 - [Get a record](../reference/script-examples/get-record.md) — fetch a single record by AT URI
 - [Paginated list](../reference/script-examples/paginated-list.md) — list records with cursor-based pagination and DID filtering
 - [List or fetch](../reference/script-examples/list-or-fetch.md) — combined single-record lookup and paginated listing
@@ -202,6 +203,7 @@ See the example script references for complete, ready-to-use scripts:
 - [Verify signed record](../reference/script-examples/signed-record-verify.md) — fetch a record and verify its attestation signature
 
 **Procedures:**
+
 - [Create a record](../reference/script-examples/create-record.md) — simple write that saves input as a record
 - [Upsert a record](../reference/script-examples/upsert-record.md) — create or update using a deterministic rkey
 - [Update or delete](../reference/script-examples/update-or-delete.md) — single endpoint handling create, update, and delete
@@ -211,12 +213,14 @@ See the example script references for complete, ready-to-use scripts:
 - [Complex mutations](../reference/script-examples/complex-mutations.md) — load, transform, and save a record with multiple field changes
 - [Signed record](../reference/script-examples/signed-record.md) — save a record with an attestation signature
 
-**Index Hooks:**
+**Record & Label Scripts:**
+
 - [Algolia sync](../reference/script-examples/algolia-sync.md) — push records to an Algolia search index on create/update/delete
 
 ## Next steps
 
-- [Index Hooks](index-hooks.md): React to record changes from the network in real time
+- [Record & Label Scripts](label-scripts): React to record changes and label events in real time
 - [Lexicons](lexicons.md): Understand how record, query, and procedure lexicons work together
+- [Admin API — Scripts](../api-reference/admin/scripts.md): Manage scripts via the API
 - [XRPC API](../api-reference/xrpc-api.md): See how endpoints behave with and without Lua scripts
 - [Dashboard](../getting-started/dashboard.md#lua-editor): Use the web editor with context-aware completions

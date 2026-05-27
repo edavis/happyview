@@ -28,8 +28,11 @@ async fn main() {
 
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "happyview=debug,tower_http=debug".parse().unwrap()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                "happyview=debug,tower_http=debug,sqlx=warn"
+                    .parse()
+                    .unwrap()
+            }),
         )
         .init();
 
@@ -38,6 +41,7 @@ async fn main() {
 
     // Connect to database and run migrations.
     let db_pool = db::connect(&config.database_url, db_backend).await;
+    let backfill_db_pool = db::connect_backfill_pool(&config.database_url, db_backend).await;
 
     info!(
         backend = ?db_backend,
@@ -133,8 +137,6 @@ async fn main() {
                             1,
                             target_collection.clone(),
                             ProcedureAction::Upsert,
-                            None,
-                            None,
                             None,
                         ) {
                             Ok(parsed) => {
@@ -612,10 +614,22 @@ async fn main() {
         std::sync::Arc::new(arc_swap::ArcSwap::new(std::sync::Arc::new(config)))
     };
 
+    let (backfill_events_tx, _) = tokio::sync::broadcast::channel(16384);
+
+    let verbose_event_logging = {
+        let enabled =
+            happyview::admin::settings::get_setting(&db_pool, "verbose_event_logging", db_backend)
+                .await
+                .map(|v| v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false);
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(enabled))
+    };
+
     let state = AppState {
         config: config.clone(),
         http,
         db: db_pool,
+        backfill_db: backfill_db_pool,
         db_backend,
         domain_cache: domain_cache.clone(),
         lexicons,
@@ -631,6 +645,8 @@ async fn main() {
         official_registry,
         official_registry_config,
         proxy_config,
+        backfill_events_tx,
+        verbose_event_logging,
     };
 
     jetstream::spawn(state.clone(), collections_rx);
@@ -644,7 +660,31 @@ async fn main() {
         state.db_backend,
     ));
 
+    {
+        let db = state.db.clone();
+        let flag = state.verbose_event_logging.clone();
+        let backend = state.db_backend;
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                let enabled =
+                    happyview::admin::settings::get_setting(&db, "verbose_event_logging", backend)
+                        .await
+                        .map(|v| v.eq_ignore_ascii_case("true"))
+                        .unwrap_or(false);
+                flag.store(enabled, std::sync::atomic::Ordering::Relaxed);
+            }
+        });
+    }
+
     happyview::admin::backfill::resume_backfill_jobs(&state).await;
+
+    {
+        let state = state.clone();
+        tokio::spawn(async move {
+            happyview::admin::backfill::run_backfill_retention_cleanup(&state).await;
+        });
+    }
 
     let app = server::router(state);
     let addr = config.listen_addr();

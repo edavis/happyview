@@ -27,6 +27,18 @@ fn post_json_with_headers(
         .unwrap()
 }
 
+/// Helper to make a GET request with headers
+fn get_with_headers(uri: &str, headers: Vec<(&str, &str)>) -> Request<Body> {
+    let mut builder = Request::builder()
+        .method("GET")
+        .uri(uri)
+        .header("host", "127.0.0.1");
+    for (name, value) in headers {
+        builder = builder.header(name, value);
+    }
+    builder.body(Body::empty()).unwrap()
+}
+
 /// Helper to make a DELETE request with headers
 fn delete_with_headers(uri: &str, headers: Vec<(&str, &str)>) -> Request<Body> {
     let mut builder = Request::builder()
@@ -256,7 +268,7 @@ async fn test_full_flow_provision_register_delete() {
     let delete_resp = app.router.clone().oneshot(delete_req).await.unwrap();
     assert_eq!(delete_resp.status(), StatusCode::NO_CONTENT);
 
-    // 4. Verify session is gone (try to delete again)
+    // 4. Verify session is gone (delete is idempotent for confidential clients)
     let delete_req2 = delete_with_headers(
         "/oauth/sessions/did:plc:testuser",
         vec![
@@ -265,7 +277,7 @@ async fn test_full_flow_provision_register_delete() {
         ],
     );
     let delete_resp2 = app.router.clone().oneshot(delete_req2).await.unwrap();
-    assert_eq!(delete_resp2.status(), StatusCode::NOT_FOUND);
+    assert_eq!(delete_resp2.status(), StatusCode::NO_CONTENT);
 }
 
 #[tokio::test]
@@ -410,4 +422,434 @@ async fn test_xrpc_dpop_auth_accepted() {
         StatusCode::UNAUTHORIZED,
         "DPoP-authenticated XRPC request should not get 401"
     );
+}
+
+/// Helper: provision a DPoP key and register a session. Returns (provision_id, dpop_key, session_id).
+async fn provision_and_register(
+    app: &common::app::TestApp,
+    client_key: &str,
+    client_secret: &str,
+    did: &str,
+    access_token: &str,
+) -> (String, serde_json::Value, String) {
+    let key_req = post_json_with_headers(
+        "/oauth/dpop-keys",
+        &json!({}),
+        vec![
+            ("x-client-key", client_key),
+            ("x-client-secret", client_secret),
+        ],
+    );
+    let key_resp = app.router.clone().oneshot(key_req).await.unwrap();
+    assert_eq!(key_resp.status(), StatusCode::CREATED);
+    let key_body = response_json(key_resp).await;
+    let provision_id = key_body["provision_id"].as_str().unwrap().to_string();
+    let dpop_key = key_body["dpop_key"].clone();
+
+    let session_req = post_json_with_headers(
+        "/oauth/sessions",
+        &json!({
+            "provision_id": provision_id,
+            "did": did,
+            "access_token": access_token,
+            "scopes": "atproto",
+            "pds_url": "https://pds.example.com",
+        }),
+        vec![
+            ("x-client-key", client_key),
+            ("x-client-secret", client_secret),
+        ],
+    );
+    let session_resp = app.router.clone().oneshot(session_req).await.unwrap();
+    assert_eq!(session_resp.status(), StatusCode::CREATED);
+    let session_body = response_json(session_resp).await;
+    let session_id = session_body["session_id"].as_str().unwrap().to_string();
+
+    (provision_id, dpop_key, session_id)
+}
+
+#[tokio::test]
+#[serial]
+async fn test_multi_device_sessions_coexist() {
+    common::require_db!();
+    let app = common::app::TestApp::new_with_encryption().await;
+    let (client_key, client_secret, _id) = app.create_api_client("confidential", None).await;
+    let did = "did:plc:multidevice";
+
+    let (_prov1, _key1, session_id_1) =
+        provision_and_register(&app, &client_key, &client_secret, did, "token-device-1").await;
+    let (_prov2, _key2, session_id_2) =
+        provision_and_register(&app, &client_key, &client_secret, did, "token-device-2").await;
+
+    assert_ne!(session_id_1, session_id_2);
+
+    // Both sessions should appear in the device list
+    let list_req = get_with_headers(
+        &format!("/oauth/sessions/{}/devices", did),
+        vec![
+            ("x-client-key", &client_key),
+            ("x-client-secret", &client_secret),
+        ],
+    );
+    let list_resp = app.router.clone().oneshot(list_req).await.unwrap();
+    assert_eq!(list_resp.status(), StatusCode::OK);
+    let devices: Vec<serde_json::Value> =
+        serde_json::from_value(response_json(list_resp).await).unwrap();
+    assert_eq!(devices.len(), 2);
+
+    let ids: Vec<&str> = devices.iter().map(|d| d["id"].as_str().unwrap()).collect();
+    assert!(ids.contains(&session_id_1.as_str()));
+    assert!(ids.contains(&session_id_2.as_str()));
+}
+
+#[tokio::test]
+#[serial]
+async fn test_list_device_sessions_empty() {
+    common::require_db!();
+    let app = common::app::TestApp::new_with_encryption().await;
+    let (client_key, client_secret, _id) = app.create_api_client("confidential", None).await;
+
+    let list_req = get_with_headers(
+        "/oauth/sessions/did:plc:nobody/devices",
+        vec![
+            ("x-client-key", &client_key),
+            ("x-client-secret", &client_secret),
+        ],
+    );
+    let list_resp = app.router.clone().oneshot(list_req).await.unwrap();
+    assert_eq!(list_resp.status(), StatusCode::OK);
+    let devices: Vec<serde_json::Value> =
+        serde_json::from_value(response_json(list_resp).await).unwrap();
+    assert!(devices.is_empty());
+}
+
+#[tokio::test]
+#[serial]
+async fn test_delete_device_session_by_id() {
+    common::require_db!();
+    let app = common::app::TestApp::new_with_encryption().await;
+    let (client_key, client_secret, _id) = app.create_api_client("confidential", None).await;
+    let did = "did:plc:deletedevice";
+
+    let (_prov1, _key1, session_id_1) =
+        provision_and_register(&app, &client_key, &client_secret, did, "token-a").await;
+    let (_prov2, _key2, session_id_2) =
+        provision_and_register(&app, &client_key, &client_secret, did, "token-b").await;
+
+    // Delete session 1
+    let del_req = delete_with_headers(
+        &format!("/oauth/sessions/{}/devices/{}", did, session_id_1),
+        vec![
+            ("x-client-key", &client_key),
+            ("x-client-secret", &client_secret),
+        ],
+    );
+    let del_resp = app.router.clone().oneshot(del_req).await.unwrap();
+    assert_eq!(del_resp.status(), StatusCode::NO_CONTENT);
+
+    // Only session 2 should remain
+    let list_req = get_with_headers(
+        &format!("/oauth/sessions/{}/devices", did),
+        vec![
+            ("x-client-key", &client_key),
+            ("x-client-secret", &client_secret),
+        ],
+    );
+    let list_resp = app.router.clone().oneshot(list_req).await.unwrap();
+    let devices: Vec<serde_json::Value> =
+        serde_json::from_value(response_json(list_resp).await).unwrap();
+    assert_eq!(devices.len(), 1);
+    assert_eq!(devices[0]["id"].as_str().unwrap(), session_id_2);
+}
+
+#[tokio::test]
+#[serial]
+async fn test_delete_device_session_not_found() {
+    common::require_db!();
+    let app = common::app::TestApp::new_with_encryption().await;
+    let (client_key, client_secret, _id) = app.create_api_client("confidential", None).await;
+
+    let del_req = delete_with_headers(
+        "/oauth/sessions/did:plc:nobody/devices/nonexistent-id",
+        vec![
+            ("x-client-key", &client_key),
+            ("x-client-secret", &client_secret),
+        ],
+    );
+    let del_resp = app.router.clone().oneshot(del_req).await.unwrap();
+    assert_eq!(del_resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+#[serial]
+async fn test_session_upsert_same_device() {
+    common::require_db!();
+    let app = common::app::TestApp::new_with_encryption().await;
+    let (client_key, client_secret, _id) = app.create_api_client("confidential", None).await;
+    let did = "did:plc:upsertuser";
+
+    // Provision one key
+    let key_req = post_json_with_headers(
+        "/oauth/dpop-keys",
+        &json!({}),
+        vec![
+            ("x-client-key", &client_key),
+            ("x-client-secret", &client_secret),
+        ],
+    );
+    let key_resp = app.router.clone().oneshot(key_req).await.unwrap();
+    let key_body = response_json(key_resp).await;
+    let provision_id = key_body["provision_id"].as_str().unwrap();
+
+    // Register session with token-v1
+    let reg1 = post_json_with_headers(
+        "/oauth/sessions",
+        &json!({
+            "provision_id": provision_id,
+            "did": did,
+            "access_token": "token-v1",
+            "scopes": "atproto",
+        }),
+        vec![
+            ("x-client-key", &client_key),
+            ("x-client-secret", &client_secret),
+        ],
+    );
+    let resp1 = app.router.clone().oneshot(reg1).await.unwrap();
+    assert_eq!(resp1.status(), StatusCode::CREATED);
+
+    // Re-register with same provision_id (same device key) but new token
+    let reg2 = post_json_with_headers(
+        "/oauth/sessions",
+        &json!({
+            "provision_id": provision_id,
+            "did": did,
+            "access_token": "token-v2",
+            "scopes": "atproto",
+        }),
+        vec![
+            ("x-client-key", &client_key),
+            ("x-client-secret", &client_secret),
+        ],
+    );
+    let resp2 = app.router.clone().oneshot(reg2).await.unwrap();
+    assert_eq!(resp2.status(), StatusCode::CREATED);
+
+    // Should still be exactly one device session (upsert, not duplicate)
+    let list_req = get_with_headers(
+        &format!("/oauth/sessions/{}/devices", did),
+        vec![
+            ("x-client-key", &client_key),
+            ("x-client-secret", &client_secret),
+        ],
+    );
+    let list_resp = app.router.clone().oneshot(list_req).await.unwrap();
+    let devices: Vec<serde_json::Value> =
+        serde_json::from_value(response_json(list_resp).await).unwrap();
+    assert_eq!(devices.len(), 1);
+}
+
+#[tokio::test]
+#[serial]
+async fn test_get_session_with_confidential_client() {
+    common::require_db!();
+    let app = common::app::TestApp::new_with_encryption().await;
+    let (client_key, client_secret, _id) = app.create_api_client("confidential", None).await;
+    let did = "did:plc:getsession";
+
+    provision_and_register(&app, &client_key, &client_secret, did, "some-token").await;
+
+    let get_req = get_with_headers(
+        &format!("/oauth/sessions/{}", did),
+        vec![
+            ("x-client-key", &client_key),
+            ("x-client-secret", &client_secret),
+        ],
+    );
+    let get_resp = app.router.clone().oneshot(get_req).await.unwrap();
+    assert_eq!(get_resp.status(), StatusCode::OK);
+    let body = response_json(get_resp).await;
+    assert_eq!(body["did"], did);
+    assert!(body["scopes"].is_array());
+}
+
+#[tokio::test]
+#[serial]
+async fn test_device_list_response_format() {
+    common::require_db!();
+    let app = common::app::TestApp::new_with_encryption().await;
+    let (client_key, client_secret, _id) = app.create_api_client("confidential", None).await;
+    let did = "did:plc:formatcheck";
+
+    provision_and_register(&app, &client_key, &client_secret, did, "token-fmt").await;
+
+    let list_req = get_with_headers(
+        &format!("/oauth/sessions/{}/devices", did),
+        vec![
+            ("x-client-key", &client_key),
+            ("x-client-secret", &client_secret),
+        ],
+    );
+    let list_resp = app.router.clone().oneshot(list_req).await.unwrap();
+    assert_eq!(list_resp.status(), StatusCode::OK);
+    let devices: Vec<serde_json::Value> =
+        serde_json::from_value(response_json(list_resp).await).unwrap();
+    assert_eq!(devices.len(), 1);
+
+    let device = &devices[0];
+    assert!(device["id"].is_string());
+    assert!(device["dpop_key_id"].is_string());
+    assert!(device["scopes"].is_array());
+    assert!(device["created_at"].is_string());
+    assert!(device["updated_at"].is_string());
+}
+
+#[tokio::test]
+#[serial]
+async fn test_public_client_dpop_get_session() {
+    common::require_db!();
+    let app = common::app::TestApp::new_with_encryption().await;
+    let (client_key, _secret, _id) = app
+        .create_api_client("public", Some(vec!["http://localhost:3000".to_string()]))
+        .await;
+
+    use base64::Engine;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use sha2::{Digest, Sha256};
+
+    let verifier = "test-verifier-for-public-client-session";
+    let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
+
+    // Provision key with PKCE
+    let key_req = post_json_with_headers(
+        "/oauth/dpop-keys",
+        &json!({ "pkce_challenge": challenge }),
+        vec![
+            ("x-client-key", &client_key),
+            ("origin", "http://localhost:3000"),
+        ],
+    );
+    let key_resp = app.router.clone().oneshot(key_req).await.unwrap();
+    assert_eq!(key_resp.status(), StatusCode::CREATED);
+    let key_body = response_json(key_resp).await;
+    let provision_id = key_body["provision_id"].as_str().unwrap();
+    let dpop_key = &key_body["dpop_key"];
+
+    let did = "did:plc:publicuser";
+    let access_token = "public-client-access-token";
+
+    // Register session with PKCE verifier
+    let session_req = post_json_with_headers(
+        "/oauth/sessions",
+        &json!({
+            "provision_id": provision_id,
+            "pkce_verifier": verifier,
+            "did": did,
+            "access_token": access_token,
+            "scopes": "atproto",
+            "pds_url": "https://pds.example.com",
+        }),
+        vec![("x-client-key", &client_key)],
+    );
+    let session_resp = app.router.clone().oneshot(session_req).await.unwrap();
+    assert_eq!(session_resp.status(), StatusCode::CREATED);
+
+    // GET session with DPoP proof
+    let request_url = format!("http://127.0.0.1/oauth/sessions/{}", did);
+    let proof = generate_dpop_proof(dpop_key, "GET", &request_url, access_token, None)
+        .expect("failed to generate DPoP proof");
+
+    let get_req = get_with_headers(
+        &format!("/oauth/sessions/{}", did),
+        vec![
+            ("x-client-key", &client_key),
+            ("authorization", &format!("DPoP {}", access_token)),
+            ("dpop", &proof),
+        ],
+    );
+    let get_resp = app.router.clone().oneshot(get_req).await.unwrap();
+    assert_eq!(get_resp.status(), StatusCode::OK);
+    let body = response_json(get_resp).await;
+    assert_eq!(body["did"], did);
+}
+
+#[tokio::test]
+#[serial]
+async fn test_public_client_dpop_delete_session() {
+    common::require_db!();
+    let app = common::app::TestApp::new_with_encryption().await;
+    let (client_key, _secret, _id) = app
+        .create_api_client("public", Some(vec!["http://localhost:3000".to_string()]))
+        .await;
+
+    use base64::Engine;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use sha2::{Digest, Sha256};
+
+    let verifier = "test-verifier-for-public-delete";
+    let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
+
+    let key_req = post_json_with_headers(
+        "/oauth/dpop-keys",
+        &json!({ "pkce_challenge": challenge }),
+        vec![
+            ("x-client-key", &client_key),
+            ("origin", "http://localhost:3000"),
+        ],
+    );
+    let key_resp = app.router.clone().oneshot(key_req).await.unwrap();
+    assert_eq!(key_resp.status(), StatusCode::CREATED);
+    let key_body = response_json(key_resp).await;
+    let provision_id = key_body["provision_id"].as_str().unwrap();
+    let dpop_key = &key_body["dpop_key"];
+
+    let did = "did:plc:publicdelete";
+    let access_token = "public-delete-token";
+
+    let session_req = post_json_with_headers(
+        "/oauth/sessions",
+        &json!({
+            "provision_id": provision_id,
+            "pkce_verifier": verifier,
+            "did": did,
+            "access_token": access_token,
+            "scopes": "atproto",
+            "pds_url": "https://pds.example.com",
+        }),
+        vec![("x-client-key", &client_key)],
+    );
+    let session_resp = app.router.clone().oneshot(session_req).await.unwrap();
+    assert_eq!(session_resp.status(), StatusCode::CREATED);
+
+    // DELETE session with DPoP proof
+    let request_url = format!("http://127.0.0.1/oauth/sessions/{}", did);
+    let proof = generate_dpop_proof(dpop_key, "DELETE", &request_url, access_token, None)
+        .expect("failed to generate DPoP proof");
+
+    let del_req = delete_with_headers(
+        &format!("/oauth/sessions/{}", did),
+        vec![
+            ("x-client-key", &client_key),
+            ("authorization", &format!("DPoP {}", access_token)),
+            ("dpop", &proof),
+        ],
+    );
+    let del_resp = app.router.clone().oneshot(del_req).await.unwrap();
+    assert_eq!(del_resp.status(), StatusCode::NO_CONTENT);
+
+    // Verify session is gone — GET should fail
+    let request_url2 = format!("http://127.0.0.1/oauth/sessions/{}", did);
+    let proof2 = generate_dpop_proof(dpop_key, "GET", &request_url2, access_token, None)
+        .expect("failed to generate DPoP proof");
+
+    let get_req = get_with_headers(
+        &format!("/oauth/sessions/{}", did),
+        vec![
+            ("x-client-key", &client_key),
+            ("authorization", &format!("DPoP {}", access_token)),
+            ("dpop", &proof2),
+        ],
+    );
+    let get_resp = app.router.clone().oneshot(get_req).await.unwrap();
+    assert_ne!(get_resp.status(), StatusCode::OK);
 }

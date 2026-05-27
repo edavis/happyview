@@ -17,6 +17,8 @@ pub struct Claims {
     did: String,
     /// The API client key (e.g. "hvc_...") if the user authenticated via an API client.
     client_key: Option<String>,
+    /// The DPoP key ID identifying the specific device session.
+    dpop_key_id: Option<String>,
 }
 
 /// Separator used to encode `did` and `client_key` in a single cookie value.
@@ -34,11 +36,17 @@ impl Claims {
         self.client_key.as_deref()
     }
 
+    /// The DPoP key ID, if the user authenticated via a DPoP session.
+    pub fn dpop_key_id(&self) -> Option<&str> {
+        self.dpop_key_id.as_deref()
+    }
+
     /// Create claims for an internal call (e.g. Lua xrpc lib) with no client key.
     pub fn internal(did: String) -> Self {
         Self {
             did,
             client_key: None,
+            dpop_key_id: None,
         }
     }
 
@@ -68,7 +76,11 @@ impl FromRequestParts<AppState> for Claims {
             } else {
                 (value, None)
             };
-            return Ok(Claims { did, client_key });
+            return Ok(Claims {
+                did,
+                client_key,
+                dpop_key_id: None,
+            });
         }
 
         // Path 2: Authorization header
@@ -90,6 +102,7 @@ impl FromRequestParts<AppState> for Claims {
                 return Ok(Claims {
                     did,
                     client_key: None,
+                    dpop_key_id: None,
                 });
             }
 
@@ -98,6 +111,7 @@ impl FromRequestParts<AppState> for Claims {
             return Ok(Claims {
                 did: service_auth.did,
                 client_key: None,
+                dpop_key_id: None,
             });
         }
 
@@ -163,29 +177,23 @@ pub async fn resolve_dpop_claims(
         crate::oauth::client_auth::resolve_client_by_key(&state.db, state.db_backend, client_key)
             .await?;
 
-    // Look up the session by token
-    let session = crate::oauth::sessions::get_dpop_session_by_token_hash(
+    // Extract JWK thumbprint from the DPoP proof and resolve the key ID
+    let thumbprint = crate::oauth::dpop_proof::extract_proof_thumbprint(dpop_proof)?;
+    let dpop_key_id = crate::oauth::keys::get_dpop_key_id_by_thumbprint(
+        &state.db,
+        state.db_backend,
+        &client.id,
+        &thumbprint,
+    )
+    .await?;
+
+    // Look up the session by key ID (stable across token rotations)
+    let session = crate::oauth::sessions::get_dpop_session_by_key_id(
         &state.db,
         state.db_backend,
         encryption_key,
         &client.id,
-        access_token,
-    )
-    .await?;
-
-    // Check token expiry
-    if let Some(ref expires_at) = session.token_expires_at
-        && let Ok(exp) = chrono::DateTime::parse_from_rfc3339(expires_at)
-        && exp < chrono::Utc::now()
-    {
-        return Err(AppError::Auth("token_expired".into()));
-    }
-
-    // Get the DPoP key thumbprint for proof validation
-    let thumbprint = crate::oauth::keys::get_dpop_key_thumbprint(
-        &state.db,
-        state.db_backend,
-        &session.dpop_key_id,
+        &dpop_key_id,
     )
     .await?;
 
@@ -215,6 +223,7 @@ pub async fn resolve_dpop_claims(
     Ok(Claims {
         did: session.user_did,
         client_key: Some(client_key.to_string()),
+        dpop_key_id: Some(dpop_key_id),
     })
 }
 

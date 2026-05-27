@@ -23,6 +23,23 @@ struct DpopPayload {
     jti: String,
 }
 
+/// Extract the JWK thumbprint from a DPoP proof JWT header without full validation.
+pub fn extract_proof_thumbprint(proof_jwt: &str) -> Result<String, AppError> {
+    let header_b64 = proof_jwt
+        .split('.')
+        .next()
+        .ok_or_else(|| AppError::Auth("invalid DPoP proof format".into()))?;
+
+    let header_bytes = URL_SAFE_NO_PAD
+        .decode(header_b64)
+        .map_err(|_| AppError::Auth("invalid DPoP proof header encoding".into()))?;
+
+    let header: DpopHeader = serde_json::from_slice(&header_bytes)
+        .map_err(|_| AppError::Auth("invalid DPoP proof header".into()))?;
+
+    super::keys::compute_jwk_thumbprint(&header.jwk)
+}
+
 /// Validate a DPoP proof JWT.
 ///
 /// Checks:
@@ -215,5 +232,60 @@ mod tests {
         let result = validate_dpop_proof(&jwt, "GET", "https://example.com", "token", "thumb");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("dpop+jwt"));
+    }
+
+    #[test]
+    fn extract_proof_thumbprint_from_real_proof() {
+        let keypair = crate::oauth::keys::generate_dpop_keypair().unwrap();
+
+        let proof = crate::oauth::pds_write::generate_dpop_proof(
+            &keypair.private_jwk,
+            "POST",
+            "https://pds.example.com/xrpc/test",
+            "token",
+            None,
+        )
+        .unwrap();
+
+        let thumbprint = extract_proof_thumbprint(&proof).unwrap();
+        assert_eq!(thumbprint, keypair.thumbprint);
+    }
+
+    #[test]
+    fn extract_proof_thumbprint_rejects_garbage() {
+        assert!(extract_proof_thumbprint("not-a-jwt").is_err());
+    }
+
+    #[test]
+    fn extract_proof_thumbprint_rejects_bad_base64() {
+        assert!(extract_proof_thumbprint("!!!.payload.sig").is_err());
+    }
+
+    #[test]
+    fn extract_proof_thumbprint_different_keys_differ() {
+        let kp1 = crate::oauth::keys::generate_dpop_keypair().unwrap();
+        let kp2 = crate::oauth::keys::generate_dpop_keypair().unwrap();
+
+        let proof1 = crate::oauth::pds_write::generate_dpop_proof(
+            &kp1.private_jwk,
+            "GET",
+            "https://example.com",
+            "t",
+            None,
+        )
+        .unwrap();
+
+        let proof2 = crate::oauth::pds_write::generate_dpop_proof(
+            &kp2.private_jwk,
+            "GET",
+            "https://example.com",
+            "t",
+            None,
+        )
+        .unwrap();
+
+        let t1 = extract_proof_thumbprint(&proof1).unwrap();
+        let t2 = extract_proof_thumbprint(&proof2).unwrap();
+        assert_ne!(t1, t2);
     }
 }
