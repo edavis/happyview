@@ -54,9 +54,9 @@ pub async fn unlink_account(
     // Delete delegated account (CASCADE deletes all delegates)
     db::delete_delegated_account(&state.db, state.db_backend, account_did).await?;
 
-    // Delete the DPoP session for the target account using the stored api_client_id
+    // Delete all DPoP sessions for the target account using the stored api_client_id
     if let Some(api_client_id) = stored_api_client_id
-        && let Err(e) = crate::oauth::sessions::delete_dpop_session(
+        && let Err(e) = crate::oauth::sessions::delete_all_dpop_sessions(
             &state.db,
             state.db_backend,
             &api_client_id,
@@ -64,7 +64,7 @@ pub async fn unlink_account(
         )
         .await
     {
-        tracing::warn!(account_did, %e, "failed to clean up DPoP session on unlink");
+        tracing::warn!(account_did, %e, "failed to clean up DPoP sessions on unlink");
     }
 
     log_event(

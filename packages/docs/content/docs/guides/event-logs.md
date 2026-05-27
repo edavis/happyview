@@ -10,29 +10,29 @@ Events follow a `category.action` naming convention. Each event has a severity l
 
 ### Lexicon events
 
-| Event Type | Severity | Subject | Detail |
-|---|---|---|---|
-| `lexicon.created` | info | Lexicon NSID | `revision`, `has_script`, `source` |
-| `lexicon.updated` | info | Lexicon NSID | `revision`, `has_script`, `source` |
-| `lexicon.deleted` | info | Lexicon NSID | — |
+| Event Type        | Severity | Subject      | Detail                             |
+| ----------------- | -------- | ------------ | ---------------------------------- |
+| `lexicon.created` | info     | Lexicon NSID | `revision`, `has_script`, `source` |
+| `lexicon.updated` | info     | Lexicon NSID | `revision`, `has_script`, `source` |
+| `lexicon.deleted` | info     | Lexicon NSID | —                                  |
 
 Logged when lexicons are uploaded, updated, or deleted via the [admin API](../api-reference/admin/lexicons.md). The `actor_did` is the user who performed the action.
 
 ### Record events
 
-| Event Type | Severity | Subject | Detail |
-|---|---|---|---|
-| `record.created` | info | Record AT URI | `collection`, `did`, `rkey` |
-| `record.deleted` | info | Record AT URI | `collection`, `did`, `rkey` |
+| Event Type       | Severity | Subject       | Detail                      |
+| ---------------- | -------- | ------------- | --------------------------- |
+| `record.created` | info     | Record AT URI | `collection`, `did`, `rkey` |
+| `record.deleted` | info     | Record AT URI | `collection`, `did`, `rkey` |
 
 Logged when records are received from Jetstream and stored or removed from the local database. These are system-triggered events (`actor_did` is null). If a database error occurs during the operation, the same event type is logged with `error` severity and the error message is included in the detail.
 
 ### Script events
 
-| Event Type | Severity | Subject | Detail |
-|---|---|---|---|
-| `script.executed` | info | Method NSID | `method`, `caller_did`, `duration_ms` |
-| `script.error` | error | Method NSID | `error`, `script_source`, `input`, `caller_did`, `method` |
+| Event Type        | Severity | Subject     | Detail                                                    |
+| ----------------- | -------- | ----------- | --------------------------------------------------------- |
+| `script.executed` | info     | Method NSID | `method`, `caller_did`, `duration_ms`                     |
+| `script.error`    | error    | Method NSID | `error`, `script_source`, `input`, `caller_did`, `method` |
 
 Logged when Lua scripts run for XRPC query or procedure endpoints. Script errors capture the full context needed to reproduce and debug the issue: the error message, the complete Lua script source, the input that triggered it, and the caller's DID.
 
@@ -42,63 +42,63 @@ For query scripts (unauthenticated), `caller_did` and `input` are omitted from t
 
 ### User events
 
-| Event Type | Severity | Subject | Detail |
-|---|---|---|---|
-| `user.created` | info | New user DID | `template` (if used) |
-| `user.deleted` | info | Removed user ID | — |
-| `user.bootstrapped` | info | Bootstrapped user DID | — |
-| `user.permissions_updated` | info | User ID | `granted`, `revoked` |
-| `user.super_transferred` | warn | New super user ID | `from_user_id` |
+| Event Type                 | Severity | Subject               | Detail               |
+| -------------------------- | -------- | --------------------- | -------------------- |
+| `user.created`             | info     | New user DID          | `template` (if used) |
+| `user.deleted`             | info     | Removed user ID       | —                    |
+| `user.bootstrapped`        | info     | Bootstrapped user DID | —                    |
+| `user.permissions_updated` | info     | User ID               | `granted`, `revoked` |
+| `user.super_transferred`   | warn     | New super user ID     | `from_user_id`       |
 
 The `user.bootstrapped` event is logged when the first user is auto-promoted to super user (see [Auth - Auto-bootstrap](../api-reference/admin/admin-api.md#auth)).
 
 ### Auth events
 
-| Event Type | Severity | Subject | Detail |
-|---|---|---|---|
-| `auth.permission_denied` | error | Endpoint path | `required_permission`, `user_id` |
+| Event Type               | Severity | Subject       | Detail                           |
+| ------------------------ | -------- | ------------- | -------------------------------- |
+| `auth.permission_denied` | error    | Endpoint path | `required_permission`, `user_id` |
 
 Logged when a user attempts to access an endpoint they don't have permission for.
 
 ### API Key events
 
-| Event Type | Severity | Subject | Detail |
-|---|---|---|---|
-| `api_key.created` | info | Key ID | `name`, `permissions` |
-| `api_key.revoked` | info | Key ID | `name` |
+| Event Type        | Severity | Subject | Detail                |
+| ----------------- | -------- | ------- | --------------------- |
+| `api_key.created` | info     | Key ID  | `name`, `permissions` |
+| `api_key.revoked` | info     | Key ID  | `name`                |
 
 ### Script Variable events
 
-| Event Type | Severity | Subject | Detail |
-|---|---|---|---|
-| `script_variable.upserted` | info | Variable key | — |
-| `script_variable.deleted` | info | Variable key | — |
+| Event Type                 | Severity | Subject      | Detail |
+| -------------------------- | -------- | ------------ | ------ |
+| `script_variable.upserted` | info     | Variable key | —      |
+| `script_variable.deleted`  | info     | Variable key | —      |
 
 ### Hook events
 
-| Event Type | Severity | Subject | Detail |
-|---|---|---|---|
-| `hook.executed` | info | Record AT URI | `lexicon_id` |
-| `hook.dead_lettered` | error | Record AT URI | `lexicon_id`, `error` |
+| Event Type             | Severity | Subject    | Detail                |
+| ---------------------- | -------- | ---------- | --------------------- |
+| `script.executed`      | info     | Trigger ID | `trigger_id`          |
+| `script.dead_lettered` | error    | Trigger ID | `trigger_id`, `error` |
 
-Logged when [index hooks](./index-hooks.md) run. Dead-lettered events indicate a hook failed all retry attempts. You can manage dead letters from the **Data > Dead Letters** page in the dashboard — see [Dead Letters](#dead-letters) below.
+Logged when [record/label scripts](./label-scripts) run. Dead-lettered events indicate a script failed all retry attempts. You can manage dead letters from the **Data > Dead Letters** page in the dashboard — see [Dead Letters](#dead-letters) below.
 
 ### Backfill events
 
-| Event Type | Severity | Subject | Detail |
-|---|---|---|---|
-| `backfill.started` | info | Collection NSID | `job_id` |
-| `backfill.completed` | info | Collection NSID | `job_id`, `total_repos` |
-| `backfill.failed` | error | Collection NSID | `job_id`, `error` |
+| Event Type           | Severity | Subject         | Detail                  |
+| -------------------- | -------- | --------------- | ----------------------- |
+| `backfill.started`   | info     | Collection NSID | `job_id`                |
+| `backfill.completed` | info     | Collection NSID | `job_id`, `total_repos` |
+| `backfill.failed`    | error    | Collection NSID | `job_id`, `error`       |
 
 See [Backfill](./backfill.md) for background on backfill jobs.
 
 ### Jetstream events
 
-| Event Type | Severity | Subject | Detail |
-|---|---|---|---|
-| `jetstream.connected` | info | — | `url` |
-| `jetstream.disconnected` | warn | — | `reason` |
+| Event Type               | Severity | Subject | Detail   |
+| ------------------------ | -------- | ------- | -------- |
+| `jetstream.connected`    | info     | —       | `url`    |
+| `jetstream.disconnected` | warn     | —       | `reason` |
 
 Logged when the WebSocket connection to [Jetstream](https://github.com/bluesky-social/jetstream) is established or lost.
 
@@ -149,6 +149,7 @@ const page: EventsResponse = await fetch(
   { headers },
 ).then((r) => r.json());
 ```
+
 ```js tab="JavaScript" tab-group="language"
 const TOKEN = "hv_..."; // your API key
 const headers = { Authorization: `Bearer ${TOKEN}` };
@@ -177,6 +178,7 @@ const page = await fetch(
   { headers },
 ).then((r) => r.json());
 ```
+
 ```rust tab="Rust" tab-group="language"
 let client = reqwest::Client::new();
 let token = "hv_..."; // your API key
@@ -224,6 +226,7 @@ let page: serde_json::Value = client
     .json()
     .await?;
 ```
+
 ```go tab="Go" tab-group="language"
 token := "hv_..." // your API key
 
@@ -251,6 +254,7 @@ req, _ = http.NewRequest("GET",
 req.Header.Set("Authorization", "Bearer "+token)
 page, err := http.DefaultClient.Do(req)
 ```
+
 ```sh tab="cURL" tab-group="language"
 AUTH="Authorization: Bearer hv_..." # your API key
 
@@ -279,11 +283,11 @@ See [Configuration](../getting-started/configuration.md) for all environment var
 
 ## Dead Letters
 
-When an index hook fails after all retry attempts, the event is stored in the dead letters queue. You can manage dead letters from the **Data > Dead Letters** page in the dashboard.
+When a record or label script fails after all retry attempts, the event is stored in the dead letters queue. You can manage dead letters from the **Data > Dead Letters** page in the dashboard.
 
 From the dead letters page you can:
 
-- **Retry Hook** — replay the stored record through the index hook (use after fixing a hook script)
+- **Retry Script** — replay the stored event through the script (use after fixing the script)
 - **Re-index** — fetch the record fresh from the PDS and run it through the full indexing pipeline (use when the record may have changed)
 - **Dismiss** — mark the dead letter as resolved without retrying
 

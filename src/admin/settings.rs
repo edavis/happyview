@@ -16,11 +16,22 @@ use super::types::{SettingEntry, UpsertSettingBody};
 
 const ENV_FALLBACKS: &[(&str, &str)] = &[
     ("app_name", "APP_NAME"),
+    (
+        "backfill_concurrent_dids_per_pds",
+        "BACKFILL_CONCURRENT_DIDS_PER_PDS",
+    ),
+    ("backfill_concurrent_pds", "BACKFILL_CONCURRENT_PDS"),
+    (
+        "backfill_concurrent_resolution",
+        "BACKFILL_CONCURRENT_RESOLUTION",
+    ),
+    ("backfill_retention_days", "BACKFILL_RETENTION_DAYS"),
     ("client_uri", "CLIENT_URI"),
     ("feature.spaces_enabled", "FEATURE_SPACES_ENABLED"),
     ("logo_uri", "LOGO_URI"),
     ("tos_uri", "TOS_URI"),
     ("policy_uri", "POLICY_URI"),
+    ("verbose_event_logging", "VERBOSE_EVENT_LOGGING"),
 ];
 
 /// Resolve a setting value: check the DB first, then fall back to env var.
@@ -170,6 +181,63 @@ pub(super) async fn delete(
     .await;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// GET /admin/settings/db-info — return database connection pool info.
+pub(super) async fn db_info(
+    State(state): State<AppState>,
+    auth: UserAuth,
+) -> Result<Json<serde_json::Value>, AppError> {
+    auth.require(Permission::SettingsManage).await?;
+
+    let server_max: Option<i64> = if state.db_backend == DatabaseBackend::Postgres {
+        sqlx::query_as::<_, (String,)>("SHOW max_connections")
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|(v,)| v.parse().ok())
+    } else {
+        None
+    };
+
+    let main_pool_size = state.db.options().get_max_connections() as i64;
+    let backfill_pool_size = state.backfill_db.options().get_max_connections() as i64;
+
+    let pds: u32 = get_setting(&state.db, "backfill_concurrent_pds", state.db_backend)
+        .await
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10);
+    let dids: u32 = get_setting(
+        &state.db,
+        "backfill_concurrent_dids_per_pds",
+        state.db_backend,
+    )
+    .await
+    .and_then(|v| v.parse().ok())
+    .unwrap_or(3);
+    let resolution: u32 = get_setting(
+        &state.db,
+        "backfill_concurrent_resolution",
+        state.db_backend,
+    )
+    .await
+    .and_then(|v| v.parse().ok())
+    .unwrap_or(100);
+    let would_be_pool_size =
+        crate::db::compute_backfill_pool_size(state.db_backend, pds, dids, resolution);
+    let restart_recommended = would_be_pool_size as i64 > backfill_pool_size;
+
+    Ok(Json(serde_json::json!({
+        "backend": match state.db_backend {
+            DatabaseBackend::Sqlite => "sqlite",
+            DatabaseBackend::Postgres => "postgres",
+        },
+        "server_max_connections": server_max,
+        "main_pool_size": main_pool_size,
+        "backfill_pool_size": backfill_pool_size,
+        "restart_recommended": restart_recommended,
+    })))
 }
 
 /// PUT /admin/settings/logo — upload a logo image (max 5MB).

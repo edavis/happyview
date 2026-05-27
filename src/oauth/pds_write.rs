@@ -20,6 +20,7 @@ struct DpopCredentials {
 }
 
 /// Resolve DPoP credentials: session, PDS URL, and decrypted private key.
+#[allow(clippy::too_many_arguments)]
 async fn resolve_credentials(
     http: &reqwest::Client,
     pool: &sqlx::AnyPool,
@@ -28,10 +29,17 @@ async fn resolve_credentials(
     plc_url: &str,
     api_client_id: &str,
     user_did: &str,
+    dpop_key_id: &str,
 ) -> Result<DpopCredentials, AppError> {
-    let session =
-        super::sessions::get_dpop_session(pool, backend, encryption_key, api_client_id, user_did)
-            .await?;
+    let session = super::sessions::get_dpop_session(
+        pool,
+        backend,
+        encryption_key,
+        api_client_id,
+        user_did,
+        dpop_key_id,
+    )
+    .await?;
 
     let pds_url = match session.pds_url {
         Some(ref url) => url.clone(),
@@ -172,6 +180,7 @@ async fn retry_after_refresh(
                 encryption_key,
                 &creds.session.api_client_id,
                 &creds.session.user_did,
+                &creds.session.dpop_key_id,
             )
             .await?;
 
@@ -195,6 +204,7 @@ async fn retry_after_refresh(
                     backend,
                     &creds.session.api_client_id,
                     &creds.session.user_did,
+                    &creds.session.dpop_key_id,
                 )
                 .await
                 {
@@ -258,6 +268,7 @@ pub async fn dpop_pds_post(
     plc_url: &str,
     api_client_id: &str,
     user_did: &str,
+    dpop_key_id: &str,
     xrpc_method: &str,
     body: &serde_json::Value,
 ) -> Result<reqwest::Response, AppError> {
@@ -269,6 +280,7 @@ pub async fn dpop_pds_post(
         plc_url,
         api_client_id,
         user_did,
+        dpop_key_id,
     )
     .await?;
 
@@ -310,6 +322,7 @@ pub async fn dpop_pds_post_blob(
     plc_url: &str,
     api_client_id: &str,
     user_did: &str,
+    dpop_key_id: &str,
     content_type: &str,
     blob: bytes::Bytes,
 ) -> Result<reqwest::Response, AppError> {
@@ -321,6 +334,7 @@ pub async fn dpop_pds_post_blob(
         plc_url,
         api_client_id,
         user_did,
+        dpop_key_id,
     )
     .await?;
 

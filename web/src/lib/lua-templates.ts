@@ -22,22 +22,22 @@ export const LEXICON_TEMPLATE = JSON.stringify(
 export function procedureScript(collection: string): string {
   const target = collection || "COLLECTION"
   return `function handle()
-\tlocal r = Record("${target}", input)
-\tr:save()
-\treturn { uri = r._uri, cid = r._cid }
+  local r = Record("${target}", input)
+  r:save()
+  return { uri = r._uri, cid = r._cid }
 end
 `
 }
 
 export function indexHookScript(): string {
   return `function handle()
-\tif action == "delete" then
-\t\t-- record was deleted
-\t\tlog("deleted " .. uri)
-\telse
-\t\t-- record was created or updated
-\t\tlog(action .. " " .. uri)
-\tend
+  if action == "delete" then
+    -- record was deleted
+    log("deleted " .. uri)
+  else
+    -- record was created or updated
+    log(action .. " " .. uri)
+  end
 end
 `
 }
@@ -47,20 +47,20 @@ export function queryScript(collection: string): string {
   return `collection = "${target}"
 
 function handle()
-\tif params.uri then
-\t\tlocal record = db.get(params.uri)
-\t\tif not record then
-\t\t\terror("record not found")
-\t\tend
-\t\treturn { record = record }
-\tend
+  if params.uri then
+    local record = db.get(params.uri)
+    if not record then
+      error("record not found")
+    end
+    return { record = record }
+  end
 
-\treturn db.query({
-\t\tcollection = collection,
-\t\tdid = params.did,
-\t\tlimit = params.limit,
-\t\tcursor = params.cursor,
-\t})
+  return db.query({
+    collection = collection,
+    did = params.did,
+    limit = params.limit,
+    cursor = params.cursor,
+  })
 end
 `
 }

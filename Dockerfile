@@ -33,7 +33,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY --from=builder /app/target/release/happyview /usr/local/bin/happyview
-COPY --from=builder /app/migrations /app/migrations
+RUN chmod +x /usr/local/bin/happyview
+COPY migrations/ /app/migrations
 COPY --from=frontend /app/web/out /srv/static
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh && touch /srv/static/.base-path-pending

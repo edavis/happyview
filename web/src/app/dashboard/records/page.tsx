@@ -12,12 +12,11 @@ import {
 import { useSearchParams } from "next/navigation";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import {
-  getStats,
+  getCollections,
   getAdminRecords,
   deleteRecord,
   deleteCollectionRecords,
 } from "@/lib/api";
-import type { CollectionStat } from "@/types/stats";
 import type { AdminRecord } from "@/types/records";
 import {
   ResponsiveDialog,
@@ -83,7 +82,7 @@ export default function RecordsPage() {
   const searchParams = useSearchParams();
   const initialCollection = searchParams.get("collection") ?? "";
   const appliedInitial = useRef(false);
-  const [collections, setCollections] = useState<CollectionStat[]>([]);
+  const [collections, setCollections] = useState<string[]>([]);
   const [selectedCollection, setSelectedCollection] = useState<string>("");
   const [records, setRecords] = useState<AdminRecord[]>([]);
   const [cursorStack, setCursorStack] = useState<string[]>([]);
@@ -104,8 +103,8 @@ export default function RecordsPage() {
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
   useEffect(() => {
-    getStats()
-      .then((stats) => setCollections(stats.collections))
+    getCollections()
+      .then((data) => setCollections(data.collections))
       .catch((e) => setError(e.message));
   }, []);
 
@@ -113,7 +112,7 @@ export default function RecordsPage() {
   useEffect(() => {
     if (appliedInitial.current || !initialCollection || collections.length === 0)
       return;
-    if (collections.some((c) => c.collection === initialCollection)) {
+    if (collections.includes(initialCollection)) {
       appliedInitial.current = true;
       handleSelectCollection(initialCollection);
     }
@@ -171,9 +170,9 @@ export default function RecordsPage() {
       setBulkDeleteMode("selected");
       setBulkDeleteConfirm("");
       setRowSelection({});
-      // Refresh stats and records
-      const stats = await getStats();
-      setCollections(stats.collections);
+      // Refresh collections and records
+      const data = await getCollections();
+      setCollections(data.collections);
       setCursorStack([]);
       setNextCursor(undefined);
       setRecords([]);
@@ -369,8 +368,8 @@ export default function RecordsPage() {
               </SelectTrigger>
               <SelectContent>
                 {collections.map((col) => (
-                  <SelectItem key={col.collection} value={col.collection}>
-                    {col.collection}
+                  <SelectItem key={col} value={col}>
+                    {col}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -567,67 +566,6 @@ export default function RecordsPage() {
           <ResponsiveDialogContent>
             {(() => {
               const selectedCount = Object.keys(rowSelection).length;
-              const totalCount =
-                collections.find((c) => c.collection === selectedCollection)
-                  ?.count ?? 0;
-              const allInCollection =
-                table.getIsAllPageRowsSelected() &&
-                selectedCount >= totalCount;
-
-              if (allInCollection) {
-                return (
-                  <>
-                    <ResponsiveDialogHeader>
-                      <ResponsiveDialogTitle>
-                        Delete all records in collection?
-                      </ResponsiveDialogTitle>
-                      <ResponsiveDialogDescription>
-                        This will permanently delete all {totalCount} record(s)
-                        in{" "}
-                        <code className="font-semibold">
-                          {selectedCollection}
-                        </code>
-                        . This action cannot be undone.
-                      </ResponsiveDialogDescription>
-                    </ResponsiveDialogHeader>
-                    <div className="flex flex-col gap-2">
-                      <label
-                        className="text-sm"
-                        htmlFor="bulk-delete-confirm"
-                      >
-                        Type{" "}
-                        <code className="font-semibold">
-                          {selectedCollection}
-                        </code>{" "}
-                        to confirm:
-                      </label>
-                      <Input
-                        id="bulk-delete-confirm"
-                        value={bulkDeleteConfirm}
-                        onChange={(e) => setBulkDeleteConfirm(e.target.value)}
-                        placeholder={selectedCollection}
-                      />
-                    </div>
-                    <ResponsiveDialogFooter>
-                      <ResponsiveDialogClose asChild>
-                        <Button variant="outline" disabled={deletingAll}>
-                          Cancel
-                        </Button>
-                      </ResponsiveDialogClose>
-                      <Button
-                        variant="destructive"
-                        disabled={
-                          deletingAll ||
-                          bulkDeleteConfirm !== selectedCollection
-                        }
-                        onClick={handleDeleteAll}
-                      >
-                        {deletingAll ? "Deleting..." : "Delete"}
-                      </Button>
-                    </ResponsiveDialogFooter>
-                  </>
-                );
-              }
 
               if (!table.getIsAllPageRowsSelected()) {
                 return (
