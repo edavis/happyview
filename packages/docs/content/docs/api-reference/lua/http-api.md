@@ -2,7 +2,7 @@
 title: "HTTP API"
 ---
 
-The `http` table provides async HTTP client functions. Available in queries, procedures, and [index hooks](../../guides/index-hooks.md).
+The `http` table provides async HTTP client functions. Available in all [Lua scripts](../../guides/lua-scripting.md) — queries, procedures, and [record/label scripts](../../guides/label-scripts).
 
 ## Methods
 
@@ -21,10 +21,10 @@ http.head(url, opts?)
 
 The optional second argument is a table with:
 
-| Field     | Type   | Description                                    |
-| --------- | ------ | ---------------------------------------------- |
-| `headers` | table  | Request headers as key-value string pairs       |
-| `body`    | string | Request body (ignored for GET and HEAD)         |
+| Field     | Type   | Description                               |
+| --------- | ------ | ----------------------------------------- |
+| `headers` | table  | Request headers as key-value string pairs |
+| `body`    | string | Request body (ignored for GET and HEAD)   |
 
 ## Response
 

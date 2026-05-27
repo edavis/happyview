@@ -4,7 +4,7 @@ title: "Algolia Sync"
 
 Push records to an Algolia search index whenever they are created, updated, or deleted on the network.
 
-**Lexicon type:** record (index hook)
+**Script type:** record event (e.g. `record.index:<nsid>`)
 
 ```lua
 function handle()

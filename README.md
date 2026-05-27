@@ -10,7 +10,7 @@ Building an AppView from scratch means wiring up real-time event streams, record
 
 - **Network sync built in:** Real-time record streaming via Jetstream, historical backfill from each user's PDS, and atproto OAuth with DPoP-bound proxy writes back to the PDS.
 
-- **Customize with Lua, hooks, and plugins:** Lua scripts for query and procedure logic, index hooks that fire on every record change, WASM plugins for external platform integration, and labeler subscriptions for content moderation.
+- **Customize with Lua scripts and plugins:** Trigger-keyed Lua scripts for XRPC query/procedure logic and record/label event handling, WASM plugins for external platform integration, and labeler subscriptions for content moderation.
 
 - **Protocol-native:** Works with any PDS, resolves DIDs through the directory, and fetches network lexicons via DNS authority resolution.
 

@@ -1,6 +1,6 @@
 ---
 title: "HappyView v2.9"
-description: "Backfill concurrency, db.query filters, multi-device DPoP sessions, and a mountain of performance fixes."
+description: "Trigger-keyed scripts, backfill concurrency, db.query filters, multi-device DPoP sessions, plus bugs fixes and performance improvements."
 date: 2026-05-26
 author:
   name: "Trezy"
@@ -9,9 +9,32 @@ tags:
   - announcements
 ---
 
-While there's not a lot of big, shiny new features this time around, 2.9 is chock full of performance improvements and bug fixes to make everybody's life better.
+2.9 is a big one. Scripts got an overhaul, backfill got way faster, and there's a mountain of bug fixes and performance improvements across the board.
 
-## Backfill, but make it concurrent
+## Trigger-keyed scripts
+
+The biggest conceptual change in 2.9: scripts are no longer embedded with lexicons, and lexicons are no longer limited to a single script.
+
+| Trigger                 | Fires when...                                                     |
+| ----------------------- | ----------------------------------------------------------------- |
+| `record.index:<nsid>`   | Any record event (create, update, delete) — the wildcard fallback |
+| `record.create:<nsid>`  | A record is created                                               |
+| `record.update:<nsid>`  | A record is updated                                               |
+| `record.delete:<nsid>`  | A record is deleted                                               |
+| `xrpc.query:<nsid>`     | An XRPC query is called                                           |
+| `xrpc.procedure:<nsid>` | An XRPC procedure is called                                       |
+| `labeler.apply:<nsid>`  | A label arrives on a record of this type                          |
+| `labeler.apply:_actor`  | A label arrives on a bare DID (actor-level)                       |
+
+For record events, the dispatcher tries the action-specific trigger first (e.g. `record.create:com.example.post`), then falls back to the wildcard `record.index:com.example.post`. This means you can have one general-purpose script that handles everything, or surgical scripts for specific actions — or both.
+
+Scripts are managed through the dashboard under **Settings > Scripts**, or via the new [`/admin/scripts`](/docs/api-reference/admin/scripts) API endpoints. The lexicon detail page also shows which scripts target each lexicon, with links to create or edit them.
+
+**If you're upgrading from v2.x to v2.9:** existing index hooks and lexicon scripts will be migrated to the new system automatically.
+
+Full docs: [Record & Label Scripts](/docs/guides/label-scripts), [Lua Scripting](/docs/guides/lua-scripting), [Admin API — Scripts](/docs/api-reference/admin/scripts).
+
+## Backfill, but concurrent
 
 The biggest change is that PDS resolution and record fetching now run concurrently. Previously, HappyView resolved every DID's PDS endpoint before it started fetching any records. For large backfills with hundreds of thousands of DIDs, that meant the fetcher sat idle for potentially hours. Now fetching starts as soon as the first DIDs are resolved and runs alongside resolution for the rest of the job.
 
@@ -55,11 +78,11 @@ Full docs are in the [Database API reference](/docs/api-reference/lua/database-a
 
 ## Auth fixes
 
-There were actually bugs that have been making my life hard, but I _finally_ figured them out.
+These were bugs that have been making my life hard, but I _finally_ figured out what was causing them.
 
 First, users were basically limited to one auth session per client. If you signed into [Cartridge](https://cartridge.dev) from a second device, it would kill your other auth session. Whoops.
 
-Second, there were scenarios where the PDS may refresh the auth session while a HappyView XRPC was in-progress. IF that happened, HappyView would handle it internally so any other requests in that XRPC worked, but _it didn't return the refreshed tokens to the client._ Follow up requests from the client would break. Double whoops.
+Second, there were scenarios where the PDS may refresh the auth session while a HappyView XRPC was in-progress. If that happened, HappyView would handle it internally so any other requests in that XRPC worked, but _it didn't return the refreshed tokens to the client._ Follow up requests from the client would break. Double whoops.
 
 Both of these are fixed properly now, AND I added a couple new endpoints so clients can allow users to see and manage their active sessions:
 
@@ -74,7 +97,7 @@ If you tried to use `@happyview/oauth-client` with the latest versions of the `@
 
 ## CI & infrastructure
 
-- **Binary releases** — Rust binaries are now published to GitHub Releases alongside Docker images, so you can grab a prebuilt binary directly.
+- **Binary releases** — Rust binaries are now published to GitHub Releases alongside Docker images, so you can grab a prebuilt binary directly if you're not into Docker.
 
 ## Go play
 
