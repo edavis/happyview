@@ -9,7 +9,6 @@ import {
   resolveNetworkLexicon,
   uploadLexicon,
 } from "@/lib/api";
-import { resolveNsid } from "@/lib/nsid";
 import { LEXICON_TEMPLATE } from "@/lib/lua-templates";
 import { CodePanels } from "@/components/code-panels";
 import { SiteHeader } from "@/components/site-header";
