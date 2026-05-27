@@ -178,7 +178,7 @@ pub(super) async fn list(
     );
 
     // Newest first, then truncate.
-    rows.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    rows.sort_by_key(|r| std::cmp::Reverse(r.created_at));
     let truncated = rows.len() as i64 > limit;
     rows.truncate(limit as usize);
 
