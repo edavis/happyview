@@ -37,9 +37,15 @@ jobs:
         with:
           filters: |
             server:
-              - '**'
-              - '!packages/**'
-              - '!.github/workflows/merge-main-to-dev.yml'
+              - 'src/**'
+              - 'web/**'
+              - 'migrations/**'
+              - 'tests/**'
+              - 'Cargo.*'
+              - 'Dockerfile'
+              - 'docker-compose*'
+              - 'entrypoint.sh'
+              - '.releaserc.json'
             oauth-client:
               - 'packages/oauth-client/**'
             oauth-client-browser:
