@@ -5,6 +5,28 @@ on:
     branches: [main, dev]
   pull_request:
     branches: [main, dev]
+  workflow_dispatch:
+    inputs:
+      server:
+        description: 'Build server (unit tests, e2e, frontend, lint, release)'
+        type: boolean
+        default: true
+      oauth-client:
+        description: 'Build oauth-client'
+        type: boolean
+        default: false
+      oauth-client-browser:
+        description: 'Build oauth-client-browser'
+        type: boolean
+        default: false
+      oauth-client-node:
+        description: 'Build oauth-client-node'
+        type: boolean
+        default: false
+      lex-agent:
+        description: 'Build lex-agent'
+        type: boolean
+        default: false
   delete:
 
 env:
@@ -63,7 +85,7 @@ jobs:
   # ---------------------------------------------------------------------------
   unit-tests:
     needs: changes
-    if: needs.changes.outputs.server == 'true'
+    if: always() && (needs.changes.outputs.server == 'true' || (github.event_name == 'workflow_dispatch' && inputs.server))
     runs-on: depot-ubuntu-24.04
     steps:
       - name: Checkout repository
@@ -85,7 +107,7 @@ jobs:
 
   e2e-tests:
     needs: changes
-    if: needs.changes.outputs.server == 'true'
+    if: always() && (needs.changes.outputs.server == 'true' || (github.event_name == 'workflow_dispatch' && inputs.server))
     runs-on: depot-ubuntu-24.04
     services:
       postgres:
@@ -129,7 +151,7 @@ jobs:
 
   frontend:
     needs: changes
-    if: needs.changes.outputs.server == 'true'
+    if: always() && (needs.changes.outputs.server == 'true' || (github.event_name == 'workflow_dispatch' && inputs.server))
     runs-on: depot-ubuntu-24.04
     steps:
       - name: Checkout repository
@@ -146,7 +168,7 @@ jobs:
 
   lint:
     needs: changes
-    if: needs.changes.outputs.server == 'true'
+    if: always() && (needs.changes.outputs.server == 'true' || (github.event_name == 'workflow_dispatch' && inputs.server))
     runs-on: depot-ubuntu-24.04
     steps:
       - name: Checkout repository
@@ -329,8 +351,13 @@ jobs:
   # ---------------------------------------------------------------------------
   release:
     if: >-
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
-      && needs.changes.outputs.server == 'true'
+      always()
+      && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+      && (needs.changes.outputs.server == 'true' || (github.event_name == 'workflow_dispatch' && inputs.server))
+      && needs.unit-tests.result == 'success'
+      && needs.e2e-tests.result == 'success'
+      && needs.frontend.result == 'success'
+      && needs.lint.result == 'success'
     needs: [changes, unit-tests, e2e-tests, frontend, lint]
     runs-on: depot-ubuntu-24.04
     outputs:
@@ -523,7 +550,7 @@ jobs:
   # ---------------------------------------------------------------------------
   test-oauth-client:
     needs: changes
-    if: needs.changes.outputs.oauth-client == 'true'
+    if: always() && (needs.changes.outputs.oauth-client == 'true' || (github.event_name == 'workflow_dispatch' && inputs.oauth-client))
     runs-on: depot-ubuntu-24.04
     steps:
       - name: Checkout repository
@@ -546,7 +573,7 @@ jobs:
 
   test-oauth-client-browser:
     needs: changes
-    if: needs.changes.outputs.oauth-client-browser == 'true'
+    if: always() && (needs.changes.outputs.oauth-client-browser == 'true' || (github.event_name == 'workflow_dispatch' && inputs.oauth-client-browser))
     runs-on: depot-ubuntu-24.04
     steps:
       - name: Checkout repository
@@ -572,7 +599,7 @@ jobs:
 
   test-oauth-client-node:
     needs: changes
-    if: needs.changes.outputs.oauth-client-node == 'true'
+    if: always() && (needs.changes.outputs.oauth-client-node == 'true' || (github.event_name == 'workflow_dispatch' && inputs.oauth-client-node))
     runs-on: depot-ubuntu-24.04
     steps:
       - name: Checkout repository
@@ -598,7 +625,7 @@ jobs:
 
   test-lex-agent:
     needs: changes
-    if: needs.changes.outputs.lex-agent == 'true'
+    if: always() && (needs.changes.outputs.lex-agent == 'true' || (github.event_name == 'workflow_dispatch' && inputs.lex-agent))
     runs-on: depot-ubuntu-24.04
     steps:
       - name: Checkout repository
@@ -624,8 +651,10 @@ jobs:
 
   release-oauth-client:
     if: >-
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
-      && needs.changes.outputs.oauth-client == 'true'
+      always()
+      && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+      && (needs.changes.outputs.oauth-client == 'true' || (github.event_name == 'workflow_dispatch' && inputs.oauth-client))
+      && needs.test-oauth-client.result == 'success'
     needs: [changes, test-oauth-client]
     runs-on: depot-ubuntu-24.04
     permissions:
@@ -664,7 +693,7 @@ jobs:
     if: >-
       always()
       && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
-      && needs.changes.outputs.oauth-client-browser == 'true'
+      && (needs.changes.outputs.oauth-client-browser == 'true' || (github.event_name == 'workflow_dispatch' && inputs.oauth-client-browser))
       && needs.test-oauth-client-browser.result == 'success'
       && (needs.release-oauth-client.result == 'success' || needs.changes.outputs.oauth-client != 'true')
     needs: [changes, test-oauth-client-browser, release-oauth-client]
@@ -722,7 +751,7 @@ jobs:
     if: >-
       always()
       && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
-      && needs.changes.outputs.oauth-client-node == 'true'
+      && (needs.changes.outputs.oauth-client-node == 'true' || (github.event_name == 'workflow_dispatch' && inputs.oauth-client-node))
       && needs.test-oauth-client-node.result == 'success'
       && (needs.release-oauth-client.result == 'success' || needs.changes.outputs.oauth-client != 'true')
     needs: [changes, test-oauth-client-node, release-oauth-client]
@@ -780,7 +809,7 @@ jobs:
     if: >-
       always()
       && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
-      && needs.changes.outputs.lex-agent == 'true'
+      && (needs.changes.outputs.lex-agent == 'true' || (github.event_name == 'workflow_dispatch' && inputs.lex-agent))
       && needs.test-lex-agent.result == 'success'
       && (needs.release-oauth-client.result == 'success' || needs.changes.outputs.oauth-client != 'true')
     needs: [changes, test-lex-agent, release-oauth-client]
