@@ -222,7 +222,11 @@ jobs:
         working-directory: web
         run: npx playwright test
         env:
-          PLAYWRIGHT_BASE_URL: http://localhost:3200
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:3200
+
+      - name: Dump container logs
+        if: failure()
+        run: docker compose -f docker-compose.e2e.yml logs
 
       - name: Upload Playwright report
         if: failure()
