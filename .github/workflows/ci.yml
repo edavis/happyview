@@ -87,6 +87,7 @@ jobs:
     needs: changes
     if: always() && (needs.changes.outputs.server == 'true' || (github.event_name == 'workflow_dispatch' && inputs.server))
     runs-on: depot-ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -109,6 +110,7 @@ jobs:
     needs: changes
     if: always() && (needs.changes.outputs.server == 'true' || (github.event_name == 'workflow_dispatch' && inputs.server))
     runs-on: depot-ubuntu-24.04
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16-alpine
@@ -211,11 +213,34 @@ jobs:
         working-directory: web
         run: npx playwright install chromium --with-deps
 
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-release-amd64-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-release-amd64-
+
+      - name: Build server binary
+        run: |
+          docker run --rm \
+            -v "$PWD:/app" \
+            -v "$HOME/.cargo/registry:/usr/local/cargo/registry" \
+            -v "$HOME/.cargo/git:/usr/local/cargo/git" \
+            -w /app \
+            -e SQLX_OFFLINE=true \
+            rust:1.93-bookworm \
+            cargo build --release
+          mkdir -p .builder-override/app/target/release
+          cp target/release/happyview .builder-override/app/target/release/happyview
+
       - name: Log in to ATCR
         run: echo "${{ secrets.ATCR_PASSWORD }}" | docker login atcr.io -u "${{ secrets.ATCR_USERNAME }}" --password-stdin
 
       - name: Start E2E services
-        run: docker compose -f docker-compose.e2e.yml up -d --build --wait
+        run: docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.ci.yml up -d --build --wait
         timeout-minutes: 10
 
       - name: Run Playwright tests
@@ -226,7 +251,7 @@ jobs:
 
       - name: Dump container logs
         if: failure()
-        run: docker compose -f docker-compose.e2e.yml logs
+        run: docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.ci.yml logs
 
       - name: Upload Playwright report
         if: failure()
@@ -238,7 +263,7 @@ jobs:
 
       - name: Stop E2E services
         if: always()
-        run: docker compose -f docker-compose.e2e.yml down -v
+        run: docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.ci.yml down -v
 
   # ---------------------------------------------------------------------------
   # PR builds — compile + Docker on every PR push so reviewers can test
