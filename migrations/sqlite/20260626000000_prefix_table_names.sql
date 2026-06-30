@@ -1,6 +1,4 @@
 ALTER TABLE account_delegates RENAME TO happyview_account_delegates;
-ALTER TABLE admin_api_keys RENAME TO happyview_admin_api_keys;
-ALTER TABLE admins RENAME TO happyview_admins;
 ALTER TABLE api_keys RENAME TO happyview_api_keys;
 ALTER TABLE users RENAME TO happyview_users;
 ALTER TABLE api_clients RENAME TO happyview_api_clients;

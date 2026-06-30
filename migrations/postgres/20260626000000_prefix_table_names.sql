@@ -1,6 +1,4 @@
 ALTER TABLE IF EXISTS account_delegates RENAME TO happyview_account_delegates;
-ALTER TABLE IF EXISTS admin_api_keys RENAME TO happyview_admin_api_keys;
-ALTER TABLE IF EXISTS admins RENAME TO happyview_admins;
 ALTER TABLE IF EXISTS api_keys RENAME TO happyview_api_keys;
 ALTER TABLE IF EXISTS users RENAME TO happyview_users;
 ALTER TABLE IF EXISTS api_clients RENAME TO happyview_api_clients;
