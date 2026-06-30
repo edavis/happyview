@@ -2,7 +2,7 @@
 title: "Lua Scripting"
 ---
 
-Without Lua scripts, HappyView's query endpoints return raw records and procedure endpoints proxy simple creates and updates. Lua scripts let you go much further:
+Without Lua scripts, HappyView's query endpoints return raw records and procedure endpoints proxy simple creates and updates. To attach a script to an XRPC endpoint, create a script with trigger `xrpc.query:<nsid>` or `xrpc.procedure:<nsid>` — see [trigger grammar](label-scripts#trigger-grammar). Lua scripts let you go much further:
 
 - Add filtering logic
 - Transform responses
@@ -65,6 +65,28 @@ These globals are set automatically before `handle()` is called.
 | `caller_did` | string? | DID of the authenticated user (nil if unauthenticated) |
 | `env`        | table   | Script variables configured in the dashboard           |
 
+### Space globals
+
+When a script handles a space-scoped request, the `space` global is set to a table with the space's metadata. For non-space requests, `space` is `nil`.
+
+| Field       | Type   | Description                                              |
+| ----------- | ------ | -------------------------------------------------------- |
+| `space`     | string | The full `ats://` space URI                              |
+| `space_id`  | string | Internal space identifier                                |
+| `did`       | string | The space's DID                                          |
+| `authority_did` | string | The space authority's DID                            |
+| `type_nsid` | string | Space type NSID                                          |
+| `skey`      | string | Space key                                                |
+
+```lua
+function handle()
+  if space then
+    log("handling request for space: " .. space.space)
+    log("space type: " .. space.type_nsid)
+  end
+end
+```
+
 ## Utility globals
 
 Available in both queries and procedures:
@@ -90,7 +112,7 @@ You don't need `toarray()` on results from `db.query`, `db.search`, `db.backlink
 
 ## Record API
 
-The `Record` API is only available in **procedure** scripts. It handles creating, updating, loading, and deleting atproto records. Writes are proxied to the caller's PDS and indexed locally.
+The `Record` API is available in **procedure**, **query**, and **record/label** scripts. In procedure scripts the full API is available — writes are proxied to the caller's PDS and indexed locally. In query and record/label scripts it runs in **no-auth mode**: `Record.load`, `r:save_local()`, `r:delete_local()`, and `Record.delete_local()` work, but PDS-touching methods (`r:save()`, `r:delete()`) raise an error.
 
 See the full [Record API reference](../api-reference/lua/record-api.md) for constructor, static methods, instance methods, fields, schema validation, and save behavior.
 
@@ -161,7 +183,7 @@ See the full [JSON API reference](../api-reference/lua/json-api.md) for `json.en
 
 ### Logging
 
-Use `log()` to trace script execution. Output appears in the server logs at **debug** level with the field `lua_log`:
+Use `log()` to trace script execution. Output appears in the server logs at **debug** level with the field `lua_log`, and is also recorded as a `script.log` event in the [event logs](../api-reference/admin/events.md) (accessible via `GET /admin/events`):
 
 ```lua
 function handle()
@@ -172,7 +194,7 @@ function handle()
 end
 ```
 
-To see log output, make sure your `RUST_LOG` environment variable includes debug level for HappyView (the default `happyview=debug` works). See [Configuration](../getting-started/configuration.md).
+To see log output in stdout, make sure your `RUST_LOG` environment variable includes debug level for HappyView (the default `happyview=debug` works). See [Configuration](../getting-started/configuration.md).
 
 ### Error messages
 

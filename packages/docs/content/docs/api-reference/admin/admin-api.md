@@ -6,10 +6,11 @@ The admin API lets you manage lexicons, monitor records, run backfill jobs, and 
 
 ## Auth
 
-The admin API supports two authentication methods:
+The admin API supports three authentication methods:
 
 1. **API keys** — read/write tokens starting with `hv_`, passed as `Authorization: Bearer hv_...`. See the [API Keys guide](../../guides/api-keys.md) for details.
 2. **Service auth JWT** — atproto inter-service authentication via signed JWTs.
+3. **Cookie-based session auth** — signed session cookies set during the dashboard OAuth login flow. The [web dashboard](../../getting-started/dashboard.md) uses this method.
 
 In all cases the resolved DID is checked against the `users` table, and the user's permissions are loaded to authorize the request.
 
@@ -53,6 +54,7 @@ AUTH="Authorization: Bearer $TOKEN"
 | [Records](records.md) | List and delete indexed records |
 | [Instance Settings](settings.md) | Configure app name, logo, policy URLs, and concurrency settings |
 | [Domains](domains.md) | Manage domains and their OAuth client identities |
+| [Scripts](scripts.md) | Create, list, update, and delete Lua scripts |
 | [Script Variables](script-variables.md) | Encrypted key/value pairs for Lua scripts |
 | [API Clients](api-clients.md) | Register and manage third-party XRPC clients |
 | [Plugins](plugins.md) | Install, configure, and manage WASM plugins |
@@ -94,6 +96,11 @@ Each admin API endpoint requires a specific permission. See the [Permissions gui
 | `GET /admin/script-variables`            | `script-variables:read`    |
 | `POST /admin/script-variables`           | `script-variables:create`  |
 | `DELETE /admin/script-variables/{key}`   | `script-variables:delete`  |
+| `GET /admin/scripts`                     | `scripts:read`             |
+| `POST /admin/scripts`                    | `scripts:manage`           |
+| `GET /admin/scripts/{id}`                | `scripts:read`             |
+| `PATCH /admin/scripts/{id}`              | `scripts:manage`           |
+| `DELETE /admin/scripts/{id}`             | `scripts:manage`           |
 | `POST /admin/labelers`                   | `labelers:create`          |
 | `GET /admin/labelers`                    | `labelers:read`            |
 | `PATCH /admin/labelers/{did}`            | `labelers:create`          |

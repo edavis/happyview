@@ -139,7 +139,7 @@ async fn resolve_api_key_did(state: &AppState, token: &str) -> Result<String, Ap
 
     let hash = hex::encode(Sha256::digest(token.as_bytes()));
     let sql = adapt_sql(
-        "SELECT u.did FROM api_keys k JOIN users u ON k.user_id = u.id WHERE k.key_hash = ? AND k.revoked_at IS NULL",
+        "SELECT u.did FROM happyview_api_keys k JOIN happyview_users u ON k.user_id = u.id WHERE k.key_hash = ? AND k.revoked_at IS NULL",
         state.db_backend,
     );
     let row: Option<(String,)> = sqlx::query_as(&sql)
@@ -314,7 +314,29 @@ impl FromRequestParts<AppState> for XrpcClaims {
             }
             Some(_) => Err(AppError::Auth("invalid Authorization scheme".into())),
             None => {
-                // No auth header — anonymous access (client-key only)
+                // No auth header — try cookie auth, fall back to anonymous
+                let jar: SignedCookieJar<Key> = SignedCookieJar::from_request_parts(parts, state)
+                    .await
+                    .map_err(|_| AppError::Auth("failed to read cookies".into()))?;
+
+                if let Some(cookie) = jar.get(COOKIE_NAME) {
+                    let value = cookie.value().to_string();
+                    let (did, client_key) = if let Some((d, k)) = value.split_once(COOKIE_SEP) {
+                        (d.to_string(), Some(k.to_string()))
+                    } else {
+                        (value, None)
+                    };
+                    return Ok(XrpcClaims {
+                        identity: Some(Claims {
+                            did,
+                            client_key,
+                            dpop_key_id: None,
+                        }),
+                        space_credential: None,
+                        service_auth: None,
+                    });
+                }
+
                 Ok(XrpcClaims {
                     identity: None,
                     space_credential: None,

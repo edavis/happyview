@@ -23,7 +23,7 @@ use super::sandbox;
 
 /// Load all script variables from the database as a key-value map.
 async fn load_env_vars(db: &sqlx::AnyPool, backend: DatabaseBackend) -> HashMap<String, String> {
-    let sql = adapt_sql("SELECT key, value FROM script_variables", backend);
+    let sql = adapt_sql("SELECT key, value FROM happyview_script_variables", backend);
     sqlx::query_as::<_, (String, String)>(&sql)
         .fetch_all(db)
         .await
@@ -215,6 +215,37 @@ pub async fn execute_procedure_script(
 
     if let Err(e) = atproto_api::register_atproto_api(&lua, state_arc.clone(), Some(claims.did())) {
         let error_message = format!("failed to register atproto API: {e}");
+        log_event(
+            &state.db,
+            EventLog {
+                event_type: "script.error".to_string(),
+                severity: Severity::Error,
+                actor_did: Some(claims.did().to_string()),
+                subject: Some(method.to_string()),
+                detail: serde_json::json!({
+                    "error": error_message,
+                    "script_source": script_source,
+                    "input": input_json,
+                    "caller_did": claims.did(),
+                    "method": method,
+                    "duration_ms": start.elapsed().as_millis() as u64,
+                }),
+            },
+            backend,
+        )
+        .await;
+        return Err(AppError::Internal(error_message));
+    }
+
+    if let Some(ref pds_auth) = pds_auth_arc
+        && let Err(e) = atproto_api::register_atproto_blob_api(
+            &lua,
+            state_arc.clone(),
+            claims_arc.clone(),
+            pds_auth.clone(),
+        )
+    {
+        let error_message = format!("failed to register atproto blob API: {e}");
         log_event(
             &state.db,
             EventLog {

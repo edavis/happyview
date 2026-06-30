@@ -313,7 +313,7 @@ mod tests {
     async fn seed_script(state: &AppState, trigger: &str, body: &str) {
         sqlx::query(
             r#"
-            CREATE TABLE IF NOT EXISTS scripts (
+            CREATE TABLE IF NOT EXISTS happyview_scripts (
                 id          TEXT PRIMARY KEY,
                 body        TEXT NOT NULL,
                 description TEXT,
@@ -327,7 +327,7 @@ mod tests {
         .await
         .unwrap();
         sqlx::query(
-            "INSERT OR REPLACE INTO scripts (id, body, script_type, created_at, updated_at)
+            "INSERT OR REPLACE INTO happyview_scripts (id, body, script_type, created_at, updated_at)
              VALUES (?, ?, 'lua', datetime('now'), datetime('now'))",
         )
         .bind(trigger)
@@ -352,6 +352,8 @@ mod tests {
             action: ProcedureAction::Create,
             token_cost: None,
             space_type: None,
+            space_name: None,
+            space_collections: None,
         }
     }
 
@@ -370,6 +372,8 @@ mod tests {
             action: ProcedureAction::Create,
             token_cost: None,
             space_type: None,
+            space_name: None,
+            space_collections: None,
         }
     }
 

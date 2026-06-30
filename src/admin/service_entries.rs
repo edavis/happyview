@@ -203,10 +203,17 @@ pub(super) async fn sync_plc(
         .filter_map(|v| v.as_str().map(String::from))
         .collect();
 
-    let verification_methods = last_op["verificationMethods"]
+    let mut verification_methods = last_op["verificationMethods"]
         .as_object()
         .cloned()
         .unwrap_or_default();
+
+    // Merge verification methods from the table
+    let vm_entries = crate::verification_methods::list_methods(&state.db, state.db_backend).await?;
+    for vm in &vm_entries {
+        let key = vm.fragment_id.trim_start_matches('#').to_string();
+        verification_methods.insert(key, serde_json::json!(vm.public_key_multibase));
+    }
 
     // Build services: start from existing, then merge our service entries
     let mut services_map = last_op["services"].as_object().cloned().unwrap_or_default();
@@ -253,7 +260,7 @@ pub(super) async fn sync_plc(
 
     // Decrypt the rotation key for signing
     let rotation_key_enc_sql = crate::db::adapt_sql(
-        "SELECT rotation_key_enc FROM service_identity WHERE id = 1",
+        "SELECT rotation_key_enc FROM happyview_service_identity WHERE id = 1",
         state.db_backend,
     );
     let row: Option<(Option<String>,)> = sqlx::query_as(&rotation_key_enc_sql)
@@ -303,7 +310,7 @@ pub(super) async fn sync_plc_request(
     let account_did = match identity.mode {
         IdentityMode::AttachAccount => {
             let sql = crate::db::adapt_sql(
-                "SELECT attached_account_did FROM service_identity WHERE id = 1",
+                "SELECT attached_account_did FROM happyview_service_identity WHERE id = 1",
                 state.db_backend,
             );
             let row: Option<(Option<String>,)> = sqlx::query_as(&sql)
@@ -367,7 +374,7 @@ pub(super) async fn sync_plc_submit(
     let account_did = match identity.mode {
         IdentityMode::AttachAccount => {
             let sql = crate::db::adapt_sql(
-                "SELECT attached_account_did FROM service_identity WHERE id = 1",
+                "SELECT attached_account_did FROM happyview_service_identity WHERE id = 1",
                 state.db_backend,
             );
             let row: Option<(Option<String>,)> = sqlx::query_as(&sql)
@@ -446,11 +453,16 @@ pub(super) async fn sync_plc_submit(
     let services: Unknown = serde_json::from_value(serde_json::Value::Object(services_map))
         .map_err(|e| AppError::Internal(format!("failed to build services Unknown: {e}")))?;
 
-    // Preserve existing verification methods
-    let vm_map = last_op["verificationMethods"]
+    // Merge verification methods from the table into existing
+    let mut vm_map = last_op["verificationMethods"]
         .as_object()
         .cloned()
         .unwrap_or_default();
+    let vm_entries = crate::verification_methods::list_methods(&state.db, state.db_backend).await?;
+    for vm in &vm_entries {
+        let key = vm.fragment_id.trim_start_matches('#').to_string();
+        vm_map.insert(key, serde_json::json!(vm.public_key_multibase));
+    }
     let verification_methods: Unknown = serde_json::from_value(serde_json::Value::Object(vm_map))
         .map_err(|e| {
         AppError::Internal(format!("failed to build verification methods Unknown: {e}"))
