@@ -2,7 +2,7 @@
 title: "Overview"
 ---
 
-The admin API lets you manage lexicons, monitor records, run backfill jobs, and control user access. All endpoints live under `/admin` and require authentication from a DID that exists in the `users` table, with the appropriate [permissions](../../guides/permissions.md) for the endpoint being called. You can also manage all of this through the [web dashboard](../../getting-started/dashboard.md).
+The admin API lets you manage lexicons, monitor records, run backfill jobs, and control user access. All endpoints live under `/admin` and require authentication from a DID that exists in the `happyview_users` table, with the appropriate [permissions](../../guides/permissions.md) for the endpoint being called. You can also manage all of this through the [web dashboard](../../getting-started/dashboard.md).
 
 ## Auth
 
@@ -12,9 +12,9 @@ The admin API supports three authentication methods:
 2. **Service auth JWT** — atproto inter-service authentication via signed JWTs.
 3. **Cookie-based session auth** — signed session cookies set during the dashboard OAuth login flow. The [web dashboard](../../getting-started/dashboard.md) uses this method.
 
-In all cases the resolved DID is checked against the `users` table, and the user's permissions are loaded to authorize the request.
+In all cases the resolved DID is checked against the `happyview_users` table, and the user's permissions are loaded to authorize the request.
 
-**Auto-bootstrap**: If the `users` table is empty, the first authenticated request automatically creates the caller as the **super user** with all permissions granted.
+**Auto-bootstrap**: If the `happyview_users` table is empty, the first authenticated request automatically creates the caller as the **super user** with all permissions granted.
 
 Non-user DIDs receive a `403 Forbidden` response. Users without the required permission for a specific endpoint also receive `403 Forbidden`.
 
