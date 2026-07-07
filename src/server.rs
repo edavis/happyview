@@ -7,7 +7,6 @@ use base64::Engine;
 use bytes::Bytes;
 use http_body_util::Full;
 use std::convert::Infallible;
-use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
@@ -179,23 +178,115 @@ pub fn router(state: AppState) -> Router {
 
     outer
         .layer(TraceLayer::new_for_http())
-        .layer(
-            CorsLayer::new()
-                .allow_origin(tower_http::cors::AllowOrigin::mirror_request())
-                .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
-                .allow_headers([
-                    header::CONTENT_TYPE,
-                    header::AUTHORIZATION,
-                    header::COOKIE,
-                    axum::http::HeaderName::from_static("x-client-key"),
-                    axum::http::HeaderName::from_static("x-client-secret"),
-                    axum::http::HeaderName::from_static("dpop"),
-                    axum::http::HeaderName::from_static("atproto-accept-labelers"),
-                    axum::http::HeaderName::from_static("atproto-proxy"),
-                ])
-                .allow_credentials(true),
-        )
+        .layer(axum::middleware::from_fn_with_state(state.clone(), cors))
         .with_state(state)
+}
+
+/// Allowed request methods, shared by both CORS policies.
+const CORS_ALLOW_METHODS: &str = "GET, POST, DELETE, OPTIONS";
+
+/// Headers a credentialed (first-party, cookie-bearing) request may send.
+const CORS_ALLOW_HEADERS_CREDENTIALED: &str = "content-type, authorization, cookie, x-client-key, x-client-secret, dpop, \
+     atproto-accept-labelers, atproto-proxy";
+
+/// Headers a credential-less (third-party, cookieless DPoP) request may send.
+/// Identical to the credentialed set minus `cookie`.
+const CORS_ALLOW_HEADERS_ANON: &str = "content-type, authorization, x-client-key, x-client-secret, dpop, \
+     atproto-accept-labelers, atproto-proxy";
+
+/// Cross-Origin Resource Sharing policy.
+///
+/// This deliberately replaces a single permissive `CorsLayer`. The old policy
+/// reflected *any* `Origin` **and** allowed credentials, which let a malicious
+/// page drive the admin API with the victim's cookie and read the response
+/// (finding C2). Instead we apply two policies keyed on trust:
+///
+/// - **Trusted first-party origins** — those in the [`DomainCache`] (the domains
+///   HappyView actually serves the dashboard/admin UI on) — get their origin
+///   reflected *with* `Access-Control-Allow-Credentials: true`, so the
+///   cookie-authenticated dashboard works cross-origin if ever hosted on a
+///   second registered domain.
+/// - **Any other origin** — e.g. a third-party app or an attacker page — gets a
+///   credential-*less* grant: its origin is reflected but credentials are never
+///   allowed. Third-party clients authenticate with explicit DPoP + client-key
+///   headers (never ambient cookies), so they keep working; an attacker page
+///   can neither ride the admin cookie nor read a credentialed response.
+///
+/// The one rule that must never be violated: reflecting an arbitrary origin and
+/// allowing credentials at the same time.
+async fn cors(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let origin = req
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    // No `Origin` header → not a CORS request (same-origin navigation,
+    // server-to-server, curl). Emit no CORS headers at all.
+    let Some(origin) = origin else {
+        return next.run(req).await;
+    };
+
+    let credentialed = state.domain_cache.is_allowed_origin(&origin).await;
+
+    let is_preflight = req.method() == Method::OPTIONS
+        && req
+            .headers()
+            .contains_key(header::ACCESS_CONTROL_REQUEST_METHOD);
+
+    let mut cors_headers = header::HeaderMap::new();
+    if let Ok(value) = header::HeaderValue::from_str(&origin) {
+        cors_headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, value);
+    } else {
+        // Malformed origin — refuse it entirely rather than emit a broken header.
+        if is_preflight {
+            return preflight_response(cors_headers);
+        }
+        return next.run(req).await;
+    }
+    cors_headers.insert(header::VARY, header::HeaderValue::from_static("origin"));
+    if credentialed {
+        cors_headers.insert(
+            header::ACCESS_CONTROL_ALLOW_CREDENTIALS,
+            header::HeaderValue::from_static("true"),
+        );
+    }
+
+    if is_preflight {
+        cors_headers.insert(
+            header::ACCESS_CONTROL_ALLOW_METHODS,
+            header::HeaderValue::from_static(CORS_ALLOW_METHODS),
+        );
+        cors_headers.insert(
+            header::ACCESS_CONTROL_ALLOW_HEADERS,
+            header::HeaderValue::from_static(if credentialed {
+                CORS_ALLOW_HEADERS_CREDENTIALED
+            } else {
+                CORS_ALLOW_HEADERS_ANON
+            }),
+        );
+        cors_headers.insert(
+            header::ACCESS_CONTROL_MAX_AGE,
+            header::HeaderValue::from_static("86400"),
+        );
+        return preflight_response(cors_headers);
+    }
+
+    let mut resp = next.run(req).await;
+    resp.headers_mut().extend(cors_headers);
+    resp
+}
+
+/// Build a `204 No Content` preflight response carrying the given CORS headers.
+fn preflight_response(cors_headers: header::HeaderMap) -> Response {
+    let mut resp = Response::new(axum::body::Body::empty());
+    *resp.status_mut() = axum::http::StatusCode::NO_CONTENT;
+    resp.headers_mut().extend(cors_headers);
+    resp
 }
 
 async fn health() -> &'static str {
