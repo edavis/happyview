@@ -64,6 +64,7 @@ async fn setup_dpop_session(app: &common::app::TestApp, user_did: &str) -> (Stri
     let dpop_key = key_body["dpop_key"].clone();
 
     let access_token = format!("test-access-{}", uuid::Uuid::new_v4());
+    app.mock_session_verification(user_did, user_did).await;
     let session_req = post_json_with_headers(
         "/oauth/sessions",
         &json!({
@@ -163,6 +164,7 @@ async fn register_target_session(
     let provision_id = key_body["provision_id"].as_str().unwrap().to_string();
 
     let access_token = format!("test-target-access-{}", uuid::Uuid::new_v4());
+    app.mock_session_verification(target_did, target_did).await;
     let session_req = post_json_with_headers(
         "/oauth/sessions",
         &json!({
@@ -211,6 +213,7 @@ async fn setup_linked_account(
     let dpop_key = key_body["dpop_key"].clone();
 
     let access_token = format!("test-owner-access-{}", uuid::Uuid::new_v4());
+    app.mock_session_verification(owner_did, owner_did).await;
     let session_req = post_json_with_headers(
         "/oauth/sessions",
         &json!({
@@ -269,6 +272,7 @@ async fn setup_session_for_client(
     let dpop_key = key_body["dpop_key"].clone();
 
     let access_token = format!("test-access-{}", uuid::Uuid::new_v4());
+    app.mock_session_verification(user_did, user_did).await;
     let session_req = post_json_with_headers(
         "/oauth/sessions",
         &json!({

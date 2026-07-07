@@ -148,10 +148,10 @@ local n = db.count("xyz.statusphere.status", "did:plc:abc")  -- filter by DID
 
 ## db.raw
 
-Run a raw SQL query against the database. Supports `SELECT`, `INSERT`, `UPDATE`, `DELETE`, and `CREATE TABLE` statements.
+Run a raw SQL query against the database. Supports `SELECT`, `INSERT`, `UPDATE`, `DELETE`, and `CREATE TABLE` statements — use it for your own tables and to reach the record index directly.
 
 ```lua
--- Read query
+-- Read the record index
 local rows = db.raw(
   "SELECT uri, did, record FROM happyview_records WHERE collection = $1 AND did = $2 LIMIT $3",
   { "xyz.statusphere.status", "did:plc:abc", 10 }
@@ -161,13 +161,30 @@ for _, row in ipairs(rows) do
   -- row.uri, row.did, row.record (JSONB is returned as a Lua table)
 end
 
--- Write query (returns affected rows, if any)
+-- Create and use your own tables
 db.raw("CREATE TABLE IF NOT EXISTS my_table (id TEXT PRIMARY KEY, value TEXT NOT NULL)")
 db.raw("INSERT INTO my_table (id, value) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET value = $2",
   { "key1", "hello" })
 ```
 
 Parameters are passed as an array and bound to `$1`, `$2`, etc. Supported parameter types: strings, integers, numbers, booleans, and nil.
+
+### Protected tables
+
+`db.raw` blocks HappyView's **sensitive internal tables** — a statement that references one is rejected before it runs. Blocked tables cover instance secrets and tokens (OAuth/DPoP keys and sessions, API keys/clients, `happyview_script_variables`), auth and privilege state (users, permissions, delegation), trust config (domains, instance settings), and cryptographic material (space credentials and repo state). Internal tables are blocked **by default**, so anything not on the allowlist below is protected.
+
+Available internal tables:
+
+| Table | Contents |
+| --- | --- |
+| `happyview_records` | indexed AT Protocol records |
+| `happyview_record_refs` | backlink index |
+| `happyview_labels` | applied labels |
+| `happyview_lexicons` | uploaded lexicons |
+| `happyview_jobs` | background job queue |
+| `happyview_spaces`, `happyview_space_members`, `happyview_space_records`, `happyview_space_record_oplog`, `happyview_space_notify_registrations`, `happyview_space_dids` | space membership and data |
+
+Space data is available because a space defines *access*, not confidentiality; if you need record data without exposing internals, the structured accessors [`db.query`](#dbquery), [`db.get`](#dbget), and [`db.count`](#dbcount) are the backend-portable option.
 
 ### SQL dialect
 
@@ -196,9 +213,9 @@ Returns `"sqlite"` or `"postgres"`. Useful when you need database-specific SQL t
 
 ```lua
 if db.backend() == "postgres" then
-  db.raw("SELECT * FROM happyview_records WHERE record @> $1::jsonb", { json.encode({ status = "active" }) })
+  db.raw("SELECT * FROM my_events WHERE payload @> $1::jsonb", { json.encode({ status = "active" }) })
 else
   -- SQLite fallback
-  db.raw("SELECT * FROM happyview_records WHERE json_extract(record, '$.status') = $1", { "active" })
+  db.raw("SELECT * FROM my_events WHERE json_extract(payload, '$.status') = $1", { "active" })
 end
 ```

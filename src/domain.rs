@@ -99,6 +99,23 @@ impl DomainCache {
         let by_host = self.by_host.read().await;
         by_host.values().cloned().collect()
     }
+
+    /// Return `true` if `origin` (a browser `Origin` header value, e.g.
+    /// `https://example.com` or `http://localhost:3000`) exactly matches a
+    /// registered domain's URL.
+    ///
+    /// This is the trusted-origin allowlist for credentialed (cookie-bearing)
+    /// CORS: only first-party domains HappyView actually serves may send
+    /// credentials cross-origin. The match is on the full origin
+    /// (scheme + host + port), not just the host, so `http` and `https` or a
+    /// different port are treated as distinct origins.
+    pub async fn is_allowed_origin(&self, origin: &str) -> bool {
+        let target = origin.trim_end_matches('/');
+        let by_host = self.by_host.read().await;
+        by_host
+            .values()
+            .any(|d| d.url.trim_end_matches('/') == target)
+    }
 }
 
 impl Default for DomainCache {
@@ -177,6 +194,28 @@ mod tests {
 
         cache.remove("example.com").await;
         assert!(cache.get("example.com").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn is_allowed_origin_matches_full_origin() {
+        let cache = DomainCache::new();
+        cache
+            .load(vec![
+                make_domain("https://example.com", true),
+                make_domain("http://localhost:3000", false),
+            ])
+            .await;
+
+        // Exact matches (trailing slash tolerated).
+        assert!(cache.is_allowed_origin("https://example.com").await);
+        assert!(cache.is_allowed_origin("https://example.com/").await);
+        assert!(cache.is_allowed_origin("http://localhost:3000").await);
+
+        // Scheme, port, and host must all match.
+        assert!(!cache.is_allowed_origin("http://example.com").await);
+        assert!(!cache.is_allowed_origin("https://example.com:8443").await);
+        assert!(!cache.is_allowed_origin("http://localhost:3001").await);
+        assert!(!cache.is_allowed_origin("https://evil.example").await);
     }
 
     #[tokio::test]

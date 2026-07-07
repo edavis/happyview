@@ -157,7 +157,7 @@ export const HOVER_DOCS = new Map<string, HoverEntry>([
   ["db.count", { signature: "db.count(collection [, did])", description: "Count records in a collection", module: "db" }],
   ["db.search", { signature: "db.search({collection, field, query, limit?})", description: "Search records by field value — returns {records}", module: "db" }],
   ["db.backlinks", { signature: "db.backlinks({collection, uri, did?, limit?, cursor?})", description: "Find records that reference a URI via record_refs — returns {records, cursor?}", module: "db" }],
-  ["db.raw", { signature: "db.raw(sql [, params])", description: "Execute a raw SQL query — returns array of row tables", module: "db" }],
+  ["db.raw", { signature: "db.raw(sql [, params])", description: "Execute a raw SQL query — returns array of row tables. Can reach your own tables plus the record index and space data; HappyView's sensitive internal tables (secrets, auth, config) are blocked.", module: "db" }],
   ["db.backend", { signature: "db.backend()", description: "Returns the database backend — \"sqlite\" or \"postgres\"", module: "db" }],
 
   // ── HappyView HTTP API ───────────────────────────────────────────────

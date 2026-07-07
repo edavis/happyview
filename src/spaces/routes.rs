@@ -380,6 +380,22 @@ async fn require_auth_or_credential(
     ))
 }
 
+/// Resolve the caller's DID from an authenticated identity for the inter-service
+/// notify routes: a DPoP/cookie identity or a verified service-auth JWT. (Space
+/// credentials are not accepted here — their subject is a space, not the
+/// authority DID these routes gate on.)
+fn require_notify_caller(claims: &XrpcClaims) -> Result<String, AppError> {
+    if let Some(identity) = &claims.identity {
+        return Ok(identity.did().to_string());
+    }
+    if let Some(service_auth) = &claims.service_auth {
+        return Ok(service_auth.did.clone());
+    }
+    Err(AppError::Auth(
+        "This endpoint requires authentication".into(),
+    ))
+}
+
 async fn resolve_space(state: &AppState, space_uri: &str) -> Result<Space, AppError> {
     let uri = SpaceUri::parse(space_uri)?;
     db::get_space_by_address(
@@ -1420,10 +1436,15 @@ async fn register_notify(
 
 async fn notify_write(
     State(state): State<AppState>,
-    _claims: XrpcClaims,
+    claims: XrpcClaims,
     Json(input): Json<NotifyWriteInput>,
 ) -> Result<impl IntoResponse, AppError> {
+    // Inter-service route: only the space authority (or a super admin) may fire
+    // write notifications. Previously this ignored the caller entirely, letting
+    // anyone spam/forge notifications to registered endpoints (M1).
+    let did = require_notify_caller(&claims)?;
     let space = resolve_space(&state, &input.space).await?;
+    require_space_admin(&state, &space, &did).await?;
 
     notifications::dispatch_write_notification(
         &state.db,
@@ -1442,10 +1463,14 @@ async fn notify_write(
 
 async fn notify_space_deleted(
     State(state): State<AppState>,
-    _claims: XrpcClaims,
+    claims: XrpcClaims,
     Json(input): Json<NotifySpaceDeletedInput>,
 ) -> Result<impl IntoResponse, AppError> {
+    // Inter-service route: only the space authority (or a super admin) may fire
+    // "space deleted" events (which may cause consumers to purge cached data).
+    let did = require_notify_caller(&claims)?;
     let space = resolve_space(&state, &input.space).await?;
+    require_space_admin(&state, &space, &did).await?;
 
     notifications::dispatch_space_deleted(&state.db, state.db_backend, &state.http, &space.id)
         .await?;

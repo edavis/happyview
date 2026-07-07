@@ -484,23 +484,24 @@ async fn main() {
         .expect("Failed to create OAuth client")
     };
 
-    if config.session_secret == "change-me-in-production-not-secure" {
-        if db_backend == happyview::db::DatabaseBackend::Postgres {
-            tracing::error!(
-                "INSECURE SESSION SECRET — You are using the default session secret with a \
-                 Postgres backend, which likely indicates a production deployment. \
-                 Set SESSION_SECRET to a random string of at least 64 characters."
-            );
-        } else {
-            warn!(
-                "Using the default session secret. Set SESSION_SECRET to a random \
-                 string in production."
-            );
+    // Derive the cookie signing key from SESSION_SECRET when it is secure. When
+    // it is not, log the problem loudly and fall back to an ephemeral random key
+    // so no attacker can forge cookies with a known/weak key. Cookie-based auth
+    // is disabled in this state (see the auth extractors and login handlers);
+    // DPoP, service auth, and API-key auth are unaffected. The server still boots
+    // so the dashboard can surface the misconfiguration to an operator.
+    let cookie_key = if config.session_secret_secure() {
+        axum_extra::extract::cookie::Key::derive_from(config.session_secret.as_bytes())
+    } else {
+        for err in config.config_errors() {
+            tracing::error!("INSECURE CONFIGURATION: {err}");
         }
-    }
-
-    let cookie_key =
-        axum_extra::extract::cookie::Key::derive_from(config.session_secret.as_bytes());
+        tracing::error!(
+            "Cookie-based login is DISABLED until SESSION_SECRET is set securely. \
+             Other auth (DPoP, service auth, API keys) continues to work."
+        );
+        axum_extra::extract::cookie::Key::generate()
+    };
 
     let initial_collections = lexicons.get_record_collections().await;
     let (collections_tx, collections_rx) = watch::channel(initial_collections);

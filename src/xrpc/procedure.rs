@@ -11,6 +11,29 @@ use crate::lexicon::ProcedureAction;
 use crate::record_refs::sync_refs;
 use crate::repo;
 
+/// Resolve where a put/delete writes in the local index.
+///
+/// The client supplies a full AT URI, but only the record key (last segment) is
+/// trusted — the URI's DID is **ignored**. The returned index URI is always
+/// scoped to the caller's own repo (`did`), so a caller cannot overwrite or
+/// delete another user's indexed record by naming their URI. `collection` comes
+/// from the server-side lexicon, not the client.
+///
+/// Returns `(rkey, index_uri)`.
+fn resolve_write_target(
+    did: &str,
+    collection: &str,
+    client_uri: &str,
+) -> Result<(String, String), AppError> {
+    let rkey = client_uri
+        .split('/')
+        .next_back()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| AppError::BadRequest("invalid AT URI".into()))?;
+    let index_uri = format!("at://{did}/{collection}/{rkey}");
+    Ok((rkey.to_string(), index_uri))
+}
+
 pub(crate) async fn handle_procedure(
     state: &AppState,
     method: &str,
@@ -287,15 +310,14 @@ async fn handle_put_record(
     collection: &str,
     session: &crate::HappyViewOAuthSession,
 ) -> Result<Response, AppError> {
-    let uri = input
+    let client_uri = input
         .get("uri")
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::BadRequest("missing uri field".into()))?;
 
-    let rkey = uri
-        .split('/')
-        .next_back()
-        .ok_or_else(|| AppError::Internal("invalid AT URI".into()))?;
+    // Trust only the record key from the client URI; scope the index write to
+    // the caller's own repo so it can't overwrite another user's indexed record.
+    let (rkey, uri) = resolve_write_target(claims.did(), collection, client_uri)?;
 
     // Build record from input, adding $type
     let mut record = input.clone();
@@ -344,10 +366,10 @@ async fn handle_put_record(
             backend,
         );
         let _ = sqlx::query(&sql)
-            .bind(uri)
+            .bind(&uri)
             .bind(claims.did())
             .bind(collection)
-            .bind(rkey)
+            .bind(&rkey)
             .bind(&record_str)
             .bind(cid)
             .bind(&now)
@@ -355,7 +377,7 @@ async fn handle_put_record(
             .execute(&state.db)
             .await;
 
-        let _ = sync_refs(&state.db, uri, collection, &record, backend).await;
+        let _ = sync_refs(&state.db, &uri, collection, &record, backend).await;
 
         Ok((
             StatusCode::OK,
@@ -375,15 +397,14 @@ async fn handle_delete_record(
     collection: &str,
     session: &crate::HappyViewOAuthSession,
 ) -> Result<Response, AppError> {
-    let uri = input
+    let client_uri = input
         .get("uri")
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::BadRequest("missing uri field".into()))?;
 
-    let rkey = uri
-        .split('/')
-        .next_back()
-        .ok_or_else(|| AppError::Internal("invalid AT URI".into()))?;
+    // Trust only the record key from the client URI; scope the index delete to
+    // the caller's own repo so it can't delete another user's indexed record.
+    let (rkey, uri) = resolve_write_target(claims.did(), collection, client_uri)?;
 
     let pds_body = json!({
         "repo": claims.did(),
@@ -402,7 +423,7 @@ async fn handle_delete_record(
 
         let backend = state.db_backend;
         let sql = adapt_sql("DELETE FROM happyview_records WHERE uri = ?", backend);
-        let _ = sqlx::query(&sql).bind(uri).execute(&state.db).await;
+        let _ = sqlx::query(&sql).bind(&uri).execute(&state.db).await;
 
         Ok((
             StatusCode::OK,
@@ -605,4 +626,41 @@ async fn handle_dpop_procedure(
     .await?;
 
     repo::forward_pds_response(resp).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn write_target_scopes_index_uri_to_caller() {
+        // An authenticated caller names a *victim's* record. The record key is
+        // honored, but the index URI must be scoped to the caller's own repo —
+        // otherwise a put/delete would poison or remove the victim's row.
+        let (rkey, index_uri) = resolve_write_target(
+            "did:plc:attacker",
+            "app.some.post",
+            "at://did:plc:victim/app.some.post/rk1",
+        )
+        .unwrap();
+        assert_eq!(rkey, "rk1");
+        assert_eq!(index_uri, "at://did:plc:attacker/app.some.post/rk1");
+    }
+
+    #[test]
+    fn write_target_uses_lexicon_collection_not_client_uri() {
+        // The collection comes from the server-side lexicon, not the client URI.
+        let (_rkey, index_uri) = resolve_write_target(
+            "did:plc:me",
+            "app.real.collection",
+            "at://did:plc:me/app.spoofed.collection/rk",
+        )
+        .unwrap();
+        assert_eq!(index_uri, "at://did:plc:me/app.real.collection/rk");
+    }
+
+    #[test]
+    fn write_target_rejects_empty_rkey() {
+        assert!(resolve_write_target("did:plc:me", "app.foo", "at://did:plc:me/app.foo/").is_err());
+    }
 }

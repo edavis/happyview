@@ -1,6 +1,7 @@
 "use client"
 
 import { createContext, useContext, useEffect, useState } from "react"
+import { TriangleAlert } from "lucide-react"
 
 interface ConfigContextType {
   public_url: string
@@ -8,6 +9,7 @@ interface ConfigContextType {
   default_rate_limit_refill_rate: number
   app_name: string | null
   logo_url: string | null
+  configErrors: string[]
 }
 
 const ConfigContext = createContext<ConfigContextType>({
@@ -16,7 +18,33 @@ const ConfigContext = createContext<ConfigContextType>({
   default_rate_limit_refill_rate: 2.0,
   app_name: null,
   logo_url: null,
+  configErrors: [],
 })
+
+function ConfigErrorBanner({ errors }: { errors: string[] }) {
+  return (
+    <div
+      role="alert"
+      className="border-b border-destructive/30 bg-destructive/10 text-destructive px-4 py-3"
+    >
+      <div className="mx-auto flex max-w-5xl items-start gap-3">
+        <TriangleAlert className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
+        <div className="space-y-1 text-sm">
+          <p className="font-semibold">Server misconfiguration</p>
+          {errors.map((err, i) => (
+            <p key={i} className="text-destructive/90">
+              {err}
+            </p>
+          ))}
+          <p className="text-destructive/80">
+            The server is running, but the affected functionality stays disabled
+            until this is fixed and the server is restarted.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export function ConfigProvider({ children }: { children: React.ReactNode }) {
   const [config, setConfig] = useState<ConfigContextType | null>(null)
@@ -35,6 +63,7 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
           default_rate_limit_refill_rate: data.default_rate_limit_refill_rate,
           app_name: data.app_name ?? null,
           logo_url: data.logo_url ?? null,
+          configErrors: Array.isArray(data.configErrors) ? data.configErrors : [],
         })
       })
       .catch((e) => setError(e.message))
@@ -47,7 +76,12 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
   if (!config) return null
 
   return (
-    <ConfigContext.Provider value={config}>{children}</ConfigContext.Provider>
+    <ConfigContext.Provider value={config}>
+      {config.configErrors.length > 0 && (
+        <ConfigErrorBanner errors={config.configErrors} />
+      )}
+      {children}
+    </ConfigContext.Provider>
   )
 }
 

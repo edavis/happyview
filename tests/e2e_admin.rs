@@ -57,6 +57,77 @@ fn admin_delete(
         .unwrap()
 }
 
+async fn response_json(resp: axum::http::Response<Body>) -> Value {
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    serde_json::from_slice(&body).unwrap_or(json!(null))
+}
+
+fn bearer_get(uri: &str, key: &str) -> Request<Body> {
+    Request::builder()
+        .uri(uri)
+        .header("authorization", format!("Bearer {key}"))
+        .body(Body::empty())
+        .unwrap()
+}
+
+/// A super admin's scoped API key must be limited to its stored permissions —
+/// it must NOT inherit the owner's super privileges (H5).
+#[tokio::test]
+#[serial]
+async fn super_user_api_key_is_bounded_by_its_permissions() {
+    common::require_db!();
+    let app = TestApp::new().await;
+
+    // The TestApp admin is a super user. Create a key scoped to stats:read only.
+    let create = app
+        .router
+        .clone()
+        .oneshot(admin_post(
+            "/admin/api-keys",
+            app.admin_cookie(),
+            &json!({ "name": "ci-monitor", "permissions": ["stats:read"] }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(create.status(), StatusCode::CREATED);
+    let key = response_json(create).await["key"]
+        .as_str()
+        .expect("api key returned")
+        .to_string();
+
+    // It can reach the permission it was granted.
+    let allowed = app
+        .router
+        .clone()
+        .oneshot(bearer_get("/admin/stats", &key))
+        .await
+        .unwrap();
+    assert_eq!(allowed.status(), StatusCode::OK);
+
+    // It must NOT reach a permission it wasn't granted, even though its owner
+    // is super. Before the fix this returned 200 (full super via the key).
+    let denied = app
+        .router
+        .clone()
+        .oneshot(bearer_get("/admin/lexicons", &key))
+        .await
+        .unwrap();
+    assert_eq!(
+        denied.status(),
+        StatusCode::FORBIDDEN,
+        "a super user's scoped key must not grant permissions outside its list"
+    );
+
+    // And it must not reach super-only operations (user management).
+    let users = app
+        .router
+        .clone()
+        .oneshot(bearer_get("/admin/users", &key))
+        .await
+        .unwrap();
+    assert_ne!(users.status(), StatusCode::OK);
+}
+
 // ---------------------------------------------------------------------------
 // Auth tests
 // ---------------------------------------------------------------------------

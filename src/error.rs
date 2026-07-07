@@ -63,6 +63,10 @@ pub enum AppError {
     Internal(String),
     NotFound(String),
     PdsError(StatusCode, Bytes),
+    /// The instance is misconfigured (e.g. an insecure `SESSION_SECRET`); the
+    /// requested auth path is disabled until an operator fixes it. Renders as
+    /// 503 so clients and the dashboard can distinguish it from a normal 401.
+    ServerMisconfigured(String),
     RateLimited {
         retry_after: u64,
         limit: u32,
@@ -90,6 +94,7 @@ impl std::fmt::Display for AppError {
             AppError::Internal(msg) => write!(f, "internal error: {msg}"),
             AppError::NotFound(msg) => write!(f, "not found: {msg}"),
             AppError::PdsError(status, _) => write!(f, "PDS error: {status}"),
+            AppError::ServerMisconfigured(msg) => write!(f, "server misconfigured: {msg}"),
             AppError::RateLimited { retry_after, .. } => {
                 write!(f, "rate limited: retry after {retry_after}s")
             }
@@ -163,6 +168,13 @@ impl IntoResponse for AppError {
                 });
                 (StatusCode::FORBIDDEN, axum::Json(body)).into_response()
             }
+            AppError::ServerMisconfigured(msg) => {
+                let body = serde_json::json!({
+                    "error": "ServerMisconfigured",
+                    "message": msg,
+                });
+                (StatusCode::SERVICE_UNAVAILABLE, axum::Json(body)).into_response()
+            }
             AppError::RateLimited {
                 retry_after,
                 limit,
@@ -197,6 +209,7 @@ impl IntoResponse for AppError {
                     | AppError::AuthDpopNonce(..)
                     | AppError::FeatureDisabled(..)
                     | AppError::InsufficientPermissions(..)
+                    | AppError::ServerMisconfigured(..)
                     | AppError::RateLimited { .. }
                     | AppError::ScriptError { .. } => unreachable!(),
                 };
@@ -220,6 +233,17 @@ mod tests {
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         (status, json)
+    }
+
+    #[tokio::test]
+    async fn server_misconfigured_returns_503() {
+        let (status, body) = response_parts(AppError::ServerMisconfigured(
+            "SESSION_SECRET is not set".into(),
+        ))
+        .await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body["error"], "ServerMisconfigured");
+        assert_eq!(body["message"], "SESSION_SECRET is not set");
     }
 
     #[tokio::test]

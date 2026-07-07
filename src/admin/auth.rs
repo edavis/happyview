@@ -254,8 +254,13 @@ impl UserAuth {
         let key_permissions: Vec<String> =
             serde_json::from_str(&permissions_json).unwrap_or_default();
 
+        // An API key is bounded by its own stored permission list and never
+        // carries super privileges — otherwise a super admin's "read-only" key
+        // would grant full admin (H5). A super user implicitly holds every
+        // permission, so their key's list is used as-is; a non-super user's key
+        // is additionally intersected with what that user actually holds.
         let permissions = if is_super {
-            HashSet::new()
+            parse_permissions(&key_permissions)
         } else {
             Self::load_api_key_permissions(&state.db, &user_id, &key_permissions, backend).await?
         };
@@ -277,10 +282,25 @@ impl UserAuth {
         Ok(Some(UserAuth {
             did,
             user_id,
-            is_super,
+            // A key is never super, regardless of its owner: `require()` must
+            // consult the key's permissions, and super-only operations (user
+            // management, transfer_super) stay unavailable via API keys.
+            is_super: false,
             permissions,
             db: state.db.clone(),
             db_backend: backend,
         }))
     }
+}
+
+/// Parse a stored key permission list (JSON strings) into a permission set,
+/// dropping any unrecognized entries. Used for super-user keys, whose owner
+/// implicitly holds every permission so no intersection is needed.
+fn parse_permissions(key_permissions: &[String]) -> HashSet<Permission> {
+    key_permissions
+        .iter()
+        .filter_map(|s| {
+            serde_json::from_value::<Permission>(serde_json::Value::String(s.clone())).ok()
+        })
+        .collect()
 }

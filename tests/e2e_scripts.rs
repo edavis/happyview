@@ -710,12 +710,11 @@ async fn label_script_uri_routes_actor_special_case() {
     create_script(
         &app,
         "labeler.apply:_actor",
-        // Sentinel: write a row into records-table-as-flag so we can
-        // detect that the script ran.
+        // Sentinel: write a row into a caller-owned table (db.raw cannot touch
+        // internal HappyView tables) so we can detect that the script ran.
         "function handle() \
-            db.raw('INSERT INTO happyview_records (uri, did, collection, rkey, record, cid, created_at) \
-                    VALUES (?, ?, ?, ?, ?, ?, ?)', \
-                   {'at://did:plc:flag/flag.col/k', 'did:plc:flag', 'flag.col', 'k', '{}', 'b', '2026-05-01'}) \
+            db.raw('CREATE TABLE IF NOT EXISTS script_sentinel (k TEXT)') \
+            db.raw('INSERT INTO script_sentinel (k) VALUES (?)', {'fired'}) \
             return event \
          end",
     )
@@ -737,9 +736,12 @@ async fn label_script_uri_routes_actor_special_case() {
     assert!(matches!(outcome, LabelHookOutcome::Continue(_)));
 
     // Sentinel row should exist if the script ran.
+    let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM script_sentinel WHERE k = 'fired'")
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
     assert_eq!(
-        count_records(&app, "at://did:plc:flag/flag.col/k").await,
-        1,
+        count, 1,
         "labeler.apply:_actor should have fired for bare-DID label"
     );
 }

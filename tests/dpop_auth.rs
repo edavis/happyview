@@ -217,6 +217,118 @@ async fn test_register_session_requires_atproto_scope() {
 
 #[tokio::test]
 #[serial]
+async fn test_register_session_rejects_did_not_matching_token() {
+    common::require_db!();
+    let app = common::app::TestApp::new_with_encryption().await;
+    let (client_key, client_secret, _id) = app.create_api_client("confidential", None).await;
+
+    // The attacker claims to be the victim, but the access token they present
+    // belongs to the attacker's own DID. getSession on the victim's PDS reports
+    // the attacker DID, so registration must be rejected.
+    app.mock_session_verification("did:plc:victim", "did:plc:attacker")
+        .await;
+
+    let key_req = post_json_with_headers(
+        "/oauth/dpop-keys",
+        &json!({}),
+        vec![
+            ("x-client-key", &client_key),
+            ("x-client-secret", &client_secret),
+        ],
+    );
+    let key_resp = app.router.clone().oneshot(key_req).await.unwrap();
+    let key_body = response_json(key_resp).await;
+    let provision_id = key_body["provision_id"].as_str().unwrap();
+
+    let req = post_json_with_headers(
+        "/oauth/sessions",
+        &json!({
+            "provision_id": provision_id,
+            "did": "did:plc:victim",
+            "access_token": "attacker-token",
+            "scopes": "atproto",
+        }),
+        vec![
+            ("x-client-key", &client_key),
+            ("x-client-secret", &client_secret),
+        ],
+    );
+
+    let resp = app.router.clone().oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "registering a session for a DID the token does not belong to must be rejected"
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_register_session_rejects_token_pds_refuses() {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, ResponseTemplate};
+
+    common::require_db!();
+    let app = common::app::TestApp::new_with_encryption().await;
+    let (client_key, client_secret, _id) = app.create_api_client("confidential", None).await;
+
+    // The victim's DID document resolves to their real PDS, which rejects the
+    // attacker's token outright (401). Registration must fail.
+    let pds_url = app.mock_server.uri();
+    Mock::given(method("GET"))
+        .and(path("/did:plc:victim2"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "did:plc:victim2",
+            "service": [{
+                "id": "#atproto_pds",
+                "type": "AtprotoPersonalDataServer",
+                "serviceEndpoint": pds_url,
+            }]
+        })))
+        .mount(&app.mock_server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/xrpc/com.atproto.server.getSession"))
+        .respond_with(ResponseTemplate::new(401).set_body_json(json!({ "error": "InvalidToken" })))
+        .mount(&app.mock_server)
+        .await;
+
+    let key_req = post_json_with_headers(
+        "/oauth/dpop-keys",
+        &json!({}),
+        vec![
+            ("x-client-key", &client_key),
+            ("x-client-secret", &client_secret),
+        ],
+    );
+    let key_resp = app.router.clone().oneshot(key_req).await.unwrap();
+    let key_body = response_json(key_resp).await;
+    let provision_id = key_body["provision_id"].as_str().unwrap();
+
+    let req = post_json_with_headers(
+        "/oauth/sessions",
+        &json!({
+            "provision_id": provision_id,
+            "did": "did:plc:victim2",
+            "access_token": "attacker-token",
+            "scopes": "atproto",
+        }),
+        vec![
+            ("x-client-key", &client_key),
+            ("x-client-secret", &client_secret),
+        ],
+    );
+
+    let resp = app.router.clone().oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "registration must fail when the PDS refuses the presented access token"
+    );
+}
+
+#[tokio::test]
+#[serial]
 async fn test_full_flow_provision_register_delete() {
     common::require_db!();
     let app = common::app::TestApp::new_with_encryption().await;
@@ -237,6 +349,8 @@ async fn test_full_flow_provision_register_delete() {
     let provision_id = key_body["provision_id"].as_str().unwrap();
 
     // 2. Register session
+    app.mock_session_verification("did:plc:testuser", "did:plc:testuser")
+        .await;
     let session_req = post_json_with_headers(
         "/oauth/sessions",
         &json!({
@@ -381,6 +495,8 @@ async fn test_xrpc_dpop_auth_accepted() {
 
     // 2. Register session
     let access_token = "test-xrpc-access-token";
+    app.mock_session_verification("did:plc:xrpcuser", "did:plc:xrpcuser")
+        .await;
     let session_req = post_json_with_headers(
         "/oauth/sessions",
         &json!({
@@ -445,6 +561,8 @@ async fn provision_and_register(
     let key_body = response_json(key_resp).await;
     let provision_id = key_body["provision_id"].as_str().unwrap().to_string();
     let dpop_key = key_body["dpop_key"].clone();
+
+    app.mock_session_verification(did, did).await;
 
     let session_req = post_json_with_headers(
         "/oauth/sessions",
@@ -601,6 +719,8 @@ async fn test_session_upsert_same_device() {
     let key_body = response_json(key_resp).await;
     let provision_id = key_body["provision_id"].as_str().unwrap();
 
+    app.mock_session_verification(did, did).await;
+
     // Register session with token-v1
     let reg1 = post_json_with_headers(
         "/oauth/sessions",
@@ -738,6 +858,8 @@ async fn test_public_client_dpop_get_session() {
     let did = "did:plc:publicuser";
     let access_token = "public-client-access-token";
 
+    app.mock_session_verification(did, did).await;
+
     // Register session with PKCE verifier
     let session_req = post_json_with_headers(
         "/oauth/sessions",
@@ -805,6 +927,8 @@ async fn test_public_client_dpop_delete_session() {
 
     let did = "did:plc:publicdelete";
     let access_token = "public-delete-token";
+
+    app.mock_session_verification(did, did).await;
 
     let session_req = post_json_with_headers(
         "/oauth/sessions",

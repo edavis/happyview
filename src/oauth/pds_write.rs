@@ -693,6 +693,77 @@ fn generate_dpop_proof_inner(
     Ok(format!("{}.{}.{}", header_b64, payload_b64, sig_b64))
 }
 
+/// Verify that a DPoP access token belongs to `did` by calling
+/// `com.atproto.server.getSession` on the DID's own PDS.
+///
+/// This is the trust anchor for session registration: the caller supplies a
+/// `did` and an `access_token`, but nothing proves the token was issued for
+/// that DID. We resolve the PDS **authoritatively from the DID document** (never
+/// from a client-supplied PDS URL, which an attacker could point at a server
+/// that lies), then present the token with a DPoP proof signed by the
+/// provisioned key the token is bound to. The PDS reports which DID the token
+/// actually belongs to; the caller compares it against the claimed `did`.
+///
+/// Returns the DID the PDS reports for the token, or an auth error if the token
+/// is rejected.
+pub async fn verify_access_token_did(
+    http: &reqwest::Client,
+    plc_url: &str,
+    private_jwk: &serde_json::Value,
+    did: &str,
+    access_token: &str,
+) -> Result<String, AppError> {
+    let pds_url = resolve_pds_from_did(http, plc_url, did).await?;
+    let target_url = format!(
+        "{}/xrpc/com.atproto.server.getSession",
+        pds_url.trim_end_matches('/')
+    );
+
+    // The PDS may demand a DPoP nonce on the first attempt; retry once with it.
+    let mut nonce: Option<String> = None;
+    for _ in 0..2 {
+        let proof = generate_dpop_proof(
+            private_jwk,
+            "GET",
+            &target_url,
+            access_token,
+            nonce.as_deref(),
+        )?;
+        let resp = http
+            .get(&target_url)
+            .header("Authorization", format!("DPoP {access_token}"))
+            .header("DPoP", proof)
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(format!("getSession request failed: {e}")))?;
+
+        if resp.status().is_success() {
+            let body: serde_json::Value = resp
+                .json()
+                .await
+                .map_err(|e| AppError::Internal(format!("invalid getSession response: {e}")))?;
+            return body["did"]
+                .as_str()
+                .map(|s| s.to_string())
+                .ok_or_else(|| AppError::Auth("getSession response missing did".into()));
+        }
+
+        if nonce.is_none()
+            && let Some(n) = extract_dpop_nonce(&resp)
+        {
+            nonce = Some(n);
+            continue;
+        }
+
+        return Err(AppError::Auth(format!(
+            "access token verification failed ({})",
+            resp.status()
+        )));
+    }
+
+    Err(AppError::Auth("access token verification failed".into()))
+}
+
 /// Resolve a user's PDS URL from their DID document.
 async fn resolve_pds_from_did(
     http: &reqwest::Client,

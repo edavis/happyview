@@ -7,6 +7,11 @@ use serde::Deserialize;
 use crate::AppState;
 use crate::error::AppError;
 
+/// Maximum accepted `exp - now` for a service-auth JWT (1 hour). atproto tokens
+/// are typically valid for ~60s; this generous cap bounds the replay window of a
+/// captured token without breaking well-behaved clients.
+const MAX_SERVICE_JWT_LIFETIME_SECS: u64 = 3600;
+
 /// Authenticated ATProto user identity extracted from a service auth JWT.
 ///
 /// Used for XRPC endpoints that receive proxied requests from PDSes.
@@ -132,8 +137,22 @@ fn verify_service_jwt<'a>(
             return Err(AppError::Auth("JWT expired".into()));
         }
 
-        // Check audience if SERVICE_DID is configured (optional for HappyView).
-        // For now, accept any audience.
+        // Bound the acceptance window: atproto service-auth tokens are short-lived
+        // (~60s). Reject tokens valid absurdly far into the future so a captured
+        // token isn't replayable for months/years.
+        if payload.exp > now.saturating_add(MAX_SERVICE_JWT_LIFETIME_SECS) {
+            tracing::warn!(
+                exp = payload.exp,
+                now,
+                "service auth JWT lifetime exceeds maximum"
+            );
+            return Err(AppError::Auth("JWT lifetime exceeds maximum".into()));
+        }
+
+        // Audience is validated by the caller against this instance's service DID
+        // (see `try_parse_service_auth`) — every service-auth entry point routes
+        // through that check, so a token minted for a different audience is
+        // rejected rather than trusted here.
         let _ = &payload.aud;
 
         // Check lxm if present (optional validation).

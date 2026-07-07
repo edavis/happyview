@@ -53,7 +53,7 @@ impl TestApp {
             database_url: String::new(),
             database_backend: backend,
             public_url: "http://127.0.0.1:0".into(),
-            session_secret: "test-secret".into(),
+            session_secret: "test-session-secret-0123456789abcdef".into(),
             jetstream_url: "wss://jetstream1.us-east.bsky.network".into(),
             relay_url: mock_url.clone(),
             plc_url: mock_url.clone(),
@@ -216,6 +216,13 @@ impl TestApp {
         app.state.config.token_encryption_key = Some([0x42u8; 32]);
         app.rebuild_router();
         app
+    }
+
+    /// Put the instance into the "insecure SESSION_SECRET" state, in which
+    /// cookie-based auth is disabled (C3). Other auth is unaffected.
+    pub fn set_insecure_session_secret(&mut self) {
+        self.state.config.session_secret = String::new();
+        self.rebuild_router();
     }
 
     /// Create an API client in the database for testing.
@@ -578,6 +585,51 @@ impl TestApp {
         let sig_b64 = URL_SAFE_NO_PAD.encode(signature.to_bytes());
 
         format!("Bearer {}.{}.{}", header_b64, payload_b64, sig_b64)
+    }
+
+    /// Mount mock PLC + PDS responses so that registering a DPoP session for
+    /// `did` passes access-token verification.
+    ///
+    /// The mock PLC (== `plc_url`) serves a DID document for `did` whose
+    /// `#atproto_pds` service points back at the mock server, and
+    /// `com.atproto.server.getSession` on the mock server reports `resolved_did`
+    /// for the presented token. For a legitimate session, pass the same value
+    /// for both arguments; for a spoofing attempt, make them differ.
+    pub async fn mock_session_verification(&self, did: &str, resolved_did: &str) {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, ResponseTemplate};
+
+        // Give each DID its own PDS path so several sessions can be mocked on the
+        // single shared mock server without their getSession mocks colliding
+        // (the getSession request itself carries no DID to disambiguate on).
+        let pds_path = format!("/pds/{did}");
+        let pds_url = format!("{}{}", self.mock_server.uri(), pds_path);
+
+        let did_doc = serde_json::json!({
+            "id": did,
+            "service": [{
+                "id": "#atproto_pds",
+                "type": "AtprotoPersonalDataServer",
+                "serviceEndpoint": pds_url,
+            }]
+        });
+
+        Mock::given(method("GET"))
+            .and(path(format!("/{did}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(did_doc))
+            .mount(&self.mock_server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "{pds_path}/xrpc/com.atproto.server.getSession"
+            )))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "did": resolved_did })),
+            )
+            .mount(&self.mock_server)
+            .await;
     }
 
     /// Install a fake plugin directly into the registry at the given version.
