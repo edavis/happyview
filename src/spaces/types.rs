@@ -31,6 +31,20 @@ impl SpaceAccess {
         matches!(self, SpaceAccess::Write)
     }
 
+    /// Privilege rank used when merging memberships reached via multiple paths
+    /// (direct + delegation) — the highest rank wins. `read_self` is the most
+    /// restricted (own repo only), then `read`, then `write`.
+    ///
+    /// Note: the enum's declaration order (`Read`, `ReadSelf`, `Write`) does
+    /// **not** match privilege order, so `Ord` must not be derived — use this.
+    pub fn rank(&self) -> u8 {
+        match self {
+            SpaceAccess::ReadSelf => 0,
+            SpaceAccess::Read => 1,
+            SpaceAccess::Write => 2,
+        }
+    }
+
     pub fn can_read(&self) -> bool {
         true
     }
@@ -253,6 +267,14 @@ mod tests {
         assert!(!SpaceAccess::ReadSelf.can_write());
         assert!(SpaceAccess::Write.can_read());
         assert!(SpaceAccess::Write.can_write());
+    }
+
+    #[test]
+    fn space_access_rank_orders_by_privilege() {
+        // read_self is the most restricted, then read, then write — regardless
+        // of enum declaration order.
+        assert!(SpaceAccess::ReadSelf.rank() < SpaceAccess::Read.rank());
+        assert!(SpaceAccess::Read.rank() < SpaceAccess::Write.rank());
     }
 
     #[test]

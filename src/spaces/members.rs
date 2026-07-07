@@ -105,9 +105,12 @@ async fn resolve_delegation_target(
 }
 
 fn merge_access(resolved: &mut HashMap<String, SpaceAccess>, did: &str, access: SpaceAccess) {
-    let entry = resolved.entry(did.to_string()).or_insert(SpaceAccess::Read);
-    if access.can_write() {
-        *entry = SpaceAccess::Write;
+    // Seed with the member's real level (so `read_self` survives), then only
+    // ever upgrade to a higher privilege — never downgrade. Seeding at `Read`
+    // here would silently promote `read_self` members to full `read`.
+    let entry = resolved.entry(did.to_string()).or_insert(access);
+    if access.rank() > entry.rank() {
+        *entry = access;
     }
 }
 
@@ -127,6 +130,35 @@ mod tests {
         // Write should not be downgraded to Read
         merge_access(&mut map, "did:plc:user1", SpaceAccess::Read);
         assert_eq!(map["did:plc:user1"], SpaceAccess::Write);
+    }
+
+    #[test]
+    fn merge_access_preserves_read_self() {
+        // A read_self member must NOT be silently promoted to full read.
+        let mut map = HashMap::new();
+        merge_access(&mut map, "did:plc:user", SpaceAccess::ReadSelf);
+        assert_eq!(map["did:plc:user"], SpaceAccess::ReadSelf);
+    }
+
+    #[test]
+    fn merge_access_upgrades_but_never_downgrades() {
+        // read_self upgraded by a higher grant on another path.
+        let mut map = HashMap::new();
+        merge_access(&mut map, "u", SpaceAccess::ReadSelf);
+        merge_access(&mut map, "u", SpaceAccess::Read);
+        assert_eq!(map["u"], SpaceAccess::Read);
+        merge_access(&mut map, "u", SpaceAccess::Write);
+        assert_eq!(map["u"], SpaceAccess::Write);
+
+        // A lower grant on another path never downgrades.
+        let mut map2 = HashMap::new();
+        merge_access(&mut map2, "v", SpaceAccess::Read);
+        merge_access(&mut map2, "v", SpaceAccess::ReadSelf);
+        assert_eq!(map2["v"], SpaceAccess::Read);
+
+        merge_access(&mut map2, "v", SpaceAccess::Write);
+        merge_access(&mut map2, "v", SpaceAccess::ReadSelf);
+        assert_eq!(map2["v"], SpaceAccess::Write);
     }
 
     #[test]

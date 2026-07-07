@@ -516,6 +516,49 @@ async fn add_and_get_member() {
 
 #[tokio::test]
 #[serial]
+async fn resolve_members_preserves_read_self() {
+    common::require_db!();
+    let pool = test_db::test_pool().await;
+    let backend = test_db::test_backend();
+    test_db::truncate_all(&pool).await;
+
+    let space_id = new_id();
+    let space = make_space(
+        &space_id,
+        "did:plc:rs-owner",
+        "com.example.readself",
+        "rs-skey",
+    );
+    spaces_db::create_space(&pool, backend, &space)
+        .await
+        .expect("create_space failed");
+
+    let member_did = "did:plc:rs-member";
+    spaces_db::add_member(
+        &pool,
+        backend,
+        &SpaceMember {
+            id: new_id(),
+            space_id: space_id.clone(),
+            did: member_did.to_string(),
+            access: SpaceAccess::ReadSelf,
+            is_delegation: false,
+            granted_by: Some("did:plc:rs-owner".to_string()),
+            created_at: now_rfc3339(),
+        },
+    )
+    .await
+    .expect("add_member failed");
+
+    // Resolution must not promote read_self to full read.
+    let access = happyview::spaces::members::is_member(&pool, backend, &space_id, member_did)
+        .await
+        .expect("is_member failed");
+    assert_eq!(access, Some(SpaceAccess::ReadSelf));
+}
+
+#[tokio::test]
+#[serial]
 async fn remove_member() {
     common::require_db!();
     let pool = test_db::test_pool().await;
