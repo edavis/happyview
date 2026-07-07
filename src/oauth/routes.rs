@@ -207,7 +207,7 @@ async fn register_session(
         .ok_or_else(|| AppError::Internal("TOKEN_ENCRYPTION_KEY not configured".into()))?;
 
     // Look up the DPoP key by provision_id
-    let (dpop_key_id, dpop_client_id, _private_jwk, _thumbprint, pkce_challenge) =
+    let (dpop_key_id, dpop_client_id, private_jwk, _thumbprint, pkce_challenge) =
         keys::get_dpop_key(
             &state.db,
             state.db_backend,
@@ -256,6 +256,31 @@ async fn register_session(
             "session registration scope validation failed"
         );
         return Err(e);
+    }
+
+    // Verify the access token actually belongs to the claimed DID. The `did` in
+    // the request body is client-supplied and untrusted; without this check any
+    // holder of a provisioned DPoP key could register a session for an arbitrary
+    // victim DID and be authenticated as them on every DPoP-accepting route.
+    let verified_did = super::pds_write::verify_access_token_did(
+        &state.http,
+        &state.config.plc_url,
+        &private_jwk,
+        &body.did,
+        &body.access_token,
+    )
+    .await?;
+
+    if verified_did != body.did {
+        tracing::warn!(
+            client_key = %client_key,
+            claimed_did = %body.did,
+            verified_did = %verified_did,
+            "session registration rejected: access token does not belong to claimed DID"
+        );
+        return Err(AppError::Auth(
+            "access token does not belong to the claimed DID".into(),
+        ));
     }
 
     // Store the session

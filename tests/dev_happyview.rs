@@ -56,6 +56,7 @@ async fn setup_dpop_session(app: &common::app::TestApp, user_did: &str) -> (Stri
 
     // 2. Register session
     let access_token = format!("test-access-{}", uuid::Uuid::new_v4());
+    app.mock_session_verification(user_did, user_did).await;
     let session_req = post_json_with_headers(
         "/oauth/sessions",
         &json!({
