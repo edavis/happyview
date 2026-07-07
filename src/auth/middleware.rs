@@ -123,10 +123,18 @@ impl FromRequestParts<AppState> for Claims {
                 });
             }
 
-            // Otherwise, try service auth JWT
-            let service_auth = super::service_auth::ServiceAuth::from_bearer(token, state).await?;
+            // Otherwise, try service auth JWT. Route through the same helper the
+            // XRPC path uses so the token's `aud` is verified against this
+            // instance's service DID — otherwise a JWT the user minted for a
+            // different audience would authenticate here and impersonate them
+            // (H6). `from_bearer` alone checks only the signature and `exp`.
+            let host = parts
+                .headers
+                .get(axum::http::header::HOST)
+                .and_then(|v| v.to_str().ok());
+            let service_claims = try_parse_service_auth(token, state, host).await?;
             return Ok(Claims {
-                did: service_auth.did,
+                did: service_claims.did,
                 client_key: None,
                 dpop_key_id: None,
             });

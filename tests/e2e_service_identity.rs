@@ -2203,3 +2203,132 @@ async fn jwt_with_allowed_typ_accepted() {
         "JWT with typ=JWT should be accepted"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Service auth — audience validation on the admin/UserAuth path (H6)
+// ---------------------------------------------------------------------------
+
+/// Seed a super user directly, so an authenticated request reaches a 200 rather
+/// than a permission error.
+async fn seed_super_user(app: &TestApp, did: &str) {
+    let sql = happyview::db::adapt_sql(
+        "INSERT INTO happyview_users (id, did, is_super, created_at) VALUES (?, ?, ?, ?)",
+        app.state.db_backend,
+    );
+    sqlx::query(&sql)
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(did)
+        .bind(1_i32)
+        .bind(happyview::db::now_rfc3339())
+        .execute(&app.state.db)
+        .await
+        .expect("seed super user");
+}
+
+/// A service-auth JWT addressed to THIS instance authenticates on an admin route.
+#[tokio::test]
+#[serial]
+async fn service_auth_correct_aud_accepted_on_admin_route() {
+    common::require_db!();
+    let mut app = TestApp::new().await;
+    let plc_store = plc::setup_mock_plc(&app.mock_server).await;
+    let instance_did = app.setup_did_plc().await;
+
+    let issuer = "did:plc:h6-good-issuer";
+    seed_super_user(&app, issuer).await;
+
+    let exp = chrono::Utc::now().timestamp() as u64 + 60;
+    let auth = app
+        .raw_service_auth_jwt(&plc_store, issuer, &format!("{instance_did}#appview"), exp)
+        .await;
+
+    let resp = app
+        .router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/admin/stats")
+                .header("authorization", &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+/// A service-auth JWT the user minted for a DIFFERENT audience must NOT
+/// authenticate on the admin path — otherwise it impersonates the issuer.
+#[tokio::test]
+#[serial]
+async fn service_auth_wrong_aud_rejected_on_admin_route() {
+    common::require_db!();
+    let mut app = TestApp::new().await;
+    let plc_store = plc::setup_mock_plc(&app.mock_server).await;
+    let _instance_did = app.setup_did_plc().await;
+
+    // The issuer is even a super user — so if the token authenticated, it would
+    // return 200. The point is that the wrong audience blocks it entirely.
+    let issuer = "did:plc:h6-bad-issuer";
+    seed_super_user(&app, issuer).await;
+
+    let exp = chrono::Utc::now().timestamp() as u64 + 60;
+    let auth = app
+        .raw_service_auth_jwt(&plc_store, issuer, "did:web:evil.example#appview", exp)
+        .await;
+
+    let resp = app
+        .router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/admin/stats")
+                .header("authorization", &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "a service-auth JWT for a different audience must not authenticate here"
+    );
+}
+
+/// A service-auth JWT valid absurdly far into the future is rejected even when
+/// correctly addressed to this instance (bounds the replay window).
+#[tokio::test]
+#[serial]
+async fn service_auth_excessive_lifetime_rejected() {
+    common::require_db!();
+    let mut app = TestApp::new().await;
+    let plc_store = plc::setup_mock_plc(&app.mock_server).await;
+    let instance_did = app.setup_did_plc().await;
+
+    let issuer = "did:plc:h6-longlived";
+    seed_super_user(&app, issuer).await;
+
+    // exp two hours out — well beyond the accepted max.
+    let exp = chrono::Utc::now().timestamp() as u64 + 7200;
+    let auth = app
+        .raw_service_auth_jwt(&plc_store, issuer, &format!("{instance_did}#appview"), exp)
+        .await;
+
+    let resp = app
+        .router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/admin/stats")
+                .header("authorization", &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
