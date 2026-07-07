@@ -136,7 +136,7 @@ PDS-touching operations need the creator's OAuth session. Without auth, these ra
 - `r:save()` - writes a record to the user's PDS and indexes it locally
 - `r:delete()` - deletes a record from the user's PDS and removes it locally
 - `Record.save_all()` - batch save to PDS
-- `atproto.upload_blob()` - upload a blob to the user's PDS
+- `atproto.blob_upload()` - upload a blob to the user's PDS
 
 ### Opting into auth
 
