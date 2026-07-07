@@ -328,13 +328,21 @@ async fn db_raw_select_works() {
     let pool = db::test_pool().await;
     let backend = db::test_backend();
     db::truncate_all(&pool).await;
-    seed_records(&pool, backend).await;
     let state = test_state_with_pool(pool, backend).await;
     let lua = setup_lua(&state);
 
+    // db.raw operates freely on the caller's own tables (internal HappyView
+    // tables are protected — see raw_blocks_internal_table).
     let result: mlua::Table = lua
         .load(
-            r#"return db.raw("SELECT COUNT(*) as cnt FROM happyview_records WHERE collection = $1", {"test.collection"})"#,
+            r#"
+            db.raw("DROP TABLE IF EXISTS raw_probe")
+            db.raw("CREATE TABLE raw_probe (n INT)")
+            db.raw("INSERT INTO raw_probe (n) VALUES (1), (2), (3)")
+            local rows = db.raw("SELECT COUNT(*) as cnt FROM raw_probe WHERE n >= $1", {2})
+            db.raw("DROP TABLE raw_probe")
+            return rows
+            "#,
         )
         .eval_async()
         .await
@@ -343,7 +351,28 @@ async fn db_raw_select_works() {
     // Result is an array of row tables
     let first_row: mlua::Table = result.get(1).unwrap();
     let cnt: i64 = first_row.get("cnt").unwrap();
-    assert_eq!(cnt, 3);
+    assert_eq!(cnt, 2);
+}
+
+#[tokio::test]
+#[serial]
+async fn db_raw_blocks_internal_table() {
+    common::require_db!();
+    let pool = db::test_pool().await;
+    let backend = db::test_backend();
+    db::truncate_all(&pool).await;
+    let state = test_state_with_pool(pool, backend).await;
+    let lua = setup_lua(&state);
+
+    let result: Result<mlua::Value, _> = lua
+        .load(r#"return db.raw("SELECT * FROM happyview_dpop_keys")"#)
+        .eval_async()
+        .await;
+    let err = result.expect_err("db.raw must reject internal HappyView tables");
+    assert!(
+        err.to_string().contains("internal HappyView table"),
+        "unexpected error: {err}"
+    );
 }
 
 #[tokio::test]

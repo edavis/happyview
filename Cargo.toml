@@ -61,6 +61,7 @@ async-stream = "0.3.6"
 blake3 = "1"
 hkdf = "0.12"
 hmac = "0.12"
+sqlparser = "0.62.0"
 
 [[bin]]
 name = "migrate-lua-sql"
