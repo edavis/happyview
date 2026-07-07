@@ -1333,8 +1333,24 @@ async fn list_repos(
     claims: XrpcClaims,
     Query(params): Query<SpaceUriQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let _did = require_auth_or_credential(&state, &claims).await?;
     let space = resolve_space(&state, &params.space).await?;
+
+    // The repo list is the space's participant list. Its visibility follows the
+    // `membershipPublic` config (like `get_space` / `listMembers`): public when
+    // set, otherwise the caller must be an authenticated member (or authority /
+    // space-credential holder). Previously this required *some* auth but never
+    // checked membership, leaking any private space's participants (M2).
+    if !space.config.membership_public {
+        let did = require_auth_or_credential(&state, &claims).await?;
+        require_membership(
+            &state,
+            &space,
+            &did,
+            false,
+            claims.space_credential.as_deref(),
+        )
+        .await?;
+    }
 
     let repos = db::list_space_repos(&state.db, state.db_backend, &space.id).await?;
     Ok(Json(serde_json::json!({ "repos": repos })))
