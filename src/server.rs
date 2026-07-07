@@ -348,6 +348,9 @@ async fn config_endpoint(
         "features": {
             "spaces": spaces_enabled,
         },
+        // Startup configuration problems (e.g. an insecure SESSION_SECRET) so the
+        // dashboard can surface them to an operator. Empty when healthy.
+        "configErrors": state.config.config_errors(),
     }))
 }
 

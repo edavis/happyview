@@ -3,6 +3,47 @@ use std::net::SocketAddr;
 
 use crate::db::DatabaseBackend;
 
+/// Placeholder session secrets that have shipped in this repo's docs/examples.
+/// Booting with any of them is refused — the cookie signing key is derived from
+/// `SESSION_SECRET`, so a known value lets anyone forge a validly-signed admin
+/// session cookie.
+const INSECURE_SESSION_SECRETS: &[&str] = &[
+    "change-me-in-production-not-secure",
+    "change-me-in-production",
+];
+
+/// Minimum acceptable `SESSION_SECRET` length in bytes. `Key::derive_from` also
+/// requires at least 32 bytes; enforcing it here yields a clear error instead of
+/// a downstream panic.
+const MIN_SESSION_SECRET_BYTES: usize = 32;
+
+/// Validate a session secret, rejecting known placeholder values and anything
+/// too short to be secure. Returns a human-readable reason on failure.
+fn validate_session_secret(secret: &str) -> Result<(), String> {
+    if secret.is_empty() {
+        return Err(
+            "SESSION_SECRET is not set. Generate a random value of at least 32 bytes \
+             (e.g. `openssl rand -base64 48`) and set SESSION_SECRET."
+                .into(),
+        );
+    }
+    if INSECURE_SESSION_SECRETS.contains(&secret) {
+        return Err(
+            "SESSION_SECRET is set to a known insecure default. Generate a random \
+             value of at least 32 bytes (e.g. `openssl rand -base64 48`)."
+                .into(),
+        );
+    }
+    if secret.len() < MIN_SESSION_SECRET_BYTES {
+        return Err(format!(
+            "SESSION_SECRET must be at least {MIN_SESSION_SECRET_BYTES} bytes (got {}). \
+             Generate a random value (e.g. `openssl rand -base64 48`).",
+            secret.len()
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub host: String,
@@ -43,8 +84,10 @@ impl Config {
             database_url,
             database_backend,
             public_url: env::var("PUBLIC_URL").expect("PUBLIC_URL must be set"),
-            session_secret: env::var("SESSION_SECRET")
-                .unwrap_or_else(|_| "change-me-in-production-not-secure".into()),
+            // Not required and never defaulted to a placeholder: an unset,
+            // insecure, or too-short value is surfaced via `config_errors()` and
+            // disables cookie auth rather than aborting boot. See C3.
+            session_secret: env::var("SESSION_SECRET").unwrap_or_default(),
             jetstream_url: env::var("JETSTREAM_URL")
                 .unwrap_or_else(|_| "wss://jetstream1.us-east.bsky.network".into()),
             relay_url: env::var("RELAY_URL").unwrap_or_else(|_| "https://bsky.network".into()),
@@ -84,6 +127,25 @@ impl Config {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(2.0),
         }
+    }
+
+    /// Whether the configured `SESSION_SECRET` is safe to derive the cookie
+    /// signing key from. When `false`, cookie-based auth is disabled (see the
+    /// auth extractors and login handlers) because the signing key would be
+    /// forgeable.
+    pub fn session_secret_secure(&self) -> bool {
+        validate_session_secret(&self.session_secret).is_ok()
+    }
+
+    /// Human-readable configuration problems detected at startup, surfaced to
+    /// the dashboard (via `/config`) so an operator can fix them. Empty when the
+    /// instance is configured correctly.
+    pub fn config_errors(&self) -> Vec<String> {
+        let mut errors = Vec::new();
+        if let Err(e) = validate_session_secret(&self.session_secret) {
+            errors.push(e);
+        }
+        errors
     }
 
     pub fn listen_addr(&self) -> SocketAddr {
@@ -229,6 +291,63 @@ mod tests {
             env::set_var("PUBLIC_URL", "http://127.0.0.1:3000");
         }
         Config::from_env();
+    }
+
+    #[test]
+    fn validate_session_secret_accepts_strong_secret() {
+        assert!(validate_session_secret("a-securely-generated-32plus-byte-secret!!").is_ok());
+        // Exactly 32 bytes is accepted.
+        assert!(validate_session_secret(&"x".repeat(32)).is_ok());
+    }
+
+    #[test]
+    fn validate_session_secret_rejects_empty() {
+        let err = validate_session_secret("").unwrap_err();
+        assert!(err.contains("not set"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_session_secret_rejects_known_defaults() {
+        // The code's historical sentinel is 34 bytes, so length alone would not
+        // catch it — the explicit default list must.
+        assert!(validate_session_secret("change-me-in-production-not-secure").is_err());
+        assert!(validate_session_secret("change-me-in-production").is_err());
+    }
+
+    #[test]
+    fn validate_session_secret_rejects_too_short() {
+        let err = validate_session_secret(&"x".repeat(31)).unwrap_err();
+        assert!(err.contains("at least 32 bytes"), "got: {err}");
+    }
+
+    #[test]
+    #[serial]
+    fn from_env_does_not_panic_without_session_secret() {
+        unsafe {
+            clear_env();
+            set_required_env();
+        }
+        // Boot must succeed even with no SESSION_SECRET; the problem is surfaced
+        // via config_errors() and disables cookie auth instead of aborting.
+        let config = Config::from_env();
+        assert!(!config.session_secret_secure());
+        assert!(!config.config_errors().is_empty());
+    }
+
+    #[test]
+    #[serial]
+    fn from_env_with_strong_session_secret_is_secure() {
+        unsafe {
+            clear_env();
+            set_required_env();
+            env::set_var(
+                "SESSION_SECRET",
+                "a-securely-generated-32plus-byte-secret!!",
+            );
+        }
+        let config = Config::from_env();
+        assert!(config.session_secret_secure());
+        assert!(config.config_errors().is_empty());
     }
 
     #[test]

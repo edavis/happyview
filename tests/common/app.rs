@@ -53,7 +53,7 @@ impl TestApp {
             database_url: String::new(),
             database_backend: backend,
             public_url: "http://127.0.0.1:0".into(),
-            session_secret: "test-secret".into(),
+            session_secret: "test-session-secret-0123456789abcdef".into(),
             jetstream_url: "wss://jetstream1.us-east.bsky.network".into(),
             relay_url: mock_url.clone(),
             plc_url: mock_url.clone(),
@@ -216,6 +216,13 @@ impl TestApp {
         app.state.config.token_encryption_key = Some([0x42u8; 32]);
         app.rebuild_router();
         app
+    }
+
+    /// Put the instance into the "insecure SESSION_SECRET" state, in which
+    /// cookie-based auth is disabled (C3). Other auth is unaffected.
+    pub fn set_insecure_session_secret(&mut self) {
+        self.state.config.session_secret = String::new();
+        self.rebuild_router();
     }
 
     /// Create an API client in the database for testing.

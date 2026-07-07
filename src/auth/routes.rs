@@ -64,6 +64,14 @@ async fn login(
     domain: Option<axum::extract::Extension<std::sync::Arc<crate::domain::Domain>>>,
     Query(query): Query<LoginQuery>,
 ) -> Result<(SignedCookieJar<Key>, Json<serde_json::Value>), AppError> {
+    // Refuse to start a login flow we cannot finish securely: the session cookie
+    // set by the callback is signed with the SESSION_SECRET-derived key.
+    if !state.config.session_secret_secure() {
+        return Err(AppError::ServerMisconfigured(
+            crate::auth::COOKIE_AUTH_DISABLED_MSG.into(),
+        ));
+    }
+
     tracing::debug!(handle = %query.handle, redirect_uri = ?query.redirect_uri, scope = ?query.scope, "login request");
 
     // Use scopes from the query param if provided, otherwise fall back to the
@@ -153,6 +161,14 @@ async fn callback(
     jar: SignedCookieJar<Key>,
     Query(query): Query<CallbackQuery>,
 ) -> Result<(SignedCookieJar<Key>, Redirect), AppError> {
+    // The callback sets the session cookie; refuse when its signing key is not
+    // secure (mirrors the guard in `login`).
+    if !state.config.session_secret_secure() {
+        return Err(AppError::ServerMisconfigured(
+            crate::auth::COOKIE_AUTH_DISABLED_MSG.into(),
+        ));
+    }
+
     tracing::debug!(state = ?query.state, "callback received");
 
     // Look up the redirect URI and client_id from the database before the OAuth library consumes the state

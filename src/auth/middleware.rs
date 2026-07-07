@@ -79,6 +79,14 @@ impl FromRequestParts<AppState> for Claims {
             .map_err(|_| AppError::Auth("failed to read cookies".into()))?;
 
         if let Some(cookie) = jar.get(COOKIE_NAME) {
+            // Cookie auth relies on the SESSION_SECRET-derived signing key. If
+            // that secret is insecure the key is forgeable, so we refuse cookie
+            // auth outright with a clear error rather than trust it.
+            if !state.config.session_secret_secure() {
+                return Err(AppError::ServerMisconfigured(
+                    crate::auth::COOKIE_AUTH_DISABLED_MSG.into(),
+                ));
+            }
             let value = cookie.value().to_string();
             let (did, client_key) = if let Some((d, k)) = value.split_once(COOKIE_SEP) {
                 (d.to_string(), Some(k.to_string()))
@@ -319,7 +327,13 @@ impl FromRequestParts<AppState> for XrpcClaims {
                     .await
                     .map_err(|_| AppError::Auth("failed to read cookies".into()))?;
 
-                if let Some(cookie) = jar.get(COOKIE_NAME) {
+                // Only trust the session cookie when the signing key is secure.
+                // When SESSION_SECRET is insecure we ignore the cookie and treat
+                // the request as anonymous, so public/DPoP reads keep working for
+                // clients that happen to carry a stale cookie.
+                if state.config.session_secret_secure()
+                    && let Some(cookie) = jar.get(COOKIE_NAME)
+                {
                     let value = cookie.value().to_string();
                     let (did, client_key) = if let Some((d, k)) = value.split_once(COOKIE_SEP) {
                         (d.to_string(), Some(k.to_string()))
