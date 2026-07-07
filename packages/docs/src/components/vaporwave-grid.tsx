@@ -27,9 +27,14 @@ export function VaporwaveGrid() {
 
     function resize() {
       const dpr = window.devicePixelRatio || 1;
-      const rect = canvas!.getBoundingClientRect();
-      w = rect.width;
-      h = rect.height;
+      const vw = window.innerWidth;
+      canvas!.style.width = '';
+      canvas!.style.marginLeft = '';
+      const canvasLeft = canvas!.getBoundingClientRect().left;
+      canvas!.style.width = `${vw}px`;
+      canvas!.style.marginLeft = `${-canvasLeft}px`;
+      w = vw;
+      h = canvas!.getBoundingClientRect().height;
       canvas!.width = w * dpr;
       canvas!.height = h * dpr;
       ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -215,21 +220,28 @@ export function VaporwaveGrid() {
 
     if (reducedMotion) {
       const drawStatic = () => render({ elapsed: 0, faceReveal: 1, scrollOffset: 0, glitch: false });
-      const observer = new ResizeObserver(() => { resize(); drawStatic(); });
+      const onResize = () => { resize(); drawStatic(); };
+      const observer = new ResizeObserver(onResize);
       observer.observe(canvas);
+      window.addEventListener('resize', onResize);
       drawStatic();
       if (!logo.complete || logo.naturalWidth === 0) {
         logo.addEventListener('load', drawStatic, { once: true });
         return () => {
           logo.removeEventListener('load', drawStatic);
+          window.removeEventListener('resize', onResize);
           observer.disconnect();
         };
       }
-      return () => observer.disconnect();
+      return () => {
+        window.removeEventListener('resize', onResize);
+        observer.disconnect();
+      };
     }
 
     const observer = new ResizeObserver(resize);
     observer.observe(canvas);
+    window.addEventListener('resize', resize);
 
     function draw(time: number) {
       const elapsed = time / 1000;
@@ -250,6 +262,7 @@ export function VaporwaveGrid() {
 
     return () => {
       cancelAnimationFrame(animationId);
+      window.removeEventListener('resize', resize);
       observer.disconnect();
     };
   }, [reducedMotion]);
@@ -261,8 +274,6 @@ export function VaporwaveGrid() {
       className="not-prose"
       style={{
         display: 'block',
-        width: '100vw',
-        marginLeft: 'calc(-50vw + 50%)',
         height: '100vh',
         marginTop: '-60vh',
         position: reducedMotion ? 'relative' : 'sticky',

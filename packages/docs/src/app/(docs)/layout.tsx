@@ -7,7 +7,6 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <DocsLayout
       tree={source.getPageTree()}
-      nav={{ enabled: false }}
       sidebar={{ footer: <SidebarFooter key="sidebar-footer" /> }}
       searchToggle={{ enabled: false }}
       themeSwitch={{ enabled: false }}

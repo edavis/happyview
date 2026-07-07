@@ -7,6 +7,10 @@
 @source "../../node_modules/fumadocs-ui/dist/**/*.js";
 @source "../../node_modules/fumadocs-ui/css/**/*.css";
 
+html {
+  overflow-x: hidden;
+}
+
 /* --- Layout --- */
 
 @media (min-width: 768px) {
@@ -16,7 +20,7 @@
 }
 
 #nd-docs-layout {
-  --fd-layout-width: 100vw;
+  --fd-layout-width: 100%;
 }
 
 #nd-page > .prose {
@@ -28,6 +32,34 @@
 .prose :is(h2, h3, h4),
 .prose :is(h2, h3, h4) > a {
   color: rgb(var(--color-magenta)) !important;
+}
+
+/* --- Docs mobile sidebar trigger ---
+   The DocsLayout sub-header (#nd-subnav, md:hidden) contains the sidebar
+   drawer toggle. Strip the bar chrome and float the button below the nav. */
+
+#nd-subnav {
+  position: fixed;
+  top: auto;
+  bottom: 1rem;
+  right: 1rem;
+  left: auto;
+  width: auto;
+  height: auto;
+  border: 1px solid rgb(var(--color-border));
+  border-radius: 10px;
+  background: rgb(var(--color-surface));
+  padding: 0;
+  z-index: 35;
+  box-shadow: 0 2px 12px rgb(0 0 0 / 0.25);
+}
+
+#nd-subnav > :not(button) {
+  display: none;
+}
+
+#nd-subnav > button {
+  padding: 0.625rem;
 }
 
 /* --- Sidebar --- */
@@ -173,6 +205,13 @@
 
 #nd-home-layout {
   background: transparent;
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+#nd-home-layout > * {
+  min-width: 0;
+  width: 100%;
 }
 
 #nd-home-layout article > canvas {
