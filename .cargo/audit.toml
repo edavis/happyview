@@ -1,0 +1,22 @@
+# cargo-audit configuration.
+#
+# Each ignored advisory below has been triaged and is either unreachable in our
+# build, has no upstream fix, or the fix is a deferred breaking migration. Every
+# other advisory must fail CI (see .github/workflows/ci.yml `audit` job) so new
+# ones are caught. Re-review this list when dependencies are updated.
+[advisories]
+ignore = [
+    # rsa (Marvin timing side-channel). Pulled in ONLY by sqlx-mysql, an optional
+    # sqlx dependency that is NOT enabled — `cargo tree` confirms rsa is never in
+    # the build graph, so it is never compiled or linked. No upstream fix exists.
+    "RUSTSEC-2023-0071",
+    # hickory-proto: no fixed upstream release is available.
+    "RUSTSEC-2026-0118",
+    # hickory-proto: fixed in hickory-resolver 0.26, but that removes the
+    # `txt_lookup` API and requires an (untested-in-CI) rewrite of DNS handle
+    # resolution. Deferred; revisit with the hickory 0.26 upgrade.
+    "RUSTSEC-2026-0119",
+    # fxhash: unmaintained (warning, not a vulnerability). Transitive dependency
+    # of wasmtime (via fxprof-processed-profile); not removable independently.
+    "RUSTSEC-2025-0057",
+]

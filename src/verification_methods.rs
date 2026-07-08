@@ -234,7 +234,7 @@ mod tests {
         let (key_bytes, _) = generate_p256_keypair().unwrap();
         let signing_key = private_key_bytes_to_signing_key(&key_bytes).unwrap();
         // Re-derive bytes should equal original
-        assert_eq!(signing_key.to_bytes().as_slice(), key_bytes.as_slice());
+        assert_eq!(&signing_key.to_bytes()[..], &key_bytes[..]);
     }
 
     #[test]

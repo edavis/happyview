@@ -233,6 +233,24 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
 
+  audit:
+    needs: changes
+    if: always() && (needs.changes.outputs.server == 'true' || (github.event_name == 'workflow_dispatch' && inputs.server))
+    runs-on: depot-ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      # Fails on any advisory not triaged in .cargo/audit.toml, so newly
+      # disclosed vulnerabilities in our dependencies are caught.
+      - name: Audit dependencies
+        run: cargo audit
+
   playwright:
     needs: [changes, frontend, build-server]
     if: >-

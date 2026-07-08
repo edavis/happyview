@@ -26,11 +26,11 @@ pub fn encrypt(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, EncryptionEr
     // Generate random nonce
     let mut nonce_bytes = [0u8; NONCE_SIZE];
     rand::rng().fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce = Nonce::from(nonce_bytes);
 
     // Encrypt
     let ciphertext = cipher
-        .encrypt(nonce, plaintext)
+        .encrypt(&nonce, plaintext)
         .map_err(|_| EncryptionError::EncryptionFailed)?;
 
     // Concatenate: nonce || ciphertext
@@ -50,11 +50,13 @@ pub fn decrypt(key: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>, EncryptionE
 
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| EncryptionError::DecryptionFailed)?;
 
-    let nonce = Nonce::from_slice(&ciphertext[..NONCE_SIZE]);
+    let mut nonce_bytes = [0u8; NONCE_SIZE];
+    nonce_bytes.copy_from_slice(&ciphertext[..NONCE_SIZE]);
+    let nonce = Nonce::from(nonce_bytes);
     let encrypted = &ciphertext[NONCE_SIZE..];
 
     cipher
-        .decrypt(nonce, encrypted)
+        .decrypt(&nonce, encrypted)
         .map_err(|_| EncryptionError::DecryptionFailed)
 }
 
