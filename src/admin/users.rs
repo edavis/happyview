@@ -413,45 +413,48 @@ pub(super) async fn transfer_super(
     let backend = state.db_backend;
     let now = now_rfc3339();
 
-    // Remove super from current user
-    let update1_sql = adapt_sql(
-        "UPDATE happyview_users SET is_super = ? WHERE id = ?",
-        backend,
-    );
-    sqlx::query(&update1_sql)
-        .bind(0_i32)
-        .bind(&auth.user_id)
-        .execute(&state.db)
+    // Run every mutation in a single transaction so a failure or crash can never
+    // leave the instance with zero super users (M6). On any early return the
+    // transaction is dropped and rolled back, preserving the current super.
+    let mut tx = state
+        .db
+        .begin()
         .await
-        .map_err(|e| AppError::Internal(format!("failed to remove super: {e}")))?;
+        .map_err(|e| AppError::Internal(format!("failed to begin transaction: {e}")))?;
 
-    // Set super on target user
-    let update2_sql = adapt_sql(
+    // Promote the target first (and require it to exist) so a missing target
+    // aborts before the current super is touched.
+    let set_super_sql = adapt_sql(
         "UPDATE happyview_users SET is_super = ? WHERE id = ?",
         backend,
     );
-    let result = sqlx::query(&update2_sql)
+    let result = sqlx::query(&set_super_sql)
         .bind(1_i32)
         .bind(&body.target_user_id)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await
         .map_err(|e| AppError::Internal(format!("failed to set super: {e}")))?;
 
     if result.rows_affected() == 0 {
-        // Restore super on current user
-        let restore_sql = adapt_sql(
-            "UPDATE happyview_users SET is_super = ? WHERE id = ?",
-            backend,
-        );
-        let _ = sqlx::query(&restore_sql)
-            .bind(1_i32)
-            .bind(&auth.user_id)
-            .execute(&state.db)
-            .await;
         return Err(AppError::NotFound(format!(
             "user '{}' not found",
             body.target_user_id
         )));
+    }
+
+    // Demote the current super — unless they are transferring to themselves, in
+    // which case demoting would undo the promotion above.
+    if body.target_user_id != auth.user_id {
+        let remove_super_sql = adapt_sql(
+            "UPDATE happyview_users SET is_super = ? WHERE id = ?",
+            backend,
+        );
+        sqlx::query(&remove_super_sql)
+            .bind(0_i32)
+            .bind(&auth.user_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AppError::Internal(format!("failed to remove super: {e}")))?;
     }
 
     // Ensure target has all permissions
@@ -466,10 +469,14 @@ pub(super) async fn transfer_super(
             .bind(perm.as_str())
             .bind(&auth.user_id)
             .bind(&now)
-            .execute(&state.db)
+            .execute(&mut *tx)
             .await
             .map_err(|e| AppError::Internal(format!("failed to grant permission: {e}")))?;
     }
+
+    tx.commit()
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to commit super transfer: {e}")))?;
 
     log_event(
         &state.db,
