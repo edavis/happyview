@@ -28,10 +28,14 @@ FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
-# Run the service as a non-root system user; the binary needs no root privileges
-# at runtime and binds an unprivileged port (3000).
+# The service runs as a non-root system user (uid/gid 10001); the binary needs no
+# root privileges at runtime and binds an unprivileged port (3000). The container
+# starts as root only so the entrypoint can fix ownership of a mounted data volume
+# (e.g. a SQLite volume carried over from a root-era install) before dropping to
+# the app user via gosu.
 RUN groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid app --home-dir /app --no-create-home \
        --shell /usr/sbin/nologin app
@@ -48,14 +52,13 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh && touch /srv/static/.base-path-pending
 
 # Data dir for the default SQLite backend (DATABASE_URL=sqlite://data/...).
-# A named volume mounted here inherits this ownership on first creation; a bind
-# mount must be chown'd to uid 10001 by the operator.
+# The entrypoint re-chowns this to the app user at startup, so a volume mounted
+# here — including one created by an older root-era install — becomes writable.
 RUN mkdir -p /app/data && chown app:app /app/data
 
 ENV STATIC_DIR=/srv/static
 
-USER app
-
 EXPOSE 3000
 
+# Starts as root; entrypoint chowns /app/data and drops to the app user via gosu.
 ENTRYPOINT ["/entrypoint.sh"]
