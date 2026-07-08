@@ -175,6 +175,19 @@ impl IntoResponse for AppError {
                 });
                 (StatusCode::SERVICE_UNAVAILABLE, axum::Json(body)).into_response()
             }
+            AppError::Internal(msg) => {
+                // Never leak internal details (SQL/driver errors, decryption
+                // failures, crypto/config state) to clients. Log the real message
+                // server-side with a correlation id and return only that id so an
+                // operator can find it in the logs.
+                let correlation_id = format!("{:016x}", rand::random::<u64>());
+                tracing::error!(correlation_id, "internal error: {msg}");
+                let body = serde_json::json!({
+                    "error": "Internal server error",
+                    "correlationId": correlation_id,
+                });
+                (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(body)).into_response()
+            }
             AppError::RateLimited {
                 retry_after,
                 limit,
@@ -200,15 +213,12 @@ impl IntoResponse for AppError {
                     AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
                     AppError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone()),
                     AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone()),
-                    AppError::Internal(msg) => {
-                        tracing::error!("{msg}");
-                        (StatusCode::INTERNAL_SERVER_ERROR, msg.clone())
-                    }
                     AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
                     AppError::PdsError(..)
                     | AppError::AuthDpopNonce(..)
                     | AppError::FeatureDisabled(..)
                     | AppError::InsufficientPermissions(..)
+                    | AppError::Internal(..)
                     | AppError::ServerMisconfigured(..)
                     | AppError::RateLimited { .. }
                     | AppError::ScriptError { .. } => unreachable!(),
@@ -261,10 +271,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn internal_error_returns_500_with_message() {
-        let (status, body) = response_parts(AppError::Internal("secret details".into())).await;
+    async fn internal_error_returns_500_without_leaking_details() {
+        let (status, body) =
+            response_parts(AppError::Internal("secret SQL driver details".into())).await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-        assert_eq!(body["error"], "secret details");
+        // The raw internal message must not appear anywhere in the response body.
+        assert_eq!(body["error"], "Internal server error");
+        assert!(
+            !body.to_string().contains("secret SQL driver details"),
+            "internal error details must not be leaked to the client"
+        );
+        // A correlation id is returned so the operator can find the real error in logs.
+        assert!(
+            body["correlationId"]
+                .as_str()
+                .is_some_and(|s| !s.is_empty()),
+            "expected a non-empty correlationId"
+        );
     }
 
     #[tokio::test]
