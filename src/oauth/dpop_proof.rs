@@ -3,8 +3,40 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use p256::ecdsa::{Signature, VerifyingKey, signature::Verifier};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 
 use crate::error::AppError;
+
+/// How far in the past a DPoP proof's `iat` may be and still be accepted.
+const DPOP_IAT_PAST_TOLERANCE_SECS: u64 = 300;
+/// How far in the future a DPoP proof's `iat` may be — small clock-skew slack.
+/// Previously the past tolerance (300s) was also applied to the future via
+/// `abs_diff`, accepting proofs issued up to 5 minutes ahead (M13).
+const DPOP_IAT_FUTURE_TOLERANCE_SECS: u64 = 30;
+
+/// Seen DPoP proof `jti`s mapped to the time they can be forgotten (the past
+/// acceptance horizon). In-memory and per-process — RFC 9449 §11.1 permits
+/// storing the `jti` for the window in which the proof would be accepted. A
+/// multi-instance deployment behind a load balancer would need a shared store
+/// for cross-instance replay protection; single-instance is fully covered.
+static DPOP_JTI_SEEN: LazyLock<Mutex<HashMap<String, u64>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Reject a DPoP proof whose `jti` has already been seen within its acceptance
+/// window (replay). On first sight the `jti` is recorded until `expires_at`.
+fn check_and_record_jti(jti: &str, expires_at: u64, now: u64) -> Result<(), AppError> {
+    let mut seen = DPOP_JTI_SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    if seen.get(jti).is_some_and(|&exp| exp > now) {
+        return Err(AppError::Auth("DPoP proof replay detected".into()));
+    }
+    // Bound memory: drop entries past their horizon once the map grows large.
+    if seen.len() > 10_000 {
+        seen.retain(|_, &mut exp| exp > now);
+    }
+    seen.insert(jti.to_string(), expires_at);
+    Ok(())
+}
 
 #[derive(Debug, Deserialize)]
 struct DpopHeader {
@@ -96,15 +128,17 @@ pub fn validate_dpop_proof(
         return Err(AppError::Auth("DPoP proof htu mismatch".into()));
     }
 
-    // Check iat (within 5 minutes)
+    // Check iat: a generous past tolerance for the proof to reach us, but only a
+    // small future tolerance for clock skew.
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    if now.abs_diff(payload.iat) > 300 {
-        return Err(AppError::Auth(
-            "DPoP proof expired or too far in the future".into(),
-        ));
+    if payload.iat > now + DPOP_IAT_FUTURE_TOLERANCE_SECS {
+        return Err(AppError::Auth("DPoP proof iat is in the future".into()));
+    }
+    if now > payload.iat + DPOP_IAT_PAST_TOLERANCE_SECS {
+        return Err(AppError::Auth("DPoP proof expired".into()));
     }
 
     // Check ath (access token hash) — required per RFC 9449 section 4.2
@@ -132,6 +166,16 @@ pub fn validate_dpop_proof(
         .map_err(|_| AppError::Auth("invalid DPoP proof signature encoding".into()))?;
 
     verify_es256_jwk(&message, &sig_bytes, &header.jwk)?;
+
+    // Replay protection (RFC 9449 §11.1): only after the proof is fully valid,
+    // reject it if this `jti` was already used within its acceptance window.
+    // Remember the `jti` until its `iat` falls outside the past tolerance (after
+    // which the `iat` check alone would reject a replay).
+    check_and_record_jti(
+        &payload.jti,
+        payload.iat + DPOP_IAT_PAST_TOLERANCE_SECS,
+        now,
+    )?;
 
     Ok(())
 }
@@ -205,6 +249,49 @@ mod tests {
         assert_eq!(
             strip_query_fragment("https://example.com/path?q=1#f"),
             "https://example.com/path"
+        );
+    }
+
+    #[test]
+    fn check_and_record_jti_rejects_replay_within_window() {
+        // Unique jti per test to stay independent of the shared cache.
+        let jti = "m13-unit-replay";
+        assert!(check_and_record_jti(jti, 1300, 1000).is_ok());
+        // Same jti again while still within its window → replay.
+        assert!(check_and_record_jti(jti, 1300, 1000).is_err());
+        // Once past the horizon it is accepted again.
+        assert!(check_and_record_jti(jti, 1700, 1400).is_ok());
+    }
+
+    #[test]
+    fn check_and_record_jti_allows_distinct_jtis() {
+        assert!(check_and_record_jti("m13-unit-distinct-a", 1300, 1000).is_ok());
+        assert!(check_and_record_jti("m13-unit-distinct-b", 1300, 1000).is_ok());
+    }
+
+    #[test]
+    fn valid_proof_rejected_on_replay() {
+        let keypair = crate::oauth::keys::generate_dpop_keypair().unwrap();
+        let url = "https://example.com/xrpc/com.example.test";
+        let proof = crate::oauth::pds_write::generate_dpop_proof(
+            &keypair.private_jwk,
+            "POST",
+            url,
+            "access-token",
+            None,
+        )
+        .unwrap();
+
+        // First use is accepted.
+        assert!(
+            validate_dpop_proof(&proof, "POST", url, "access-token", &keypair.thumbprint).is_ok()
+        );
+        // Replaying the exact same proof is rejected.
+        let err = validate_dpop_proof(&proof, "POST", url, "access-token", &keypair.thumbprint)
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("replay"),
+            "expected a replay error, got: {err}"
         );
     }
 
