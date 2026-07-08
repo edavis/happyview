@@ -63,6 +63,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    # The image runs as the non-root `app` user, but the e2e entrypoint needs
+    # root to read Caddy's root-owned CA and install it into the trust store. It
+    # drops back to `app` before launching the server.
+    user: root
     entrypoint: ["/bin/sh", "/e2e-entrypoint.sh"]
     environment:
       DATABASE_URL: postgres://happyview:happyview@postgres:5432/happyview_test
