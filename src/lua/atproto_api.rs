@@ -122,7 +122,7 @@ pub fn register_atproto_api(
                 "SELECT src, uri, val, cts FROM happyview_labels WHERE uri = ? AND (exp IS NULL OR exp > ?)",
                 backend,
             );
-            let rows: Vec<(String, String, String, String)> = sqlx::query_as(&sql)
+            let rows: Vec<(String, String, String, String)> = crate::db::query_as(&sql)
                 .bind(&uri)
                 .bind(&now)
                 .fetch_all(&state.db)
@@ -144,7 +144,7 @@ pub fn register_atproto_api(
 
             // Check for self-labels in the record itself.
             let record_sql = adapt_sql("SELECT did, record FROM happyview_records WHERE uri = ?", backend);
-            let record: Option<(String, String)> = sqlx::query_as(&record_sql)
+            let record: Option<(String, String)> = crate::db::query_as(&record_sql)
                 .bind(&uri)
                 .fetch_optional(&state.db)
                 .await
@@ -197,7 +197,7 @@ pub fn register_atproto_api(
             let mut rows: Vec<(String, String, String, String)> = Vec::new();
             for uri in &uri_list {
                 let mut uri_rows: Vec<(String, String, String, String)> =
-                    sqlx::query_as(&label_sql)
+                    crate::db::query_as(&label_sql)
                         .bind(uri)
                         .bind(&now)
                         .fetch_all(&state.db)
@@ -215,7 +215,7 @@ pub fn register_atproto_api(
             );
             let mut records: Vec<(String, String, String)> = Vec::new();
             for uri in &uri_list {
-                let mut uri_records: Vec<(String, String, String)> = sqlx::query_as(&record_sql)
+                let mut uri_records: Vec<(String, String, String)> = crate::db::query_as(&record_sql)
                     .bind(uri)
                     .fetch_all(&state.db)
                     .await

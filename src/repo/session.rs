@@ -16,7 +16,7 @@ pub(crate) async fn get_dpop_client_id(
         state.db_backend,
     );
 
-    let row: Option<(String,)> = sqlx::query_as(&sql)
+    let row: Option<(String,)> = crate::db::query_as(&sql)
         .bind(client_key)
         .fetch_optional(&state.db)
         .await

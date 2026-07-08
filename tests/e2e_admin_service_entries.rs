@@ -810,9 +810,8 @@ async fn sync_plc_updates_did_document() {
     let encryption_key = [0x42u8; 32];
 
     let mut rotation_key_bytes = [0u8; 32];
-    rand::RngCore::fill_bytes(&mut rand::rng(), &mut rotation_key_bytes);
-    let _rotation_key =
-        p256::ecdsa::SigningKey::from_bytes((&rotation_key_bytes[..]).into()).unwrap();
+    rand::Rng::fill_bytes(&mut rand::rng(), &mut rotation_key_bytes);
+    let _rotation_key = p256::ecdsa::SigningKey::from_slice(&rotation_key_bytes[..]).unwrap();
     let encrypted = happyview::plugin::encryption::encrypt(&encryption_key, &rotation_key_bytes)
         .expect("encryption failed");
     let rotation_key_enc =
@@ -822,7 +821,7 @@ async fn sync_plc_updates_did_document() {
         "UPDATE happyview_service_identity SET rotation_key_enc = ? WHERE id = 1",
         app.state.db_backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(&rotation_key_enc)
         .execute(&app.state.db)
         .await

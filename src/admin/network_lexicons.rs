@@ -96,7 +96,7 @@ pub(super) async fn add(
         "#,
         backend,
     );
-    let row: (i32,) = sqlx::query_as(&sql)
+    let row: (i32,) = crate::db::query_as(&sql)
         .bind(nsid)
         .bind(&lexicon_json_str)
         .bind(&body.target_collection)
@@ -156,7 +156,7 @@ pub(super) async fn list(
         Option<String>,
         Option<String>,
         String,
-    )> = sqlx::query_as(&sql)
+    )> = crate::db::query_as(&sql)
         .fetch_all(&state.db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to list network lexicons: {e}")))?;
@@ -192,7 +192,7 @@ pub(super) async fn remove(
         "DELETE FROM happyview_lexicons WHERE id = ? AND source = 'network'",
         backend,
     );
-    let result = sqlx::query(&sql)
+    let result = crate::db::query(&sql)
         .bind(&nsid)
         .execute(&state.db)
         .await

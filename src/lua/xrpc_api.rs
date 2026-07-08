@@ -311,7 +311,7 @@ mod tests {
     /// inert (kept on the struct for forward-compat with row loaders but
     /// not consulted by dispatch).
     async fn seed_script(state: &AppState, trigger: &str, body: &str) {
-        sqlx::query(
+        crate::db::query(
             r#"
             CREATE TABLE IF NOT EXISTS happyview_scripts (
                 id          TEXT PRIMARY KEY,
@@ -326,7 +326,7 @@ mod tests {
         .execute(&state.db)
         .await
         .unwrap();
-        sqlx::query(
+        crate::db::query(
             "INSERT OR REPLACE INTO happyview_scripts (id, body, script_type, created_at, updated_at)
              VALUES (?, ?, 'lua', datetime('now'), datetime('now'))",
         )

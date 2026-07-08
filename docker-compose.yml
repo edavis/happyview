@@ -20,7 +20,7 @@ services:
   #     retries: 5
 
   happyview:
-    image: rust:1.93
+    image: rust:1.96.1
     working_dir: /app
     entrypoint: ["sh", "/scripts/entrypoint.sh"]
     command: cargo watch -x run

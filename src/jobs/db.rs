@@ -70,7 +70,7 @@ pub async fn create_job(
         "INSERT INTO happyview_jobs (id, job_type, status, input, created_by, created_at, inherit_auth) VALUES (?, ?, 'pending', ?, ?, ?, ?)",
         state.db_backend,
     );
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&id)
         .bind(job_type)
         .bind(&input_str)
@@ -89,7 +89,7 @@ pub async fn get_job(state: &AppState, id: &str) -> Result<Option<Job>, AppError
         "SELECT * FROM happyview_jobs WHERE id = ?",
         state.db_backend,
     );
-    let row: Option<JobRow> = sqlx::query_as(&sql)
+    let row: Option<JobRow> = crate::db::query_as(&sql)
         .bind(id)
         .fetch_optional(&state.db)
         .await
@@ -120,7 +120,7 @@ pub async fn list_jobs(
         adapt_sql(base, state.db_backend)
     };
 
-    let mut query = sqlx::query_as::<_, JobRow>(&sql);
+    let mut query = crate::db::query_as::<JobRow>(&sql);
 
     if let Some(status) = status_filter {
         query = query.bind(status);
@@ -170,7 +170,7 @@ pub async fn set_status(state: &AppState, id: &str, status: &str) -> Result<(), 
 
     match status {
         "running" | "completed" | "failed" | "cancelled" => {
-            sqlx::query(&sql)
+            crate::db::query(&sql)
                 .bind(status)
                 .bind(&now)
                 .bind(id)
@@ -183,7 +183,7 @@ pub async fn set_status(state: &AppState, id: &str, status: &str) -> Result<(), 
                 "UPDATE happyview_jobs SET status = ? WHERE id = ?",
                 state.db_backend,
             );
-            sqlx::query(&sql)
+            crate::db::query(&sql)
                 .bind(status)
                 .bind(id)
                 .execute(&state.db)
@@ -202,7 +202,7 @@ pub async fn update_progress(state: &AppState, id: &str, progress: &Value) -> Re
         "UPDATE happyview_jobs SET progress = ? WHERE id = ?",
         state.db_backend,
     );
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&progress_str)
         .bind(id)
         .execute(&state.db)
@@ -219,7 +219,7 @@ pub async fn set_result(state: &AppState, id: &str, result: &Value) -> Result<()
         "UPDATE happyview_jobs SET status = 'completed', result = ?, completed_at = ? WHERE id = ?",
         state.db_backend,
     );
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&result_str)
         .bind(&now)
         .bind(id)
@@ -235,7 +235,7 @@ pub async fn set_error(state: &AppState, id: &str, error: &str) -> Result<(), Ap
         "UPDATE happyview_jobs SET status = 'failed', error = ?, completed_at = ? WHERE id = ?",
         state.db_backend,
     );
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(error)
         .bind(&now)
         .bind(id)
@@ -252,7 +252,7 @@ pub async fn should_stop(state: &AppState, id: &str) -> Option<&'static str> {
         "SELECT status FROM happyview_jobs WHERE id = ?",
         state.db_backend,
     );
-    let status = sqlx::query_as::<_, (String,)>(&sql)
+    let status = crate::db::query_as::<(String,)>(&sql)
         .bind(id)
         .fetch_optional(&state.db)
         .await
@@ -272,7 +272,7 @@ pub async fn find_interrupted_jobs(state: &AppState) -> Vec<Job> {
         "SELECT * FROM happyview_jobs WHERE status IN ('running', 'cancelling', 'pausing')",
         state.db_backend,
     );
-    let rows: Vec<JobRow> = sqlx::query_as(&sql)
+    let rows: Vec<JobRow> = crate::db::query_as(&sql)
         .fetch_all(&state.db)
         .await
         .unwrap_or_default();
@@ -295,7 +295,7 @@ pub async fn claim_next_job(state: &AppState) -> Result<Option<Job>, AppError> {
         ),
     };
 
-    let row: Option<JobRow> = sqlx::query_as(&sql)
+    let row: Option<JobRow> = crate::db::query_as(&sql)
         .bind(&now)
         .fetch_optional(&state.db)
         .await

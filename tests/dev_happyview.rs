@@ -305,7 +305,7 @@ async fn delete_api_client_success() {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)",
         app.state.db_backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(&client_id)
         .bind("hvc_delete_test_key")
         .bind("dummyhash")
@@ -418,7 +418,7 @@ async fn get_api_client_returns_client() {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)",
         app.state.db_backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(&client_id)
         .bind("hvc_owned_test_key")
         .bind("dummyhash")

@@ -82,18 +82,15 @@ pub(super) async fn list_events(
     let sql = adapt_sql(&sql, backend);
 
     #[allow(clippy::type_complexity)]
-    let mut q = sqlx::query_as::<
-        _,
-        (
-            String,
-            String,
-            String,
-            Option<String>,
-            Option<String>,
-            String,
-            String,
-        ),
-    >(&sql);
+    let mut q = crate::db::query_as::<(
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        String,
+        String,
+    )>(&sql);
 
     if let Some(ref event_type) = query.event_type {
         q = q.bind(event_type);

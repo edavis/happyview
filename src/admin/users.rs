@@ -64,7 +64,7 @@ pub(super) async fn create_user(
         backend,
     );
 
-    sqlx::query(&insert_sql)
+    crate::db::query(&insert_sql)
         .bind(&user_id)
         .bind(&body.did)
         .bind(0_i32)
@@ -79,7 +79,7 @@ pub(super) async fn create_user(
     );
 
     for perm_str in &perms_to_grant {
-        sqlx::query(&perm_sql)
+        crate::db::query(&perm_sql)
             .bind(&user_id)
             .bind(perm_str)
             .bind(&auth.user_id)
@@ -133,7 +133,7 @@ pub(super) async fn list_users(
         backend,
     );
 
-    let rows: Vec<(String, String, i32, String, Option<String>)> = sqlx::query_as(&select_sql)
+    let rows: Vec<(String, String, i32, String, Option<String>)> = crate::db::query_as(&select_sql)
         .fetch_all(&state.db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to list users: {e}")))?;
@@ -145,7 +145,7 @@ pub(super) async fn list_users(
 
     let mut users = Vec::new();
     for (id, did, is_super_int, created_at, last_used_at) in rows {
-        let perm_rows: Vec<(String,)> = sqlx::query_as(&perm_sql)
+        let perm_rows: Vec<(String,)> = crate::db::query_as(&perm_sql)
             .bind(&id)
             .fetch_all(&state.db)
             .await
@@ -179,11 +179,12 @@ pub(super) async fn get_user(
         backend,
     );
 
-    let found: Option<(String, String, i32, String, Option<String>)> = sqlx::query_as(&select_sql)
-        .bind(&id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| AppError::Internal(format!("failed to get user: {e}")))?;
+    let found: Option<(String, String, i32, String, Option<String>)> =
+        crate::db::query_as(&select_sql)
+            .bind(&id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| AppError::Internal(format!("failed to get user: {e}")))?;
 
     let Some((uid, did, is_super_int, created_at, last_used_at)) = found else {
         return Err(AppError::NotFound(format!("user '{id}' not found")));
@@ -194,7 +195,7 @@ pub(super) async fn get_user(
         backend,
     );
 
-    let perm_rows: Vec<(String,)> = sqlx::query_as(&perm_sql)
+    let perm_rows: Vec<(String,)> = crate::db::query_as(&perm_sql)
         .bind(&uid)
         .fetch_all(&state.db)
         .await
@@ -230,7 +231,7 @@ pub(super) async fn update_permissions(
 
     // Cannot modify super user's permissions
     let select_sql = adapt_sql("SELECT is_super FROM happyview_users WHERE id = ?", backend);
-    let target: Option<(i32,)> = sqlx::query_as(&select_sql)
+    let target: Option<(i32,)> = crate::db::query_as(&select_sql)
         .bind(&id)
         .fetch_optional(&state.db)
         .await
@@ -281,7 +282,7 @@ pub(super) async fn update_permissions(
     );
 
     for perm_str in &body.grant {
-        sqlx::query(&grant_sql)
+        crate::db::query(&grant_sql)
             .bind(&id)
             .bind(perm_str)
             .bind(&auth.user_id)
@@ -297,7 +298,7 @@ pub(super) async fn update_permissions(
     );
 
     for perm_str in &body.revoke {
-        sqlx::query(&revoke_sql)
+        crate::db::query(&revoke_sql)
             .bind(&id)
             .bind(perm_str)
             .execute(&state.db)
@@ -341,7 +342,7 @@ pub(super) async fn delete_user(
 
     // Cannot delete super user
     let select_sql = adapt_sql("SELECT is_super FROM happyview_users WHERE id = ?", backend);
-    let target: Option<(i32,)> = sqlx::query_as(&select_sql)
+    let target: Option<(i32,)> = crate::db::query_as(&select_sql)
         .bind(&id)
         .fetch_optional(&state.db)
         .await
@@ -363,7 +364,7 @@ pub(super) async fn delete_user(
         backend,
     );
 
-    sqlx::query(&revoke_keys_sql)
+    crate::db::query(&revoke_keys_sql)
         .bind(&now)
         .bind(&id)
         .execute(&state.db)
@@ -372,7 +373,7 @@ pub(super) async fn delete_user(
 
     let delete_sql = adapt_sql("DELETE FROM happyview_users WHERE id = ?", backend);
 
-    let result = sqlx::query(&delete_sql)
+    let result = crate::db::query(&delete_sql)
         .bind(&id)
         .execute(&state.db)
         .await
@@ -428,7 +429,7 @@ pub(super) async fn transfer_super(
         "UPDATE happyview_users SET is_super = ? WHERE id = ?",
         backend,
     );
-    let result = sqlx::query(&set_super_sql)
+    let result = crate::db::query(&set_super_sql)
         .bind(1_i32)
         .bind(&body.target_user_id)
         .execute(&mut *tx)
@@ -449,7 +450,7 @@ pub(super) async fn transfer_super(
             "UPDATE happyview_users SET is_super = ? WHERE id = ?",
             backend,
         );
-        sqlx::query(&remove_super_sql)
+        crate::db::query(&remove_super_sql)
             .bind(0_i32)
             .bind(&auth.user_id)
             .execute(&mut *tx)
@@ -464,7 +465,7 @@ pub(super) async fn transfer_super(
     );
 
     for perm in Permission::all() {
-        sqlx::query(&perm_sql)
+        crate::db::query(&perm_sql)
             .bind(&body.target_user_id)
             .bind(perm.as_str())
             .bind(&auth.user_id)

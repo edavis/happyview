@@ -48,7 +48,7 @@ impl AttestationSigner {
         let key_bytes = hex::decode(private_key_hex)
             .map_err(|e| AttestationError::InvalidKey(format!("invalid hex: {}", e)))?;
 
-        let signing_key = SigningKey::from_bytes((&key_bytes[..]).into())
+        let signing_key = SigningKey::from_slice(&key_bytes[..])
             .map_err(|e| AttestationError::InvalidKey(format!("invalid key: {}", e)))?;
 
         Ok(Self {
@@ -63,8 +63,7 @@ impl AttestationSigner {
     pub fn for_testing(key_id: String, sig_type: String) -> Self {
         // Fixed test key (32 bytes of 0x01) - DO NOT USE IN PRODUCTION
         let test_key_bytes = [0x01u8; 32];
-        let signing_key =
-            SigningKey::from_bytes((&test_key_bytes[..]).into()).expect("valid test key");
+        let signing_key = SigningKey::from_slice(&test_key_bytes[..]).expect("valid test key");
         Self {
             signing_key,
             key_id,
@@ -76,7 +75,7 @@ impl AttestationSigner {
     pub fn public_key_bytes(&self) -> Vec<u8> {
         use k256::ecdsa::VerifyingKey;
         let verifying_key = VerifyingKey::from(&self.signing_key);
-        verifying_key.to_encoded_point(true).as_bytes().to_vec()
+        verifying_key.to_sec1_point(true).as_bytes().to_vec()
     }
 
     /// Sign a record and add the signature to the signatures array.
@@ -222,7 +221,7 @@ impl AttestationSigner {
             base64::Engine::decode(&base64::engine::general_purpose::STANDARD, sig_bytes_b64)
                 .map_err(|e| AttestationError::Encoding(format!("invalid base64: {e}")))?;
 
-        let signature = Signature::from_bytes((&sig_bytes[..]).into())
+        let signature = Signature::from_slice(&sig_bytes[..])
             .map_err(|e| AttestationError::Signing(format!("invalid signature bytes: {e}")))?;
 
         // Recompute CID from record (same as signing)
@@ -366,7 +365,7 @@ pub async fn load_or_generate(
         "SELECT value FROM happyview_instance_settings WHERE key = ?",
         backend,
     );
-    let existing: Option<(String,)> = sqlx::query_as(&sql)
+    let existing: Option<(String,)> = crate::db::query_as(&sql)
         .bind("attestation_private_key")
         .fetch_optional(db)
         .await
@@ -374,12 +373,12 @@ pub async fn load_or_generate(
 
     if let Some((hex_key,)) = existing {
         // Load key_id and sig_type from DB too (or use defaults)
-        let key_id: Option<(String,)> = sqlx::query_as(&sql)
+        let key_id: Option<(String,)> = crate::db::query_as(&sql)
             .bind("attestation_key_id")
             .fetch_optional(db)
             .await
             .map_err(|e| AttestationError::Encoding(format!("db query failed: {e}")))?;
-        let sig_type: Option<(String,)> = sqlx::query_as(&sql)
+        let sig_type: Option<(String,)> = crate::db::query_as(&sql)
             .bind("attestation_sig_type")
             .fetch_optional(db)
             .await
@@ -397,11 +396,11 @@ pub async fn load_or_generate(
     tracing::info!("Generating new attestation signing key");
     let hex_key = {
         // Generate 32 random bytes for a K-256 private key
-        use rand::RngCore;
+        use rand::Rng;
         let mut key_bytes = [0u8; 32];
         rand::rng().fill_bytes(&mut key_bytes);
         // Validate it's a valid K-256 scalar by trying to construct a SigningKey
-        let _ = SigningKey::from_bytes((&key_bytes[..]).into())
+        let _ = SigningKey::from_slice(&key_bytes[..])
             .map_err(|e| AttestationError::InvalidKey(format!("generated invalid key: {e}")))?;
         hex::encode(key_bytes)
     };
@@ -418,7 +417,7 @@ pub async fn load_or_generate(
         ("attestation_key_id", default_key_id.as_str()),
         ("attestation_sig_type", default_sig_type.as_str()),
     ] {
-        sqlx::query(&upsert_sql)
+        crate::db::query(&upsert_sql)
             .bind(k)
             .bind(v)
             .bind(&now)
@@ -598,7 +597,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        sqlx::query(
+        crate::db::query(
             "CREATE TABLE happyview_instance_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT '')",
         )
         .execute(&pool)
@@ -637,7 +636,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        sqlx::query(
+        crate::db::query(
             "CREATE TABLE happyview_instance_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT '')",
         )
         .execute(&pool)

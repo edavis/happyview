@@ -147,7 +147,7 @@ async fn seed_record_row(
          VALUES (?, ?, ?, ?, ?, ?, ?)",
         app.state.db_backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(uri)
         .bind(did)
         .bind(collection)
@@ -161,7 +161,7 @@ async fn seed_record_row(
 }
 
 async fn count_records(app: &TestApp, uri: &str) -> i64 {
-    let (count,): (i64,) = sqlx::query_as(&adapt_sql(
+    let (count,): (i64,) = happyview::db::query_as(&adapt_sql(
         "SELECT COUNT(*) FROM happyview_records WHERE uri = ?",
         app.state.db_backend,
     ))
@@ -173,7 +173,7 @@ async fn count_records(app: &TestApp, uri: &str) -> i64 {
 }
 
 async fn fetch_record_body(app: &TestApp, uri: &str) -> Option<Value> {
-    let row: Option<(String,)> = sqlx::query_as(&adapt_sql(
+    let row: Option<(String,)> = happyview::db::query_as(&adapt_sql(
         "SELECT record FROM happyview_records WHERE uri = ?",
         app.state.db_backend,
     ))
@@ -588,7 +588,7 @@ async fn record_event_script_log_writes_event_log_row() {
 
     // The script's log("hello from script") should land in event_logs
     // as a `script.log` row whose subject is the trigger id.
-    let row: (String, String) = sqlx::query_as(&adapt_sql(
+    let row: (String, String) = happyview::db::query_as(&adapt_sql(
         "SELECT subject, detail FROM happyview_event_logs
          WHERE event_type = 'script.log'
          ORDER BY id DESC LIMIT 1",
@@ -736,10 +736,11 @@ async fn label_script_uri_routes_actor_special_case() {
     assert!(matches!(outcome, LabelHookOutcome::Continue(_)));
 
     // Sentinel row should exist if the script ran.
-    let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM script_sentinel WHERE k = 'fired'")
-        .fetch_one(&app.state.db)
-        .await
-        .unwrap();
+    let (count,): (i64,) =
+        happyview::db::query_as("SELECT COUNT(*) FROM script_sentinel WHERE k = 'fired'")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
     assert_eq!(
         count, 1,
         "labeler.apply:_actor should have fired for bare-DID label"
@@ -795,7 +796,7 @@ async fn label_script_calling_record_save_dead_letters_with_clear_message() {
     assert_eq!(body["text"], "untouched");
 
     // A dead-letter row exists with the NO_PDS_AUTH message.
-    let dl: (String,) = sqlx::query_as(&adapt_sql(
+    let dl: (String,) = happyview::db::query_as(&adapt_sql(
         "SELECT error FROM happyview_dead_letter_scripts WHERE host_kind = 'label' \
          AND host_id = 'did:plc:labeler' ORDER BY id DESC LIMIT 1",
         app.state.db_backend,

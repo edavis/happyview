@@ -14,7 +14,7 @@ async fn user_id_for_did(app: &TestApp, did: &str) -> String {
         "SELECT id FROM happyview_users WHERE did = ?",
         app.state.db_backend,
     );
-    let row: (String,) = sqlx::query_as(&sql)
+    let row: (String,) = happyview::db::query_as(&sql)
         .bind(did)
         .fetch_one(&app.state.db)
         .await
@@ -27,7 +27,7 @@ async fn is_super(app: &TestApp, user_id: &str) -> bool {
         "SELECT is_super FROM happyview_users WHERE id = ?",
         app.state.db_backend,
     );
-    let row: (i32,) = sqlx::query_as(&sql)
+    let row: (i32,) = happyview::db::query_as(&sql)
         .bind(user_id)
         .fetch_one(&app.state.db)
         .await
@@ -41,7 +41,7 @@ async fn insert_user(app: &TestApp, did: &str) -> String {
         "INSERT INTO happyview_users (id, did, is_super, created_at) VALUES (?, ?, ?, ?)",
         app.state.db_backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(&id)
         .bind(did)
         .bind(0_i32)
@@ -93,7 +93,7 @@ async fn transfer_super_moves_super_and_grants_permissions() {
         "SELECT COUNT(*) FROM happyview_user_permissions WHERE user_id = ?",
         app.state.db_backend,
     );
-    let count: (i64,) = sqlx::query_as(&sql)
+    let count: (i64,) = happyview::db::query_as(&sql)
         .bind(&target_id)
         .fetch_one(&app.state.db)
         .await

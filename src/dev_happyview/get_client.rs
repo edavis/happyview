@@ -55,7 +55,7 @@ pub async fn get_api_client(
         state.db_backend,
     );
 
-    let row = sqlx::query(&sql)
+    let row = crate::db::query(&sql)
         .bind(&params.id)
         .bind(did)
         .fetch_optional(&state.db)

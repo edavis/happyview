@@ -109,15 +109,13 @@ pub fn verify_delegation_token(
         .map_err(|_| AppError::Auth("invalid delegation token signature encoding".into()))?;
 
     // Try direct verify, then with low-S normalization
-    let verified = if let Ok(sig) = K256Signature::from_bytes(sig_bytes.as_slice().into()) {
+    let verified = if let Ok(sig) = K256Signature::from_slice(sig_bytes.as_slice()) {
         if verifying_key.verify(message.as_bytes(), &sig).is_ok() {
             true
-        } else if let Some(normalized) = sig.normalize_s() {
-            verifying_key
-                .verify(message.as_bytes(), &normalized)
-                .is_ok()
         } else {
-            false
+            verifying_key
+                .verify(message.as_bytes(), &sig.normalize_s())
+                .is_ok()
         }
     } else {
         false
@@ -174,7 +172,7 @@ pub fn sign_credential(
         .decode(d_b64)
         .map_err(|_| AppError::Internal("invalid signing key d parameter".into()))?;
 
-    let signing_key = SigningKey::from_bytes((&d_bytes[..]).into())
+    let signing_key = SigningKey::from_slice(&d_bytes[..])
         .map_err(|e| AppError::Internal(format!("invalid signing key: {e}")))?;
 
     let header = serde_json::json!({
@@ -224,7 +222,7 @@ pub fn verify_credential(
     let sig_bytes = URL_SAFE_NO_PAD
         .decode(parts[2])
         .map_err(|_| AppError::Auth("invalid credential signature encoding".into()))?;
-    let signature = Signature::from_bytes(sig_bytes.as_slice().into())
+    let signature = Signature::from_slice(sig_bytes.as_slice())
         .map_err(|_| AppError::Auth("invalid credential signature format".into()))?;
 
     verifying_key
@@ -291,7 +289,7 @@ pub fn multikey_to_p256_jwk(public_key_multibase: &str) -> Result<serde_json::Va
     let verifying_key = VerifyingKey::from_sec1_bytes(compressed)
         .map_err(|_| AppError::Auth("invalid P-256 public key bytes".into()))?;
 
-    let point = verifying_key.to_encoded_point(false);
+    let point = verifying_key.to_sec1_point(false);
     let x = point
         .x()
         .ok_or_else(|| AppError::Auth("failed to extract x coordinate".into()))?;
@@ -441,7 +439,7 @@ mod tests {
 
     fn make_k256_signing_key() -> K256SigningKey {
         let key_bytes = [0x42u8; 32];
-        K256SigningKey::from_bytes((&key_bytes[..]).into()).expect("valid key")
+        K256SigningKey::from_slice(&key_bytes[..]).expect("valid key")
     }
 
     fn make_delegation_claims() -> DelegationTokenClaims {
@@ -477,7 +475,7 @@ mod tests {
     #[test]
     fn delegation_rejects_wrong_key() {
         let signing_key = make_k256_signing_key();
-        let other_key = K256SigningKey::from_bytes((&[0x99u8; 32][..]).into()).unwrap();
+        let other_key = K256SigningKey::from_slice(&[0x99u8; 32][..]).unwrap();
         let verifying_key = K256VerifyingKey::from(&other_key);
         let claims = make_delegation_claims();
 
@@ -591,7 +589,7 @@ mod tests {
 
         let d_b64 = keypair.private_jwk["d"].as_str().unwrap();
         let d_bytes = URL_SAFE_NO_PAD.decode(d_b64).unwrap();
-        let signing_key = p256::ecdsa::SigningKey::from_bytes((&d_bytes[..]).into()).unwrap();
+        let signing_key = p256::ecdsa::SigningKey::from_slice(&d_bytes[..]).unwrap();
 
         let header = serde_json::json!({ "alg": "ES256", "typ": "JWT" });
         let header_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&header).unwrap());

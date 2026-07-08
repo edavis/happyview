@@ -94,7 +94,7 @@ async fn remove_member_revokes_credentials() {
         "INSERT INTO happyview_space_credentials (id, space_id, issued_to, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         app.state.db_backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(Uuid::new_v4().to_string())
         .bind(&space_id)
         .bind(MEMBER)

@@ -1,7 +1,7 @@
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use p256::ecdsa::SigningKey;
-use rand::RngCore;
+use rand::Rng;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -268,7 +268,7 @@ async fn get_or_create_signing_key(
         "SELECT signing_key_enc FROM happyview_space_dids WHERE space_id = ?",
         backend,
     );
-    let row: Option<(Vec<u8>,)> = sqlx::query_as(&sql)
+    let row: Option<(Vec<u8>,)> = crate::db::query_as(&sql)
         .bind(&space.id)
         .fetch_optional(pool)
         .await
@@ -301,7 +301,7 @@ async fn get_or_create_signing_key(
         backend,
     );
 
-    sqlx::query(&insert_sql)
+    crate::db::query(&insert_sql)
         .bind(Uuid::new_v4().to_string())
         .bind(&space.did)
         .bind(&space.id)
@@ -324,11 +324,11 @@ fn generate_space_keypair() -> Result<SpaceKeypair, AppError> {
     let mut rng_bytes = [0u8; 32];
     rand::rng().fill_bytes(&mut rng_bytes);
 
-    let signing_key = SigningKey::from_bytes((&rng_bytes[..]).into())
+    let signing_key = SigningKey::from_slice(&rng_bytes[..])
         .map_err(|e| AppError::Internal(format!("failed to generate signing key: {e}")))?;
 
     let verifying_key = signing_key.verifying_key();
-    let public_point = verifying_key.to_encoded_point(false);
+    let public_point = verifying_key.to_sec1_point(false);
 
     let x_bytes = public_point
         .x()
@@ -370,7 +370,7 @@ async fn store_credential_record(
         backend,
     );
 
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(Uuid::new_v4().to_string())
         .bind(space_id)
         .bind(issued_to)

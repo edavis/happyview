@@ -694,7 +694,7 @@ async fn test_deactivate_parent_cascades_to_children() {
         "INSERT INTO happyview_api_clients (id, client_key, client_secret_hash, name, client_id_url, client_uri, redirect_uris, scopes, client_type, is_active, created_by, created_at, updated_at, parent_client_id, owner_did) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
         app.state.db_backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(&child_id)
         .bind(&child_key)
         .bind(&child_hash)
@@ -799,7 +799,7 @@ async fn test_delete_parent_cascades_to_children() {
         "INSERT INTO happyview_api_clients (id, client_key, client_secret_hash, name, client_id_url, client_uri, redirect_uris, scopes, client_type, is_active, created_by, created_at, updated_at, parent_client_id, owner_did) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
         app.state.db_backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(&child_id)
         .bind(&child_key)
         .bind(&child_hash)
@@ -919,7 +919,7 @@ async fn test_list_api_clients_filter_by_parent() {
         "INSERT INTO happyview_api_clients (id, client_key, client_secret_hash, name, client_id_url, client_uri, redirect_uris, scopes, client_type, is_active, created_by, created_at, updated_at, parent_client_id, owner_did) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
         app.state.db_backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(&child1_id)
         .bind(&child1_key)
         .bind(&child1_hash)
@@ -947,7 +947,7 @@ async fn test_list_api_clients_filter_by_parent() {
         "INSERT INTO happyview_api_clients (id, client_key, client_secret_hash, name, client_id_url, client_uri, redirect_uris, scopes, client_type, is_active, created_by, created_at, updated_at, parent_client_id, owner_did) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
         app.state.db_backend,
     );
-    sqlx::query(&sql2)
+    happyview::db::query(&sql2)
         .bind(&child2_id)
         .bind(&child2_key)
         .bind(&child2_hash)
@@ -1048,7 +1048,7 @@ async fn test_list_api_clients_includes_parent_and_owner_fields() {
         "INSERT INTO happyview_api_clients (id, client_key, client_secret_hash, name, client_id_url, client_uri, redirect_uris, scopes, client_type, is_active, created_by, created_at, updated_at, parent_client_id, owner_did) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
         app.state.db_backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(&child_id)
         .bind(&child_key)
         .bind(&child_hash)

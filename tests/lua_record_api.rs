@@ -129,7 +129,7 @@ async fn seed_record(
          VALUES (?, ?, ?, ?, ?, ?, ?)",
         backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(uri)
         .bind(did)
         .bind(collection)
@@ -147,7 +147,7 @@ async fn count_records(pool: &sqlx::AnyPool, backend: DatabaseBackend, uri: &str
         "SELECT COUNT(*) FROM happyview_records WHERE uri = ?",
         backend,
     );
-    let (count,): (i64,) = sqlx::query_as(&sql)
+    let (count,): (i64,) = happyview::db::query_as(&sql)
         .bind(uri)
         .fetch_one(pool)
         .await
@@ -164,7 +164,7 @@ async fn fetch_record_body(
         "SELECT record FROM happyview_records WHERE uri = ?",
         backend,
     );
-    let row: Option<(String,)> = sqlx::query_as(&sql)
+    let row: Option<(String,)> = happyview::db::query_as(&sql)
         .bind(uri)
         .fetch_optional(pool)
         .await

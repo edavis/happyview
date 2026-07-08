@@ -47,7 +47,7 @@ pub async fn lookup_record(
         ctx.db_backend,
     );
 
-    let result: Option<(String, String)> = sqlx::query_as(&sql)
+    let result: Option<(String, String)> = crate::db::query_as(&sql)
         .bind(collection)
         .bind(&json_path)
         .bind(external_id_value)

@@ -50,7 +50,7 @@ async fn resolve_credentials(
         "SELECT private_key_enc FROM happyview_dpop_keys WHERE id = ?",
         backend,
     );
-    let row: Option<(Vec<u8>,)> = sqlx::query_as(&key_sql)
+    let row: Option<(Vec<u8>,)> = crate::db::query_as(&key_sql)
         .bind(&session.dpop_key_id)
         .fetch_optional(pool)
         .await
@@ -596,7 +596,7 @@ async fn lookup_client_id_url(
         "SELECT client_id_url FROM happyview_api_clients WHERE id = ?",
         backend,
     );
-    let row: Option<(String,)> = sqlx::query_as(&sql)
+    let row: Option<(String,)> = crate::db::query_as(&sql)
         .bind(api_client_id)
         .fetch_optional(pool)
         .await
@@ -649,7 +649,7 @@ fn generate_dpop_proof_inner(
         .decode(d_b64)
         .map_err(|_| AppError::Internal("invalid DPoP key d parameter".into()))?;
 
-    let signing_key = SigningKey::from_bytes((&d_bytes[..]).into())
+    let signing_key = SigningKey::from_slice(&d_bytes[..])
         .map_err(|e| AppError::Internal(format!("invalid DPoP signing key: {e}")))?;
 
     let public_jwk = serde_json::json!({

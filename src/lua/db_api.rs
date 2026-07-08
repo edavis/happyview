@@ -295,7 +295,7 @@ pub fn register_db_api(lua: &Lua, state: Arc<AppState>) -> LuaResult<()> {
                     &format!("SELECT uri, did, record FROM happyview_records WHERE collection = ?{did_clause}{filter_clause} ORDER BY {order_expr} LIMIT ? OFFSET ?"),
                     backend,
                 );
-                let mut q = sqlx::query_as(&sql).bind(&collection);
+                let mut q = crate::db::query_as(&sql).bind(&collection);
                 if let Some(ref did) = did { q = q.bind(did); }
                 for val in &filter_binds { q = q.bind(val); }
                 let rows: Vec<(String, String, String)> = q
@@ -351,7 +351,7 @@ pub fn register_db_api(lua: &Lua, state: Arc<AppState>) -> LuaResult<()> {
                     ),
                     backend,
                 );
-                let mut q = sqlx::query_as::<_, RowType>(&sql).bind(&collection);
+                let mut q = crate::db::query_as::<RowType>(&sql).bind(&collection);
                 if let Some(ref did) = did { q = q.bind(did); }
                 if let Some((cursor_ts, cursor_uri)) = &cursor_parts {
                     q = q.bind(cursor_ts).bind(cursor_ts).bind(cursor_uri);
@@ -407,7 +407,7 @@ pub fn register_db_api(lua: &Lua, state: Arc<AppState>) -> LuaResult<()> {
                 "SELECT record FROM happyview_records WHERE uri = ?",
                 backend,
             );
-            let row: Option<(String,)> = sqlx::query_as(&sql)
+            let row: Option<(String,)> = crate::db::query_as(&sql)
                 .bind(&uri)
                 .fetch_optional(&state.db)
                 .await
@@ -463,7 +463,7 @@ pub fn register_db_api(lua: &Lua, state: Arc<AppState>) -> LuaResult<()> {
                            json_extract(record, '$.{field}') \
                          LIMIT ?"
                     );
-                    sqlx::query_as(&sql)
+                    crate::db::query_as(&sql)
                     .bind(&collection)
                     .bind(&like_pattern)
                     .bind(&query)
@@ -487,7 +487,7 @@ pub fn register_db_api(lua: &Lua, state: Arc<AppState>) -> LuaResult<()> {
                            record::jsonb->>'{field}' \
                          LIMIT $4"
                     );
-                    sqlx::query_as(&sql)
+                    crate::db::query_as(&sql)
                     .bind(&collection)
                     .bind(&like_pattern)
                     .bind(&query)
@@ -536,7 +536,7 @@ pub fn register_db_api(lua: &Lua, state: Arc<AppState>) -> LuaResult<()> {
                         "SELECT COUNT(*) FROM happyview_records WHERE collection = ? AND did = ?",
                         backend,
                     );
-                    sqlx::query_as(&sql)
+                    crate::db::query_as(&sql)
                         .bind(&collection)
                         .bind(did)
                         .fetch_one(&state.db)
@@ -547,7 +547,7 @@ pub fn register_db_api(lua: &Lua, state: Arc<AppState>) -> LuaResult<()> {
                         "SELECT COUNT(*) FROM happyview_records WHERE collection = ?",
                         backend,
                     );
-                    sqlx::query_as(&sql)
+                    crate::db::query_as(&sql)
                         .bind(&collection)
                         .fetch_one(&state.db)
                         .await
@@ -586,7 +586,7 @@ pub fn register_db_api(lua: &Lua, state: Arc<AppState>) -> LuaResult<()> {
                          LIMIT ?",
                         backend,
                     );
-                    sqlx::query_as(&sql)
+                    crate::db::query_as(&sql)
                         .bind(&uri)
                         .bind(&collection)
                         .bind(did)
@@ -607,7 +607,7 @@ pub fn register_db_api(lua: &Lua, state: Arc<AppState>) -> LuaResult<()> {
                          LIMIT ?",
                         backend,
                     );
-                    sqlx::query_as(&sql)
+                    crate::db::query_as(&sql)
                         .bind(&uri)
                         .bind(&collection)
                         .bind(did)
@@ -626,7 +626,7 @@ pub fn register_db_api(lua: &Lua, state: Arc<AppState>) -> LuaResult<()> {
                          LIMIT ?",
                         backend,
                     );
-                    sqlx::query_as(&sql)
+                    crate::db::query_as(&sql)
                         .bind(&uri)
                         .bind(&collection)
                         .bind(cursor_ts)
@@ -646,7 +646,7 @@ pub fn register_db_api(lua: &Lua, state: Arc<AppState>) -> LuaResult<()> {
                          LIMIT ?",
                         backend,
                     );
-                    sqlx::query_as(&sql)
+                    crate::db::query_as(&sql)
                         .bind(&uri)
                         .bind(&collection)
                         .bind(limit)
@@ -699,7 +699,7 @@ pub fn register_db_api(lua: &Lua, state: Arc<AppState>) -> LuaResult<()> {
                 // AppView bookkeeping) from raw access; own tables are fine.
                 check_raw_sql_tables(&sql).map_err(mlua::Error::runtime)?;
 
-                let mut query = sqlx::query(&sql);
+                let mut query = crate::db::query(&sql);
                 if let Some(ref params_table) = params {
                     for value in params_table.sequence_values::<mlua::Value>() {
                         let value = value?;

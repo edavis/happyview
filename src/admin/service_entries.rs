@@ -263,7 +263,7 @@ pub(super) async fn sync_plc(
         "SELECT rotation_key_enc FROM happyview_service_identity WHERE id = 1",
         state.db_backend,
     );
-    let row: Option<(Option<String>,)> = sqlx::query_as(&rotation_key_enc_sql)
+    let row: Option<(Option<String>,)> = crate::db::query_as(&rotation_key_enc_sql)
         .fetch_optional(&state.db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to fetch rotation key: {e}")))?;
@@ -272,7 +272,7 @@ pub(super) async fn sync_plc(
         .ok_or_else(|| AppError::Internal("no rotation key stored".into()))?;
     let rotation_key_bytes = crate::plc::decrypt_key(&rotation_key_enc, encryption_key)?;
     let rotation_signing_key =
-        p256::ecdsa::SigningKey::from_bytes(rotation_key_bytes.as_slice().into())
+        p256::ecdsa::SigningKey::from_slice(rotation_key_bytes.as_slice())
             .map_err(|e| AppError::Internal(format!("invalid rotation key: {e}")))?;
 
     let signed = crate::plc::sign_operation(&unsigned, &rotation_signing_key)?;
@@ -313,7 +313,7 @@ pub(super) async fn sync_plc_request(
                 "SELECT attached_account_did FROM happyview_service_identity WHERE id = 1",
                 state.db_backend,
             );
-            let row: Option<(Option<String>,)> = sqlx::query_as(&sql)
+            let row: Option<(Option<String>,)> = crate::db::query_as(&sql)
                 .fetch_optional(&state.db)
                 .await
                 .map_err(|e| AppError::Internal(format!("failed to fetch identity: {e}")))?;
@@ -377,7 +377,7 @@ pub(super) async fn sync_plc_submit(
                 "SELECT attached_account_did FROM happyview_service_identity WHERE id = 1",
                 state.db_backend,
             );
-            let row: Option<(Option<String>,)> = sqlx::query_as(&sql)
+            let row: Option<(Option<String>,)> = crate::db::query_as(&sql)
                 .fetch_optional(&state.db)
                 .await
                 .map_err(|e| AppError::Internal(format!("failed to fetch identity: {e}")))?;

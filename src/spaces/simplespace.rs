@@ -182,7 +182,7 @@ async fn require_space_admin(state: &AppState, space: &Space, did: &str) -> Resu
         "SELECT is_super FROM happyview_users WHERE did = ?",
         state.db_backend,
     );
-    let row: Option<(i32,)> = sqlx::query_as(&sql)
+    let row: Option<(i32,)> = crate::db::query_as(&sql)
         .bind(did)
         .fetch_optional(&state.db)
         .await

@@ -156,7 +156,7 @@ pub(crate) fn register_record_api(
                                    indexed_at = ?"#,
                         backend,
                     );
-                    let _ = sqlx::query(&upsert_sql)
+                    let _ = crate::db::query(&upsert_sql)
                         .bind(uri)
                         .bind(repo)
                         .bind(&collection)
@@ -219,7 +219,7 @@ pub(crate) fn register_record_api(
                                        cid = EXCLUDED.cid"#,
                             backend,
                         );
-                        let _ = sqlx::query(&upsert_sql)
+                        let _ = crate::db::query(&upsert_sql)
                             .bind(uri)
                             .bind(repo)
                             .bind(&collection)
@@ -318,7 +318,10 @@ pub(crate) fn register_record_api(
                 // Always delete locally — operator's logical action is
                 // "remove this record from view" regardless of PDS outcome.
                 let delete_sql = adapt_sql("DELETE FROM happyview_records WHERE uri = ?", backend);
-                let _ = sqlx::query(&delete_sql).bind(&uri).execute(&state.db).await;
+                let _ = crate::db::query(&delete_sql)
+                    .bind(&uri)
+                    .execute(&state.db)
+                    .await;
 
                 this.raw_set("_uri", mlua::Value::Nil)?;
                 this.raw_set("_cid", mlua::Value::Nil)?;
@@ -425,7 +428,7 @@ pub(crate) fn register_record_api(
                                indexed_at = ?"#,
                     backend,
                 );
-                sqlx::query(&upsert_sql)
+                crate::db::query(&upsert_sql)
                     .bind(&uri)
                     .bind(&repo)
                     .bind(&collection)
@@ -463,7 +466,7 @@ pub(crate) fn register_record_api(
                 })?;
 
                 let delete_sql = adapt_sql("DELETE FROM happyview_records WHERE uri = ?", backend);
-                sqlx::query(&delete_sql)
+                crate::db::query(&delete_sql)
                     .bind(&uri)
                     .execute(&state.db)
                     .await
@@ -757,7 +760,7 @@ pub(crate) fn register_record_api(
                                                indexed_at = ?"#,
                                     backend,
                                 );
-                                let _ = sqlx::query(&upsert_sql)
+                                let _ = crate::db::query(&upsert_sql)
                                 .bind(uri.as_str())
                                 .bind(repo)
                                 .bind(&collection)
@@ -825,7 +828,7 @@ pub(crate) fn register_record_api(
                                                    cid = EXCLUDED.cid"#,
                                         backend,
                                     );
-                                    let _ = sqlx::query(&upsert_sql)
+                                    let _ = crate::db::query(&upsert_sql)
                                     .bind(uri)
                                     .bind(repo)
                                     .bind(&collection)
@@ -877,7 +880,7 @@ pub(crate) fn register_record_api(
                     "SELECT collection, record, cid FROM happyview_records WHERE uri = ?",
                     backend,
                 );
-                let row: Option<(String, String, String)> = sqlx::query_as(&sql)
+                let row: Option<(String, String, String)> = crate::db::query_as(&sql)
                     .bind(&uri)
                     .fetch_optional(&state.db)
                     .await
@@ -944,7 +947,7 @@ pub(crate) fn register_record_api(
                             "SELECT collection, record, cid FROM happyview_records WHERE uri = ?",
                             backend,
                         );
-                        let row: Option<(String, String, String)> = sqlx::query_as(&sql)
+                        let row: Option<(String, String, String)> = crate::db::query_as(&sql)
                             .bind(&uri)
                             .fetch_optional(&state.db)
                             .await
@@ -1021,7 +1024,7 @@ pub(crate) fn register_record_api(
             async move {
                 let backend = state.db_backend;
                 let delete_sql = adapt_sql("DELETE FROM happyview_records WHERE uri = ?", backend);
-                let res = sqlx::query(&delete_sql)
+                let res = crate::db::query(&delete_sql)
                     .bind(&uri)
                     .execute(&state.db)
                     .await

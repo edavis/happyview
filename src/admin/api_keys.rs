@@ -41,7 +41,7 @@ pub(super) async fn create_api_key(
 
     // Generate the raw key: "hv_" + 32 random hex chars.
     let mut random_bytes = [0u8; 16];
-    rand::rng().fill(&mut random_bytes);
+    rand::rng().fill_bytes(&mut random_bytes);
     let raw_key = format!("hv_{}", hex::encode(random_bytes));
 
     // SHA-256 hash for storage.
@@ -60,7 +60,7 @@ pub(super) async fn create_api_key(
         state.db_backend,
     );
 
-    sqlx::query(&insert_sql)
+    crate::db::query(&insert_sql)
         .bind(&id)
         .bind(&auth.user_id)
         .bind(&body.name)
@@ -118,7 +118,7 @@ pub(super) async fn list_api_keys(
         String,
         Option<String>,
         Option<String>,
-    )> = sqlx::query_as(&select_sql)
+    )> = crate::db::query_as(&select_sql)
         .bind(&auth.did)
         .fetch_all(&state.db)
         .await
@@ -160,7 +160,7 @@ pub(super) async fn revoke_api_key(
         state.db_backend,
     );
 
-    let result = sqlx::query(&update_sql)
+    let result = crate::db::query(&update_sql)
         .bind(&now)
         .bind(&id)
         .bind(&auth.did)

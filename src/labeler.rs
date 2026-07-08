@@ -59,7 +59,7 @@ pub fn spawn(state: AppState, mut subscriptions_rx: watch::Receiver<()>) {
 
         loop {
             // Read all active subscriptions from the database.
-            let active: Vec<(String,)> = sqlx::query_as(
+            let active: Vec<(String,)> = crate::db::query_as(
                 "SELECT did FROM happyview_labeler_subscriptions WHERE status = 'active'",
             )
             .fetch_all(&state.db)
@@ -153,7 +153,7 @@ async fn run_subscription_once(
         "SELECT cursor FROM happyview_labeler_subscriptions WHERE did = ?",
         state.db_backend,
     );
-    let cursor: Option<(Option<i64>,)> = sqlx::query_as(&cursor_sql)
+    let cursor: Option<(Option<i64>,)> = crate::db::query_as(&cursor_sql)
         .bind(did)
         .fetch_optional(&state.db)
         .await?;
@@ -362,7 +362,7 @@ async fn apply_label(state: &AppState, label: &Label) {
             "DELETE FROM happyview_labels WHERE src = ? AND uri = ? AND val = ?",
             backend,
         );
-        if let Err(e) = sqlx::query(&delete_sql)
+        if let Err(e) = crate::db::query(&delete_sql)
             .bind(&final_label.src)
             .bind(&final_label.uri)
             .bind(&final_label.val)
@@ -387,7 +387,7 @@ async fn apply_label(state: &AppState, label: &Label) {
             backend,
         );
 
-        if let Err(e) = sqlx::query(&insert_sql)
+        if let Err(e) = crate::db::query(&insert_sql)
             .bind(&final_label.src)
             .bind(&final_label.uri)
             .bind(&final_label.val)
@@ -410,7 +410,7 @@ async fn persist_cursor(db: &sqlx::AnyPool, did: &str, seq: i64, backend: Databa
         "UPDATE happyview_labeler_subscriptions SET cursor = ?, updated_at = ? WHERE did = ?",
         backend,
     );
-    if let Err(e) = sqlx::query(&update_sql)
+    if let Err(e) = crate::db::query(&update_sql)
         .bind(seq)
         .bind(&now)
         .bind(did)
@@ -439,10 +439,11 @@ async fn backfill_labels_for_uri_inner(
     state: &AppState,
     uri: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let subscriptions: Vec<(String,)> =
-        sqlx::query_as("SELECT did FROM happyview_labeler_subscriptions WHERE status = 'active'")
-            .fetch_all(&state.db)
-            .await?;
+    let subscriptions: Vec<(String,)> = crate::db::query_as(
+        "SELECT did FROM happyview_labeler_subscriptions WHERE status = 'active'",
+    )
+    .fetch_all(&state.db)
+    .await?;
 
     for (labeler_did,) in subscriptions {
         if let Err(e) = backfill_from_labeler(state, &labeler_did, uri).await {
@@ -515,7 +516,7 @@ pub async fn spawn_label_gc(db: sqlx::AnyPool, backend: DatabaseBackend) {
         tokio::time::sleep(interval).await;
 
         // Delete expired labels.
-        let expired = sqlx::query(&expired_sql).execute(&db).await;
+        let expired = crate::db::query(&expired_sql).execute(&db).await;
 
         let expired_count = match expired {
             Ok(r) => r.rows_affected(),
@@ -526,7 +527,7 @@ pub async fn spawn_label_gc(db: sqlx::AnyPool, backend: DatabaseBackend) {
         };
 
         // Delete orphaned labels (no matching record).
-        let orphaned = sqlx::query(
+        let orphaned = crate::db::query(
             "DELETE FROM happyview_labels WHERE NOT EXISTS (SELECT 1 FROM happyview_records WHERE happyview_records.uri = happyview_labels.uri)",
         )
         .execute(&db)

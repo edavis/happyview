@@ -56,7 +56,7 @@ pub async fn spawn_retention_cleanup(db: AnyPool, retention_days: u32, backend: 
     loop {
         tokio::time::sleep(interval).await;
 
-        let result = sqlx::query(&cleanup_sql)
+        let result = crate::db::query(&cleanup_sql)
             .bind(retention_days as i32)
             .execute(&db)
             .await;
@@ -86,7 +86,7 @@ pub async fn log_event(db: &AnyPool, event: EventLog, backend: DatabaseBackend) 
         backend,
     );
 
-    let result = sqlx::query(&sql)
+    let result = crate::db::query(&sql)
         .bind(&id)
         .bind(&event.event_type)
         .bind(&severity)

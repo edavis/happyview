@@ -250,7 +250,7 @@ pub async fn resolve(state: &AppState, trigger_id: &str) -> Option<ResolvedScrip
         "SELECT id, body, script_type FROM happyview_scripts WHERE id = ?",
         state.db_backend,
     );
-    let row: Option<(String, String, String)> = match sqlx::query_as(&sql)
+    let row: Option<(String, String, String)> = match crate::db::query_as(&sql)
         .bind(trigger_id)
         .fetch_optional(&state.db)
         .await
@@ -818,7 +818,7 @@ async fn load_env_vars(
     backend: DatabaseBackend,
 ) -> std::collections::HashMap<String, String> {
     let sql = adapt_sql("SELECT key, value FROM happyview_script_variables", backend);
-    sqlx::query_as::<_, (String, String)>(&sql)
+    crate::db::query_as::<(String, String)>(&sql)
         .fetch_all(db)
         .await
         .unwrap_or_default()
@@ -844,7 +844,7 @@ async fn write_dead_letter(state: &AppState, entry: &DeadLetterEntry<'_>) {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         state.db_backend,
     );
-    if let Err(e) = sqlx::query(&sql)
+    if let Err(e) = crate::db::query(&sql)
         .bind(entry.script.id.as_str())
         .bind(entry.host_kind)
         .bind(entry.host_id)

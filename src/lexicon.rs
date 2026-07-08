@@ -219,7 +219,7 @@ impl LexiconRegistry {
             Option<String>,
             Option<String>,
             Option<i32>,
-        )> = sqlx::query_as(
+        )> = crate::db::query_as(
             "SELECT id, lexicon_json, revision, target_collection, action, token_cost FROM happyview_lexicons",
         )
         .fetch_all(db)

@@ -8,7 +8,7 @@ use axum::{
     routing::{get, post},
 };
 use axum_extra::extract::cookie::{Cookie, Key, SignedCookieJar};
-use rand::RngCore;
+use rand::Rng;
 use serde::Deserialize;
 
 use crate::admin::auth::UserAuth;
@@ -124,7 +124,7 @@ fn generate_encrypted_signing_key(state: &AppState) -> Result<String, AppError> 
     rand::rng().fill_bytes(&mut rng_bytes);
 
     // Validate the key bytes produce a valid signing key
-    SigningKey::from_bytes((&rng_bytes[..]).into())
+    SigningKey::from_slice(&rng_bytes[..])
         .map_err(|e| AppError::Internal(format!("failed to generate signing key: {e}")))?;
 
     let encryption_key = state
@@ -194,7 +194,7 @@ async fn plc_register(
         "SELECT rotation_key_enc FROM happyview_service_identity WHERE id = 1",
         state.db_backend,
     );
-    let row: Option<(Option<String>,)> = sqlx::query_as(&sql)
+    let row: Option<(Option<String>,)> = crate::db::query_as(&sql)
         .fetch_optional(&state.db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to fetch rotation key: {e}")))?;
@@ -205,7 +205,7 @@ async fn plc_register(
     let rotation_key_did = crate::plc::private_key_to_did_key(&rotation_key_bytes)?;
 
     let rotation_signing_key =
-        p256::ecdsa::SigningKey::from_bytes(rotation_key_bytes.as_slice().into())
+        p256::ecdsa::SigningKey::from_slice(rotation_key_bytes.as_slice())
             .map_err(|e| AppError::Internal(format!("invalid rotation key: {e}")))?;
 
     // Build service entries from the database
@@ -263,7 +263,7 @@ async fn plc_request(
                 "SELECT attached_account_did FROM happyview_service_identity WHERE id = 1",
                 state.db_backend,
             );
-            let row: Option<(Option<String>,)> = sqlx::query_as(&sql)
+            let row: Option<(Option<String>,)> = crate::db::query_as(&sql)
                 .fetch_optional(&state.db)
                 .await
                 .map_err(|e| AppError::Internal(format!("failed to fetch identity: {e}")))?;
@@ -321,7 +321,7 @@ async fn plc_submit(
                 "SELECT attached_account_did FROM happyview_service_identity WHERE id = 1",
                 state.db_backend,
             );
-            let row: Option<(Option<String>,)> = sqlx::query_as(&sql)
+            let row: Option<(Option<String>,)> = crate::db::query_as(&sql)
                 .fetch_optional(&state.db)
                 .await
                 .map_err(|e| AppError::Internal(format!("failed to fetch identity: {e}")))?;
@@ -495,7 +495,7 @@ async fn attach_auth_confirm(
         "SELECT attached_account_did FROM happyview_service_identity WHERE id = 1",
         state.db_backend,
     );
-    let row: Option<(Option<String>,)> = sqlx::query_as(&sql)
+    let row: Option<(Option<String>,)> = crate::db::query_as(&sql)
         .fetch_optional(&state.db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to fetch identity: {e}")))?;
@@ -517,7 +517,7 @@ async fn attach_auth_confirm(
     }
 
     // Verify the original DID is a known admin user
-    let user_exists: Option<(i32,)> = sqlx::query_as(&crate::db::adapt_sql(
+    let user_exists: Option<(i32,)> = crate::db::query_as(&crate::db::adapt_sql(
         "SELECT 1 FROM happyview_users WHERE did = ?",
         state.db_backend,
     ))
@@ -567,7 +567,7 @@ async fn export_rotation_key(
         "SELECT rotation_key_enc FROM happyview_service_identity WHERE id = 1",
         state.db_backend,
     );
-    let row: Option<(Option<String>,)> = sqlx::query_as(&sql)
+    let row: Option<(Option<String>,)> = crate::db::query_as(&sql)
         .fetch_optional(&state.db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to fetch rotation key: {e}")))?;
@@ -711,13 +711,19 @@ async fn resolve_handle_to_did(http: &reqwest::Client, handle: &str) -> Option<S
 
     // Try DNS TXT record `_atproto.<handle>`
     use hickory_resolver::Resolver;
+    use hickory_resolver::proto::rr::RData;
     let lookup_name = format!("_atproto.{}.", handle);
-    if let Ok(resolver) = Resolver::builder_tokio().map(|b| b.build())
+    if let Ok(resolver) = Resolver::builder_tokio().and_then(|b| b.build())
         && let Ok(txt_lookup) = resolver.txt_lookup(&lookup_name).await
     {
         let did = txt_lookup
+            .answers()
             .iter()
-            .flat_map(|txt| txt.txt_data().iter())
+            .filter_map(|r| match &r.data {
+                RData::TXT(txt) => Some(txt),
+                _ => None,
+            })
+            .flat_map(|txt| txt.txt_data.iter())
             .filter_map(|data| {
                 let s = std::str::from_utf8(data).ok()?;
                 s.strip_prefix("did=")

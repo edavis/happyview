@@ -64,7 +64,7 @@ async fn plugin_log_writes_all_four_levels_to_event_logs() {
         "SELECT severity, subject, detail FROM happyview_event_logs WHERE event_type = ? ORDER BY created_at ASC",
         backend,
     );
-    let rows: Vec<(String, Option<String>, String)> = sqlx::query_as(&sql)
+    let rows: Vec<(String, Option<String>, String)> = happyview::db::query_as(&sql)
         .bind("plugin.log")
         .fetch_all(&pool)
         .await
@@ -125,7 +125,7 @@ async fn plugin_log_with_none_db_does_not_write_event_log() {
         "SELECT COUNT(*) FROM happyview_event_logs WHERE event_type = ?",
         backend,
     );
-    let count: i64 = sqlx::query_scalar(&sql)
+    let count: i64 = happyview::db::query_scalar(&sql)
         .bind("plugin.log")
         .fetch_one(&pool)
         .await

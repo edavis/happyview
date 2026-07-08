@@ -90,7 +90,7 @@ async fn seed_record(app: &TestApp, uri: &str, did: &str, collection: &str, reco
         "INSERT INTO happyview_records (uri, did, collection, rkey, record, cid, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
         backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(uri)
         .bind(did)
         .bind(collection)
@@ -443,7 +443,7 @@ async fn xrpc_delete_procedure_removes_record() {
         "SELECT COUNT(*) FROM happyview_records WHERE uri = ?",
         backend,
     );
-    let count: (i64,) = sqlx::query_as(&sql)
+    let count: (i64,) = happyview::db::query_as(&sql)
         .bind(uri)
         .fetch_one(&app.state.db)
         .await

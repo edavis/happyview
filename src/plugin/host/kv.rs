@@ -17,7 +17,7 @@ pub async fn kv_get(ctx: &HostContext, key: &str) -> Result<Option<Vec<u8>>, KvE
         ctx.db_backend,
     );
 
-    let result: Option<(Vec<u8>,)> = sqlx::query_as(&sql)
+    let result: Option<(Vec<u8>,)> = crate::db::query_as(&sql)
         .bind(&ctx.plugin_id)
         .bind(&ctx.scope)
         .bind(key)
@@ -52,7 +52,7 @@ pub async fn kv_set(
         ctx.db_backend,
     );
 
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&ctx.plugin_id)
         .bind(&ctx.scope)
         .bind(key)
@@ -70,7 +70,7 @@ pub async fn kv_delete(ctx: &HostContext, key: &str) -> Result<(), KvError> {
         ctx.db_backend,
     );
 
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&ctx.plugin_id)
         .bind(&ctx.scope)
         .bind(key)

@@ -577,7 +577,7 @@ async fn space_credential_revocation_round_trip() {
         "INSERT INTO happyview_space_credentials (id, space_id, issued_to, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(new_id())
         .bind(&space_id)
         .bind(member)

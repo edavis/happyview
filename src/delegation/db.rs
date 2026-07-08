@@ -16,7 +16,7 @@ pub async fn create_delegated_account(
         "INSERT INTO happyview_delegated_accounts (account_did, linked_by, api_client_id, created_at) VALUES (?, ?, ?, ?)",
         backend,
     );
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(account_did)
         .bind(linked_by)
         .bind(api_client_id)
@@ -36,7 +36,7 @@ pub async fn delete_delegated_account(
         "DELETE FROM happyview_delegated_accounts WHERE account_did = ?",
         backend,
     );
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(account_did)
         .execute(pool)
         .await
@@ -53,7 +53,7 @@ pub async fn get_delegated_account_owner(
         "SELECT linked_by FROM happyview_delegated_accounts WHERE account_did = ?",
         backend,
     );
-    let row: Option<(String,)> = sqlx::query_as(&sql)
+    let row: Option<(String,)> = crate::db::query_as(&sql)
         .bind(account_did)
         .fetch_optional(pool)
         .await
@@ -79,7 +79,7 @@ pub async fn get_api_client_id(
         "SELECT api_client_id FROM happyview_delegated_accounts WHERE account_did = ?",
         backend,
     );
-    let row: Option<(String,)> = sqlx::query_as(&sql)
+    let row: Option<(String,)> = crate::db::query_as(&sql)
         .bind(account_did)
         .fetch_optional(pool)
         .await
@@ -100,7 +100,7 @@ pub async fn add_delegate(
         "INSERT INTO happyview_account_delegates (account_did, user_did, role, granted_by, created_at) VALUES (?, ?, ?, ?, ?)",
         backend,
     );
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(account_did)
         .bind(user_did)
         .bind(role.as_str())
@@ -122,7 +122,7 @@ pub async fn remove_delegate(
         "DELETE FROM happyview_account_delegates WHERE account_did = ? AND user_did = ?",
         backend,
     );
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(account_did)
         .bind(user_did)
         .execute(pool)
@@ -141,7 +141,7 @@ pub async fn get_delegate_role(
         "SELECT role FROM happyview_account_delegates WHERE account_did = ? AND user_did = ?",
         backend,
     );
-    let row: Option<(String,)> = sqlx::query_as(&sql)
+    let row: Option<(String,)> = crate::db::query_as(&sql)
         .bind(account_did)
         .bind(user_did)
         .fetch_optional(pool)
@@ -160,7 +160,7 @@ pub async fn list_accounts_for_user(
         "SELECT ad.account_did, ad.role, ad.created_at FROM happyview_account_delegates ad JOIN happyview_delegated_accounts da ON da.account_did = ad.account_did WHERE ad.user_did = ? AND da.api_client_id = ? ORDER BY ad.created_at DESC",
         backend,
     );
-    let rows: Vec<(String, String, String)> = sqlx::query_as(&sql)
+    let rows: Vec<(String, String, String)> = crate::db::query_as(&sql)
         .bind(user_did)
         .bind(api_client_id)
         .fetch_all(pool)
@@ -187,7 +187,7 @@ pub async fn get_account_for_user(
         "SELECT da.linked_by, ad.role, ad.created_at FROM happyview_delegated_accounts da JOIN happyview_account_delegates ad ON da.account_did = ad.account_did WHERE da.account_did = ? AND ad.user_did = ?",
         backend,
     );
-    let row: Option<(String, String, String)> = sqlx::query_as(&sql)
+    let row: Option<(String, String, String)> = crate::db::query_as(&sql)
         .bind(account_did)
         .bind(user_did)
         .fetch_optional(pool)
@@ -205,7 +205,7 @@ pub async fn list_delegates(
         "SELECT user_did, role, granted_by, created_at FROM happyview_account_delegates WHERE account_did = ? ORDER BY created_at ASC",
         backend,
     );
-    let rows: Vec<(String, String, String, String)> = sqlx::query_as(&sql)
+    let rows: Vec<(String, String, String, String)> = crate::db::query_as(&sql)
         .bind(account_did)
         .fetch_all(pool)
         .await

@@ -2,7 +2,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use chrono::Utc;
 use p256::ecdsa::SigningKey;
-use rand::RngCore;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sqlx::AnyPool;
 use uuid::Uuid;
@@ -50,7 +50,7 @@ pub async fn list_methods(
         backend,
     );
 
-    let rows: Vec<VerificationMethodRow> = sqlx::query_as(&sql)
+    let rows: Vec<VerificationMethodRow> = crate::db::query_as(&sql)
         .fetch_all(db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to list verification methods: {e}")))?;
@@ -68,7 +68,7 @@ pub async fn get_method_by_fragment(
         backend,
     );
 
-    let row: Option<VerificationMethodRow> = sqlx::query_as(&sql)
+    let row: Option<VerificationMethodRow> = crate::db::query_as(&sql)
         .bind(fragment_id)
         .fetch_optional(db)
         .await
@@ -97,7 +97,7 @@ pub async fn create_method(
         backend,
     );
 
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&id)
         .bind(fragment_id)
         .bind(&public_key_multibase)
@@ -126,7 +126,7 @@ pub async fn delete_method(
         backend,
     );
 
-    let result = sqlx::query(&sql)
+    let result = crate::db::query(&sql)
         .bind(fragment_id)
         .execute(db)
         .await
@@ -146,7 +146,7 @@ pub async fn get_private_key_bytes(
         backend,
     );
 
-    let row: Option<(Vec<u8>,)> = sqlx::query_as(&sql)
+    let row: Option<(Vec<u8>,)> = crate::db::query_as(&sql)
         .bind(fragment_id)
         .fetch_optional(db)
         .await
@@ -175,11 +175,11 @@ fn generate_p256_keypair() -> Result<(Vec<u8>, String), AppError> {
     let mut rng_bytes = [0u8; 32];
     rand::rng().fill_bytes(&mut rng_bytes);
 
-    let signing_key = SigningKey::from_bytes((&rng_bytes[..]).into())
+    let signing_key = SigningKey::from_slice(&rng_bytes[..])
         .map_err(|e| AppError::Internal(format!("failed to generate verification key: {e}")))?;
 
     let verifying_key = signing_key.verifying_key();
-    let compressed = verifying_key.to_encoded_point(true);
+    let compressed = verifying_key.to_sec1_point(true);
 
     // Multikey format: 0x8024 varint for P-256 + compressed public key, base58btc
     let mut multikey_bytes = vec![0x80, 0x24];
@@ -190,7 +190,7 @@ fn generate_p256_keypair() -> Result<(Vec<u8>, String), AppError> {
 }
 
 pub fn private_key_bytes_to_signing_key(key_bytes: &[u8]) -> Result<SigningKey, AppError> {
-    SigningKey::from_bytes(key_bytes.into())
+    SigningKey::from_slice(key_bytes)
         .map_err(|e| AppError::Internal(format!("invalid verification signing key: {e}")))
 }
 

@@ -47,7 +47,7 @@ pub async fn list_api_clients(
             "SELECT parent_client_id FROM happyview_api_clients WHERE client_key = $1",
             state.db_backend,
         );
-        let parent_check: Option<Option<String>> = sqlx::query_scalar(&sql)
+        let parent_check: Option<Option<String>> = crate::db::query_scalar(&sql)
             .bind(client_key)
             .fetch_optional(&state.db)
             .await
@@ -69,7 +69,7 @@ pub async fn list_api_clients(
         state.db_backend,
     );
 
-    let rows = sqlx::query(&sql)
+    let rows = crate::db::query(&sql)
         .bind(did)
         .fetch_all(&state.db)
         .await

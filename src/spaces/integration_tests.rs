@@ -14,7 +14,7 @@ mod tests {
     fn test_signing_key() -> SigningKey {
         let mut bytes = [0u8; 32];
         bytes[31] = 1;
-        SigningKey::from_bytes((&bytes[..]).into()).unwrap()
+        SigningKey::from_slice(&bytes[..]).unwrap()
     }
 
     /// Add two records, generate a commit over the hash, verify it.
@@ -117,7 +117,7 @@ mod tests {
     use k256::ecdsa::{SigningKey as K256SigningKey, VerifyingKey as K256VerifyingKey};
 
     fn k256_key() -> K256SigningKey {
-        K256SigningKey::from_bytes((&[0x42u8; 32][..]).into()).unwrap()
+        K256SigningKey::from_slice(&[0x42u8; 32][..]).unwrap()
     }
 
     fn now_secs() -> u64 {
@@ -530,7 +530,7 @@ mod tests {
 
         // Can reconstruct verifying key from public JWK
         let vk = p256_jwk_to_verifying_key(&keypair.public_jwk).unwrap();
-        let point = vk.to_encoded_point(false);
+        let point = vk.to_sec1_point(false);
         assert!(point.x().is_some());
         assert!(point.y().is_some());
     }

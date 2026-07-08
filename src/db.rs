@@ -3,10 +3,47 @@ use chrono::{DateTime, Utc};
 use regex::Regex;
 use serde::Deserialize;
 use sqlx::AnyPool;
+use sqlx::any::{AnyArguments, AnyRow};
 use sqlx::migrate::Migrator;
 use sqlx::pool::PoolOptions;
+use sqlx::query::{Query, QueryAs, QueryScalar};
+use sqlx::{Any, AssertSqlSafe, FromRow};
+use sqlx::{query as sqlx_query, query_as as sqlx_query_as, query_scalar as sqlx_query_scalar};
 use std::path::Path;
 use std::sync::LazyLock;
+
+// ---------------------------------------------------------------------------
+// SQL query helpers (sqlx 0.9 `SqlSafeStr`)
+// ---------------------------------------------------------------------------
+//
+// sqlx 0.9 requires the SQL passed to `query*` to implement `SqlSafeStr`, which
+// only `&'static str` satisfies directly — runtime strings must be wrapped in
+// `AssertSqlSafe`. HappyView builds every query from a static SQLite template
+// run through `adapt_sql` (only bound `?` placeholders vary; no user input is
+// concatenated into the SQL), so the strings are safe to assert. Routing all
+// dynamic queries through these three helpers keeps that assertion in one
+// audited place instead of at ~460 call sites. Backend is always `Any`.
+
+/// `sqlx::query` for a runtime-built (adapted) SQL string.
+pub fn query<'q>(sql: &str) -> Query<'q, Any, AnyArguments> {
+    sqlx_query(AssertSqlSafe(sql.to_owned()))
+}
+
+/// `sqlx::query_as` for a runtime-built (adapted) SQL string.
+pub fn query_as<'q, O>(sql: &str) -> QueryAs<'q, Any, O, AnyArguments>
+where
+    O: for<'r> FromRow<'r, AnyRow>,
+{
+    sqlx_query_as(AssertSqlSafe(sql.to_owned()))
+}
+
+/// `sqlx::query_scalar` for a runtime-built (adapted) SQL string.
+pub fn query_scalar<'q, O>(sql: &str) -> QueryScalar<'q, Any, O, AnyArguments>
+where
+    (O,): for<'r> FromRow<'r, AnyRow>,
+{
+    sqlx_query_scalar(AssertSqlSafe(sql.to_owned()))
+}
 
 /// Database backend type, auto-detected from DATABASE_URL or set via DATABASE_BACKEND.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
@@ -252,17 +289,17 @@ pub async fn connect(url: &str, backend: DatabaseBackend) -> AnyPool {
 
     // Enable foreign keys and WAL mode for SQLite
     if backend == DatabaseBackend::Sqlite {
-        sqlx::query("PRAGMA foreign_keys = ON")
+        crate::db::query("PRAGMA foreign_keys = ON")
             .execute(&pool)
             .await
             .expect("Failed to enable foreign keys");
 
-        sqlx::query("PRAGMA journal_mode = WAL")
+        crate::db::query("PRAGMA journal_mode = WAL")
             .execute(&pool)
             .await
             .expect("Failed to enable WAL mode");
 
-        sqlx::query("PRAGMA busy_timeout = 5000")
+        crate::db::query("PRAGMA busy_timeout = 5000")
             .execute(&pool)
             .await
             .expect("Failed to set busy timeout");
@@ -336,17 +373,17 @@ pub async fn connect_backfill_pool(url: &str, backend: DatabaseBackend) -> AnyPo
         .expect("Failed to connect backfill database pool");
 
     if backend == DatabaseBackend::Sqlite {
-        sqlx::query("PRAGMA foreign_keys = ON")
+        crate::db::query("PRAGMA foreign_keys = ON")
             .execute(&pool)
             .await
             .expect("Failed to enable foreign keys on backfill pool");
 
-        sqlx::query("PRAGMA journal_mode = WAL")
+        crate::db::query("PRAGMA journal_mode = WAL")
             .execute(&pool)
             .await
             .expect("Failed to enable WAL mode on backfill pool");
 
-        sqlx::query("PRAGMA busy_timeout = 5000")
+        crate::db::query("PRAGMA busy_timeout = 5000")
             .execute(&pool)
             .await
             .expect("Failed to set busy timeout on backfill pool");

@@ -41,13 +41,13 @@ pub(super) async fn create_api_client(
 
     // Generate the client key: "hvc_" + 32 random hex chars.
     let mut random_bytes = [0u8; 16];
-    rand::rng().fill(&mut random_bytes);
+    rand::rng().fill_bytes(&mut random_bytes);
     let client_key = format!("hvc_{}", hex::encode(random_bytes));
 
     // Generate the client secret for confidential clients only.
     let (client_secret, client_secret_hash) = if body.client_type == "confidential" {
         let mut secret_bytes = [0u8; 32];
-        rand::rng().fill(&mut secret_bytes);
+        rand::rng().fill_bytes(&mut secret_bytes);
         let secret = format!("hvs_{}", hex::encode(secret_bytes));
         let hash = hex::encode(Sha256::digest(secret.as_bytes()));
         (Some(secret), hash)
@@ -70,7 +70,7 @@ pub(super) async fn create_api_client(
         state.db_backend,
     );
 
-    sqlx::query(&insert_sql)
+    crate::db::query(&insert_sql)
         .bind(&id)
         .bind(&client_key)
         .bind(&client_secret_hash)
@@ -188,7 +188,7 @@ pub(super) async fn list_api_clients(
         )
     };
 
-    let q = sqlx::query(&select_sql);
+    let q = crate::db::query(&select_sql);
     let q = if let Some(ref pid) = parent_filter {
         q.bind(pid)
     } else {
@@ -249,7 +249,7 @@ pub(super) async fn get_api_client(
         state.db_backend,
     );
 
-    let row = sqlx::query(&select_sql)
+    let row = crate::db::query(&select_sql)
         .bind(&id)
         .fetch_optional(&state.db)
         .await
@@ -316,7 +316,7 @@ pub(super) async fn update_api_client(
         Option<f64>,
         i32,
     );
-    let row: Option<UpdateRow> = sqlx::query_as(&select_sql)
+    let row: Option<UpdateRow> = crate::db::query_as(&select_sql)
         .bind(&id)
         .fetch_optional(&state.db)
         .await
@@ -366,7 +366,7 @@ pub(super) async fn update_api_client(
         state.db_backend,
     );
 
-    sqlx::query(&update_sql)
+    crate::db::query(&update_sql)
         .bind(&name)
         .bind(&client_uri)
         .bind(&redirect_uris_json)
@@ -438,7 +438,7 @@ pub(super) async fn update_api_client(
             "UPDATE happyview_api_clients SET is_active = 0, updated_at = ? WHERE parent_client_id = ? AND is_active = 1",
             state.db_backend,
         );
-        let _ = sqlx::query(&deactivate_children_sql)
+        let _ = crate::db::query(&deactivate_children_sql)
             .bind(&now)
             .bind(&id)
             .execute(&state.db)
@@ -448,7 +448,7 @@ pub(super) async fn update_api_client(
             "SELECT client_id_url, client_key FROM happyview_api_clients WHERE parent_client_id = ?",
             state.db_backend,
         );
-        if let Ok(children) = sqlx::query_as::<_, (String, String)>(&children_sql)
+        if let Ok(children) = crate::db::query_as::<(String, String)>(&children_sql)
             .bind(&id)
             .fetch_all(&state.db)
             .await
@@ -490,7 +490,7 @@ pub(super) async fn delete_api_client(
         "SELECT client_id_url, client_key FROM happyview_api_clients WHERE id = ?",
         state.db_backend,
     );
-    let client_info: Option<(String, String)> = sqlx::query_as(&lookup_sql)
+    let client_info: Option<(String, String)> = crate::db::query_as(&lookup_sql)
         .bind(&id)
         .fetch_optional(&state.db)
         .await
@@ -501,7 +501,7 @@ pub(super) async fn delete_api_client(
         "SELECT client_id_url, client_key FROM happyview_api_clients WHERE parent_client_id = ?",
         state.db_backend,
     );
-    let children: Vec<(String, String)> = sqlx::query_as(&children_sql)
+    let children: Vec<(String, String)> = crate::db::query_as(&children_sql)
         .bind(&id)
         .fetch_all(&state.db)
         .await
@@ -512,7 +512,7 @@ pub(super) async fn delete_api_client(
         state.db_backend,
     );
 
-    let result = sqlx::query(&delete_sql)
+    let result = crate::db::query(&delete_sql)
         .bind(&id)
         .execute(&state.db)
         .await
@@ -557,7 +557,7 @@ mod tests {
     #[test]
     fn test_client_key_prefix() {
         let mut random_bytes = [0u8; 16];
-        rand::Rng::fill(&mut rand::rng(), &mut random_bytes);
+        rand::Rng::fill_bytes(&mut rand::rng(), &mut random_bytes);
         let key = format!("hvc_{}", hex::encode(random_bytes));
         assert!(key.starts_with("hvc_"));
         assert_eq!(key.len(), 4 + 32); // "hvc_" + 32 hex chars

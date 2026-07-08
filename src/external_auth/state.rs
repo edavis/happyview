@@ -43,7 +43,7 @@ pub async fn store_state(
         backend,
     );
 
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(state)
         .bind(did)
         .bind(plugin_id)
@@ -72,7 +72,7 @@ pub async fn consume_state(
         backend,
     );
 
-    let row: Option<(String, String, String)> = sqlx::query_as(&sql)
+    let row: Option<(String, String, String)> = crate::db::query_as(&sql)
         .bind(state)
         .bind(&now)
         .fetch_optional(db)
@@ -85,7 +85,10 @@ pub async fn consume_state(
         "DELETE FROM happyview_external_auth_state WHERE state = ?",
         backend,
     );
-    sqlx::query(&delete_sql).bind(state).execute(db).await?;
+    crate::db::query(&delete_sql)
+        .bind(state)
+        .execute(db)
+        .await?;
 
     Ok(StoredState {
         did,
@@ -105,7 +108,7 @@ pub async fn cleanup_expired(
         "DELETE FROM happyview_external_auth_state WHERE expires_at <= ?",
         backend,
     );
-    let result = sqlx::query(&sql).bind(&now).execute(db).await?;
+    let result = crate::db::query(&sql).bind(&now).execute(db).await?;
 
     Ok(result.rows_affected())
 }

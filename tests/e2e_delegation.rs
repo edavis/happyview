@@ -975,7 +975,7 @@ async fn update_session_pds_url(app: &common::app::TestApp, user_did: &str, pds_
         "UPDATE happyview_dpop_sessions SET pds_url = ? WHERE user_did = ?",
         app.state.db_backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(pds_url)
         .bind(user_did)
         .execute(&app.state.db)

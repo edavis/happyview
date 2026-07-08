@@ -118,7 +118,7 @@ async fn seed_record(
         "INSERT INTO happyview_records (uri, did, collection, rkey, record, cid, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
         backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(uri)
         .bind(did)
         .bind("test.collection")
@@ -144,7 +144,7 @@ async fn seed_label(
             "INSERT INTO happyview_labels (src, uri, val, cts, exp) VALUES (?, ?, ?, ?, ?)",
             backend,
         );
-        sqlx::query(&sql)
+        happyview::db::query(&sql)
             .bind(src)
             .bind(uri)
             .bind(val)
@@ -158,7 +158,7 @@ async fn seed_label(
             "INSERT INTO happyview_labels (src, uri, val, cts) VALUES (?, ?, ?, ?)",
             backend,
         );
-        sqlx::query(&sql)
+        happyview::db::query(&sql)
             .bind(src)
             .bind(uri)
             .bind(val)
@@ -208,7 +208,7 @@ async fn get_labels_returns_external_labels() {
         "SELECT src, uri, val FROM happyview_labels WHERE uri = ? AND (exp IS NULL OR exp > ?)",
         backend,
     );
-    let rows: Vec<(String, String, String)> = sqlx::query_as(&sql)
+    let rows: Vec<(String, String, String)> = happyview::db::query_as(&sql)
         .bind(uri)
         .bind(&now)
         .fetch_all(&state.db)
@@ -258,7 +258,7 @@ async fn get_labels_filters_expired() {
         "SELECT src, uri, val FROM happyview_labels WHERE uri = ? AND (exp IS NULL OR exp > ?)",
         backend,
     );
-    let rows: Vec<(String, String, String)> = sqlx::query_as(&sql)
+    let rows: Vec<(String, String, String)> = happyview::db::query_as(&sql)
         .bind(uri)
         .bind(&now)
         .fetch_all(&state.db)
@@ -293,7 +293,7 @@ async fn get_labels_includes_self_labels() {
         "SELECT did, record FROM happyview_records WHERE uri = ?",
         backend,
     );
-    let fetched: Option<(String, String)> = sqlx::query_as(&sql)
+    let fetched: Option<(String, String)> = happyview::db::query_as(&sql)
         .bind(uri)
         .fetch_optional(&pool)
         .await
@@ -338,7 +338,7 @@ async fn get_labels_empty_for_unlabeled_record() {
         "SELECT src, uri, val FROM happyview_labels WHERE uri = ? AND (exp IS NULL OR exp > ?)",
         backend,
     );
-    let rows: Vec<(String, String, String)> = sqlx::query_as(&sql)
+    let rows: Vec<(String, String, String)> = happyview::db::query_as(&sql)
         .bind(uri)
         .bind(&now)
         .fetch_all(&pool)
@@ -376,7 +376,7 @@ async fn get_labels_batch_returns_labels_per_uri() {
         "INSERT INTO happyview_records (uri, did, collection, rkey, record, cid, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
         backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(uri2)
         .bind("did:plc:test")
         .bind("test.collection")
@@ -397,7 +397,7 @@ async fn get_labels_batch_returns_labels_per_uri() {
         "SELECT src, uri, val FROM happyview_labels WHERE uri IN (?, ?) AND (exp IS NULL OR exp > ?)",
         backend,
     );
-    let rows: Vec<(String, String, String)> = sqlx::query_as(&sql)
+    let rows: Vec<(String, String, String)> = happyview::db::query_as(&sql)
         .bind(uri1)
         .bind(uri2)
         .bind(&now)
@@ -430,7 +430,7 @@ async fn get_labels_batch_empty_for_no_labels() {
         "SELECT src, uri, val FROM happyview_labels WHERE uri IN (?, ?) AND (exp IS NULL OR exp > ?)",
         backend,
     );
-    let rows: Vec<(String, String, String)> = sqlx::query_as(&sql)
+    let rows: Vec<(String, String, String)> = happyview::db::query_as(&sql)
         .bind(uri1)
         .bind(uri2)
         .bind(&now)
@@ -463,7 +463,7 @@ async fn label_negation_removes_row() {
         "SELECT COUNT(*) FROM happyview_labels WHERE src = ? AND uri = ? AND val = ?",
         backend,
     );
-    let count: (i64,) = sqlx::query_as(&sql)
+    let count: (i64,) = happyview::db::query_as(&sql)
         .bind("did:plc:labeler1")
         .bind(uri)
         .bind("nudity")
@@ -477,7 +477,7 @@ async fn label_negation_removes_row() {
         "DELETE FROM happyview_labels WHERE src = ? AND uri = ? AND val = ?",
         backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind("did:plc:labeler1")
         .bind(uri)
         .bind("nudity")
@@ -490,7 +490,7 @@ async fn label_negation_removes_row() {
         "SELECT COUNT(*) FROM happyview_labels WHERE src = ? AND uri = ? AND val = ?",
         backend,
     );
-    let count: (i64,) = sqlx::query_as(&sql)
+    let count: (i64,) = happyview::db::query_as(&sql)
         .bind("did:plc:labeler1")
         .bind(uri)
         .bind("nudity")
@@ -525,7 +525,7 @@ async fn label_upsert_is_idempotent() {
 
     // Insert same label twice (upsert pattern from labeler.rs)
     for _ in 0..2 {
-        sqlx::query(&upsert_sql)
+        happyview::db::query(&upsert_sql)
             .bind("did:plc:labeler1")
             .bind(uri)
             .bind("nudity")
@@ -539,7 +539,7 @@ async fn label_upsert_is_idempotent() {
         "SELECT COUNT(*) FROM happyview_labels WHERE src = ? AND uri = ? AND val = ?",
         backend,
     );
-    let count: (i64,) = sqlx::query_as(&sql)
+    let count: (i64,) = happyview::db::query_as(&sql)
         .bind("did:plc:labeler1")
         .bind(uri)
         .bind("nudity")

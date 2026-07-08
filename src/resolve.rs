@@ -1,4 +1,5 @@
 use hickory_resolver::Resolver;
+use hickory_resolver::proto::rr::RData;
 
 use crate::error::AppError;
 use crate::profile::resolve_pds_endpoint;
@@ -30,15 +31,21 @@ pub async fn resolve_nsid_authority(
 
     let resolver = Resolver::builder_tokio()
         .map_err(|e| AppError::Internal(format!("failed to create DNS resolver: {e}")))?
-        .build();
+        .build()
+        .map_err(|e| AppError::Internal(format!("failed to build DNS resolver: {e}")))?;
 
     let txt_lookup = resolver.txt_lookup(&lookup_name).await.map_err(|e| {
         AppError::BadRequest(format!("DNS TXT lookup failed for {lookup_name}: {e}"))
     })?;
 
     let did = txt_lookup
+        .answers()
         .iter()
-        .flat_map(|txt| txt.txt_data().iter())
+        .filter_map(|r| match &r.data {
+            RData::TXT(txt) => Some(txt),
+            _ => None,
+        })
+        .flat_map(|txt| txt.txt_data.iter())
         .filter_map(|data| {
             let s = std::str::from_utf8(data).ok()?;
             s.strip_prefix("did=")

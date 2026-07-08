@@ -144,7 +144,7 @@ async fn seed_records(pool: &sqlx::AnyPool, backend: DatabaseBackend) {
         backend,
     );
     for (uri, did, collection, rkey, record, cid) in &records {
-        sqlx::query(&sql)
+        happyview::db::query(&sql)
             .bind(uri)
             .bind(did)
             .bind(collection)

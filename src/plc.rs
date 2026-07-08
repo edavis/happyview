@@ -188,10 +188,10 @@ pub fn decrypt_key(enc_b64: &str, encryption_key: &[u8; 32]) -> Result<Vec<u8>, 
 /// Uses the same multikey format as `extract_public_key_multibase` in server.rs:
 /// multicodec varint prefix 0x8024 (P-256) + compressed public key, base58btc-encoded.
 pub fn private_key_to_did_key(key_bytes: &[u8]) -> Result<String, AppError> {
-    let signing_key = SigningKey::from_bytes(key_bytes.into())
+    let signing_key = SigningKey::from_slice(key_bytes)
         .map_err(|e| AppError::Internal(format!("invalid signing key: {e}")))?;
     let public_key = signing_key.verifying_key();
-    let compressed = public_key.to_encoded_point(true);
+    let compressed = public_key.to_sec1_point(true);
 
     // Multikey: 0x8024 varint prefix for P-256 + compressed public key bytes
     let mut multikey_bytes = vec![0x80, 0x24];
@@ -203,14 +203,14 @@ pub fn private_key_to_did_key(key_bytes: &[u8]) -> Result<String, AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::RngCore;
+    use rand::Rng;
 
     /// Generate a test P-256 signing key using rand 0.9 (avoids rand_core version mismatch
     /// with p256's SigningKey::random which expects rand_core 0.6).
     fn test_signing_key() -> SigningKey {
         let mut bytes = [0u8; 32];
         rand::rng().fill_bytes(&mut bytes);
-        SigningKey::from_bytes((&bytes[..]).into()).unwrap()
+        SigningKey::from_slice(&bytes[..]).unwrap()
     }
 
     #[test]

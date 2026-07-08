@@ -428,7 +428,7 @@ async fn require_space_admin(state: &AppState, space: &Space, did: &str) -> Resu
         "SELECT is_super FROM happyview_users WHERE did = ?",
         state.db_backend,
     );
-    let row: Option<(i32,)> = sqlx::query_as(&sql)
+    let row: Option<(i32,)> = crate::db::query_as(&sql)
         .bind(did)
         .fetch_optional(&state.db)
         .await
@@ -508,7 +508,7 @@ async fn resolve_client_id_url(
         "SELECT client_id_url FROM happyview_api_clients WHERE client_key = ?",
         state.db_backend,
     );
-    let row: Option<(String,)> = sqlx::query_as(&sql)
+    let row: Option<(String,)> = crate::db::query_as(&sql)
         .bind(client_key)
         .fetch_optional(&state.db)
         .await
@@ -974,7 +974,7 @@ async fn create_invite(
     require_space_admin(&state, &space, claims.did()).await?;
 
     let mut token_bytes = [0u8; 24];
-    rand::Fill::fill(&mut token_bytes, &mut rand::rng());
+    rand::Rng::fill_bytes(&mut rand::rng(), &mut token_bytes);
     let token = hex::encode(token_bytes);
     let token_hash = hex::encode(Sha256::digest(token.as_bytes()));
 
@@ -1137,7 +1137,7 @@ async fn get_delegation_token(
         AppError::Internal("TOKEN_ENCRYPTION_KEY is required for space credentials".into())
     })?;
 
-    let signing_key = k256::ecdsa::SigningKey::from_bytes(encryption_key.into())
+    let signing_key = k256::ecdsa::SigningKey::from_slice(encryption_key)
         .map_err(|e| AppError::Internal(format!("failed to derive delegation signing key: {e}")))?;
 
     let now = std::time::SystemTime::now()
@@ -1522,10 +1522,9 @@ async fn get_space_credential(
     })?;
 
     let verifying_key = {
-        let signing_key =
-            k256::ecdsa::SigningKey::from_bytes(encryption_key.into()).map_err(|e| {
-                AppError::Internal(format!("failed to derive delegation signing key: {e}"))
-            })?;
+        let signing_key = k256::ecdsa::SigningKey::from_slice(encryption_key).map_err(|e| {
+            AppError::Internal(format!("failed to derive delegation signing key: {e}"))
+        })?;
         k256::ecdsa::VerifyingKey::from(&signing_key)
     };
 

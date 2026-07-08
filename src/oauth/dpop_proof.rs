@@ -221,7 +221,7 @@ fn verify_es256_jwk(
     let verifying_key = VerifyingKey::from_sec1_bytes(&sec1)
         .map_err(|_| AppError::Auth("invalid DPoP public key".into()))?;
 
-    let signature = Signature::from_bytes(sig_bytes.into())
+    let signature = Signature::from_slice(sig_bytes)
         .map_err(|_| AppError::Auth("invalid DPoP signature format".into()))?;
 
     verifying_key

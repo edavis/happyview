@@ -11,7 +11,7 @@ pub async fn append_op(
         "INSERT INTO happyview_space_record_oplog (id, space_id, author_did, rev, idx, action, collection, rkey, cid, prev, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         backend,
     );
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&entry.id)
         .bind(&entry.space_id)
         .bind(&entry.author_did)
@@ -63,7 +63,7 @@ pub async fn list_ops(
         String,
     );
 
-    let mut query = sqlx::query_as::<_, OplogRow>(&sql)
+    let mut query = crate::db::query_as::<OplogRow>(&sql)
         .bind(space_id)
         .bind(author_did);
     if let Some(rev) = since_rev {
@@ -133,7 +133,7 @@ pub async fn list_ops_with_values(
         Option<String>,
     );
 
-    let mut query = sqlx::query_as::<_, OplogWithValueRow>(&sql)
+    let mut query = crate::db::query_as::<OplogWithValueRow>(&sql)
         .bind(space_id)
         .bind(author_did);
     if let Some(rev) = since_rev {

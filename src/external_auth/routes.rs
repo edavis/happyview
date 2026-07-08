@@ -465,7 +465,7 @@ async fn load_plugin_secrets(
             db_backend,
         );
 
-        if let Ok(Some((config_json,))) = sqlx::query_as::<_, (String,)>(&sql)
+        if let Ok(Some((config_json,))) = crate::db::query_as::<(String,)>(&sql)
             .bind(plugin_id)
             .fetch_optional(db)
             .await

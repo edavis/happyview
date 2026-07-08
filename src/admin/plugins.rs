@@ -93,7 +93,7 @@ pub(super) async fn list(
             "SELECT plugin_id FROM happyview_plugin_configs WHERE config IS NOT NULL",
             state.db_backend,
         );
-        sqlx::query_scalar::<_, String>(&sql)
+        crate::db::query_scalar::<String>(&sql)
             .fetch_all(&state.db)
             .await
             .unwrap_or_default()
@@ -312,7 +312,7 @@ pub(super) async fn remove(
         "DELETE FROM happyview_plugins WHERE id = ?",
         state.db_backend,
     );
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&plugin_id)
         .execute(&state.db)
         .await
@@ -404,7 +404,7 @@ pub(super) async fn reload(
             "SELECT 1 FROM happyview_plugin_configs WHERE plugin_id = ?",
             state.db_backend,
         );
-        sqlx::query_scalar::<_, i32>(&sql)
+        crate::db::query_scalar::<i32>(&sql)
             .bind(&plugin.info.id)
             .fetch_optional(&state.db)
             .await
@@ -435,7 +435,7 @@ pub(super) async fn reload(
         "UPDATE happyview_plugins SET url = ?, sha256 = NULL WHERE id = ?",
         state.db_backend,
     );
-    sqlx::query(&persist_sql)
+    crate::db::query(&persist_sql)
         .bind(&url)
         .bind(&plugin.info.id)
         .execute(&state.db)
@@ -488,7 +488,7 @@ pub(super) async fn get_secrets(
         state.db_backend,
     );
 
-    let row: Option<(String,)> = sqlx::query_as(&sql)
+    let row: Option<(String,)> = crate::db::query_as(&sql)
         .bind(&plugin_id)
         .fetch_optional(&state.db)
         .await
@@ -558,7 +558,7 @@ pub(super) async fn update_secrets(
         state.db_backend,
     );
 
-    let row: Option<(String,)> = sqlx::query_as(&sql)
+    let row: Option<(String,)> = crate::db::query_as(&sql)
         .bind(&plugin_id)
         .fetch_optional(&state.db)
         .await
@@ -613,7 +613,7 @@ pub(super) async fn update_secrets(
         state.db_backend,
     );
 
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&plugin_id)
         .bind(&config_json)
         .bind(now_rfc3339())
