@@ -25,16 +25,27 @@ static DPOP_JTI_SEEN: LazyLock<Mutex<HashMap<String, u64>>> =
 
 /// Reject a DPoP proof whose `jti` has already been seen within its acceptance
 /// window (replay). On first sight the `jti` is recorded until `expires_at`.
-fn check_and_record_jti(jti: &str, expires_at: u64, now: u64) -> Result<(), AppError> {
+///
+/// The cache key is scoped by the proof's JWK thumbprint so that a `jti`
+/// collision between two distinct keys/clients cannot false-positive as a
+/// replay — a true replay reuses the same proof key. `thumbprint` is base64url
+/// (no `:`), so the join is unambiguous.
+fn check_and_record_jti(
+    thumbprint: &str,
+    jti: &str,
+    expires_at: u64,
+    now: u64,
+) -> Result<(), AppError> {
+    let key = format!("{thumbprint}:{jti}");
     let mut seen = DPOP_JTI_SEEN.lock().unwrap_or_else(|e| e.into_inner());
-    if seen.get(jti).is_some_and(|&exp| exp > now) {
+    if seen.get(&key).is_some_and(|&exp| exp > now) {
         return Err(AppError::Auth("DPoP proof replay detected".into()));
     }
     // Bound memory: drop entries past their horizon once the map grows large.
     if seen.len() > 10_000 {
         seen.retain(|_, &mut exp| exp > now);
     }
-    seen.insert(jti.to_string(), expires_at);
+    seen.insert(key, expires_at);
     Ok(())
 }
 
@@ -172,6 +183,7 @@ pub fn validate_dpop_proof(
     // Remember the `jti` until its `iat` falls outside the past tolerance (after
     // which the `iat` check alone would reject a replay).
     check_and_record_jti(
+        &proof_thumbprint,
         &payload.jti,
         payload.iat + DPOP_IAT_PAST_TOLERANCE_SECS,
         now,
@@ -256,17 +268,27 @@ mod tests {
     fn check_and_record_jti_rejects_replay_within_window() {
         // Unique jti per test to stay independent of the shared cache.
         let jti = "m13-unit-replay";
-        assert!(check_and_record_jti(jti, 1300, 1000).is_ok());
+        let tp = "m13-unit-tp";
+        assert!(check_and_record_jti(tp, jti, 1300, 1000).is_ok());
         // Same jti again while still within its window → replay.
-        assert!(check_and_record_jti(jti, 1300, 1000).is_err());
+        assert!(check_and_record_jti(tp, jti, 1300, 1000).is_err());
         // Once past the horizon it is accepted again.
-        assert!(check_and_record_jti(jti, 1700, 1400).is_ok());
+        assert!(check_and_record_jti(tp, jti, 1700, 1400).is_ok());
     }
 
     #[test]
     fn check_and_record_jti_allows_distinct_jtis() {
-        assert!(check_and_record_jti("m13-unit-distinct-a", 1300, 1000).is_ok());
-        assert!(check_and_record_jti("m13-unit-distinct-b", 1300, 1000).is_ok());
+        let tp = "m13-unit-distinct-tp";
+        assert!(check_and_record_jti(tp, "m13-unit-distinct-a", 1300, 1000).is_ok());
+        assert!(check_and_record_jti(tp, "m13-unit-distinct-b", 1300, 1000).is_ok());
+    }
+
+    #[test]
+    fn check_and_record_jti_scopes_by_thumbprint() {
+        // Same jti under two different thumbprints must not collide as a replay.
+        let jti = "m13-unit-shared-jti";
+        assert!(check_and_record_jti("m13-tp-alpha", jti, 1300, 1000).is_ok());
+        assert!(check_and_record_jti("m13-tp-beta", jti, 1300, 1000).is_ok());
     }
 
     #[test]
