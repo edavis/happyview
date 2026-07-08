@@ -1543,7 +1543,24 @@ async fn get_space_credential(
         )?
     };
 
+    // The credential is minted for the delegation token's subject (`iss`).
+    // Require the authenticated caller to *be* that subject — otherwise anyone
+    // who captures a member's short-lived (60s) delegation token could mint a 2h
+    // credential in that member's name (M4). The documented flow has the same
+    // member's app perform both steps; only the final credential is handed to an
+    // external service.
+    if claims.did() != delegation_claims.iss.as_str() {
+        return Err(AppError::Forbidden(
+            "delegation token was issued to a different account".into(),
+        ));
+    }
+
     let space = resolve_space(&state, &delegation_claims.sub).await?;
+
+    // Re-verify current membership before minting. The `MemberList` mint policy
+    // is a no-op that trusts the delegation token, so a member removed within the
+    // token's 60s window would otherwise still be able to mint.
+    require_membership(&state, &space, &delegation_claims.iss, false, None).await?;
 
     let client_id = if let Some(key) = claims.client_key() {
         resolve_client_id_url(&state, key).await?
