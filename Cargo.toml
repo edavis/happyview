@@ -33,7 +33,7 @@ multibase = "0.9"
 p256 = { version = "0.14", features = ["pkcs8", "ecdsa"] }
 uuid = { version = "1", features = ["v4"] }
 rand = "0.10"
-reqwest = { version = "0.13", features = ["json", "form"] }
+reqwest = { version = "0.12", features = ["json"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1", features = ["derive"] }
 serde_ipld_dagcbor = "0.6"

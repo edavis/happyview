@@ -180,6 +180,15 @@ jobs:
           restore-keys: |
             cargo-${{ runner.os }}-
 
+      # Reclaim ~20 GB of preinstalled tooling the Rust build never uses. The
+      # e2e build (all test binaries in debug) plus the restored target cache
+      # otherwise exhausts the runner disk ("No space left on device").
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - name: Add WASM target
         run: rustup target add wasm32-unknown-unknown
 
@@ -189,6 +198,9 @@ jobs:
       - name: Run e2e tests
         env:
           TEST_DATABASE_URL: postgres://happyview:happyview@localhost:5432/happyview_test
+          # Drop debuginfo from the test build — it dominates target/ size and is
+          # unnecessary in CI. Keeps the enlarged dependency build within disk.
+          CARGO_PROFILE_DEV_DEBUG: "0"
         run: cargo test --tests
 
   frontend:
