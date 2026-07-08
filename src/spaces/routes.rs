@@ -357,6 +357,14 @@ fn require_auth(claims: &XrpcClaims) -> Result<&crate::auth::Claims, AppError> {
 /// Like `require_auth`, but also accepts a verified space credential as an
 /// identity source. Use this in space endpoints that support `Bearer
 /// <space_credential>` in addition to DPoP auth.
+/// Whether a verified space credential has been revoked (e.g. its holder was
+/// removed from the space). Consulted after signature/exp verification so a
+/// leaked or stale credential can be invalidated before its TTL expires (M3).
+async fn space_credential_revoked(state: &AppState, token: &str) -> Result<bool, AppError> {
+    let token_hash = hex::encode(Sha256::digest(token.as_bytes()));
+    db::is_space_credential_revoked(&state.db, state.db_backend, &token_hash).await
+}
+
 async fn require_auth_or_credential(
     state: &AppState,
     claims: &XrpcClaims,
@@ -372,6 +380,9 @@ async fn require_auth_or_credential(
             &state.config.plc_url,
         )
         .await?;
+        if space_credential_revoked(state, token).await? {
+            return Err(AppError::Auth("space credential has been revoked".into()));
+        }
         return Ok(verified.sub);
     }
 
@@ -450,13 +461,18 @@ async fn require_membership(
         .await
         {
             Ok(claims) if claims.sub == space_uri => {
-                // External credential grants read access; write is not supported via space credential
-                if require_write {
+                // A revoked credential is treated as invalid — fall through to
+                // the local membership check rather than granting access.
+                if space_credential_revoked(state, token).await? {
+                    // fall through
+                } else if require_write {
+                    // External credential grants read access only.
                     return Err(AppError::Forbidden(
                         "Write access is required for this action".into(),
                     ));
+                } else {
+                    return Ok(SpaceAccess::Read);
                 }
-                return Ok(SpaceAccess::Read);
             }
             Ok(_) => {
                 // Credential is valid but for a different space — fall through

@@ -307,6 +307,46 @@ pub async fn remove_member(
     Ok(result.rows_affected() > 0)
 }
 
+/// Returns true if a space credential with the given token hash has been revoked.
+pub async fn is_space_credential_revoked(
+    pool: &sqlx::AnyPool,
+    backend: DatabaseBackend,
+    token_hash: &str,
+) -> Result<bool, AppError> {
+    let sql = adapt_sql(
+        "SELECT revoked_at FROM happyview_space_credentials WHERE token_hash = ? AND revoked_at IS NOT NULL LIMIT 1",
+        backend,
+    );
+    let row: Option<(String,)> = sqlx::query_as(&sql)
+        .bind(token_hash)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to check credential revocation: {e}")))?;
+    Ok(row.is_some())
+}
+
+/// Revoke all active space credentials issued to `did` within `space_id`.
+/// Returns the number of credentials revoked.
+pub async fn revoke_space_credentials_for_member(
+    pool: &sqlx::AnyPool,
+    backend: DatabaseBackend,
+    space_id: &str,
+    did: &str,
+) -> Result<u64, AppError> {
+    let sql = adapt_sql(
+        "UPDATE happyview_space_credentials SET revoked_at = ? WHERE space_id = ? AND issued_to = ? AND revoked_at IS NULL",
+        backend,
+    );
+    let result = sqlx::query(&sql)
+        .bind(now_rfc3339())
+        .bind(space_id)
+        .bind(did)
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to revoke space credentials: {e}")))?;
+    Ok(result.rows_affected())
+}
+
 pub async fn get_member(
     pool: &sqlx::AnyPool,
     backend: DatabaseBackend,

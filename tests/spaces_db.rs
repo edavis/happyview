@@ -559,6 +559,55 @@ async fn resolve_members_preserves_read_self() {
 
 #[tokio::test]
 #[serial]
+async fn space_credential_revocation_round_trip() {
+    common::require_db!();
+    let pool = test_db::test_pool().await;
+    let backend = test_db::test_backend();
+    test_db::truncate_all(&pool).await;
+
+    let space_id = new_id();
+    let space = make_space(&space_id, "did:plc:cred-owner", "com.example.cred", "cred");
+    spaces_db::create_space(&pool, backend, &space)
+        .await
+        .expect("create_space failed");
+
+    let member = "did:plc:cred-member";
+    let token_hash = "abc123hash";
+    let sql = happyview::db::adapt_sql(
+        "INSERT INTO happyview_space_credentials (id, space_id, issued_to, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        backend,
+    );
+    sqlx::query(&sql)
+        .bind(new_id())
+        .bind(&space_id)
+        .bind(member)
+        .bind(token_hash)
+        .bind(now_rfc3339())
+        .bind(now_rfc3339())
+        .execute(&pool)
+        .await
+        .expect("insert credential row");
+
+    assert!(
+        !spaces_db::is_space_credential_revoked(&pool, backend, token_hash)
+            .await
+            .unwrap()
+    );
+
+    let revoked = spaces_db::revoke_space_credentials_for_member(&pool, backend, &space_id, member)
+        .await
+        .unwrap();
+    assert_eq!(revoked, 1);
+
+    assert!(
+        spaces_db::is_space_credential_revoked(&pool, backend, token_hash)
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+#[serial]
 async fn remove_member() {
     common::require_db!();
     let pool = test_db::test_pool().await;

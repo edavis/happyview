@@ -422,6 +422,12 @@ async fn remove_member(
         return Err(AppError::NotFound("Member not found in this space".into()));
     }
 
+    // Revoke any outstanding space credentials the removed member holds so their
+    // cross-service access ends immediately rather than lingering for the
+    // credential's 2h TTL (M3).
+    db::revoke_space_credentials_for_member(&state.db, state.db_backend, &space.id, &input.did)
+        .await?;
+
     Ok(Json(serde_json::json!({ "success": true })))
 }
 
