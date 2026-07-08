@@ -158,7 +158,7 @@ async fn resolve_api_key_did(state: &AppState, token: &str) -> Result<String, Ap
         "SELECT u.did FROM happyview_api_keys k JOIN happyview_users u ON k.user_id = u.id WHERE k.key_hash = ? AND k.revoked_at IS NULL",
         state.db_backend,
     );
-    let row: Option<(String,)> = sqlx::query_as(&sql)
+    let row: Option<(String,)> = crate::db::query_as(&sql)
         .bind(&hash)
         .fetch_optional(&state.db)
         .await

@@ -50,7 +50,7 @@ pub async fn link_account(
         "SELECT id FROM happyview_dpop_sessions WHERE api_client_id = ? AND user_did = ?",
         state.db_backend,
     );
-    let session_exists: Option<(String,)> = sqlx::query_as(&session_check_sql)
+    let session_exists: Option<(String,)> = crate::db::query_as(&session_check_sql)
         .bind(&api_client_id)
         .bind(account_did)
         .fetch_optional(&state.db)

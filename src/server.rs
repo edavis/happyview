@@ -431,10 +431,10 @@ fn extract_public_key_multibase(
     let private_bytes = crate::plugin::encryption::decrypt(encryption_key, &encrypted)
         .map_err(|e| AppError::Internal(format!("failed to decrypt signing key: {e}")))?;
 
-    let signing_key = p256::ecdsa::SigningKey::from_bytes(private_bytes.as_slice().into())
+    let signing_key = p256::ecdsa::SigningKey::from_slice(private_bytes.as_slice())
         .map_err(|e| AppError::Internal(format!("invalid signing key: {e}")))?;
     let public_key = signing_key.verifying_key();
-    let compressed = public_key.to_encoded_point(true);
+    let compressed = public_key.to_sec1_point(true);
 
     // Multikey format: multicodec varint prefix for P-256 (0x1200) then base58btc with 'z' prefix
     let mut multikey_bytes = vec![0x80, 0x24];

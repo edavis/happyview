@@ -220,7 +220,7 @@ async fn admin_auto_bootstrap_first_user() {
     let backend = app.state.db_backend;
 
     // Clear the seeded user so the table is empty.
-    sqlx::query("DELETE FROM happyview_users")
+    happyview::db::query("DELETE FROM happyview_users")
         .execute(&app.state.db)
         .await
         .unwrap();
@@ -246,7 +246,7 @@ async fn admin_auto_bootstrap_first_user() {
         "SELECT COUNT(*) FROM happyview_users WHERE did = ?",
         backend,
     );
-    let count: (i64,) = sqlx::query_as(&sql)
+    let count: (i64,) = happyview::db::query_as(&sql)
         .bind(bootstrap_did)
         .fetch_one(&app.state.db)
         .await
@@ -524,7 +524,7 @@ async fn stats_with_seeded_records() {
         "INSERT INTO happyview_lexicons (id, lexicon_json, created_at) VALUES (?, ?, ?)",
         backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind("test.collection")
         .bind(serde_json::to_string(&lexicon_json_val).unwrap_or_default())
         .bind(&now)
@@ -538,7 +538,7 @@ async fn stats_with_seeded_records() {
         "INSERT INTO happyview_records (uri, did, collection, rkey, record, cid, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
         backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind("at://did:plc:test/test.collection/1")
         .bind("did:plc:test")
         .bind("test.collection")
@@ -649,7 +649,7 @@ async fn backfill_cancel_running_job() {
         "INSERT INTO happyview_backfill_jobs (id, status, stage, started_at, created_at) VALUES (?, 'running', 'discovering_repos', ?, ?)",
         backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(&job_id)
         .bind(&now)
         .bind(&now)
@@ -687,7 +687,7 @@ async fn backfill_cancel_already_cancelling_is_idempotent() {
         "INSERT INTO happyview_backfill_jobs (id, status, stage, started_at, created_at) VALUES (?, 'cancelling', 'fetching_records', ?, ?)",
         backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(&job_id)
         .bind(&now)
         .bind(&now)
@@ -724,7 +724,7 @@ async fn backfill_cancel_completed_returns_400() {
         "INSERT INTO happyview_backfill_jobs (id, status, stage, completed_at, created_at) VALUES (?, 'completed', 'completed', ?, ?)",
         backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(&job_id)
         .bind(&now)
         .bind(&now)

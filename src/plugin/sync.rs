@@ -231,7 +231,7 @@ async fn lookup_game_by_external_id(
         backend,
     );
 
-    let result: Option<(String, String)> = sqlx::query_as(&sql)
+    let result: Option<(String, String)> = crate::db::query_as(&sql)
         .bind(external_id)
         .fetch_optional(db)
         .await

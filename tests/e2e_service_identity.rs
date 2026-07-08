@@ -3,6 +3,7 @@ mod common;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
+use p256::elliptic_curve::sec1::ToSec1Point;
 use serde_json::{Value, json};
 use serial_test::serial;
 use tower::ServiceExt;
@@ -1448,11 +1449,10 @@ async fn did_web_issuer_resolved_via_https() {
         .await;
 
     let mut key_bytes = [0u8; 32];
-    rand::RngCore::fill_bytes(&mut rand::rng(), &mut key_bytes);
-    let issuer_key = p256::ecdsa::SigningKey::from_bytes((&key_bytes[..]).into()).unwrap();
-    use p256::elliptic_curve::sec1::ToEncodedPoint;
+    rand::Rng::fill_bytes(&mut rand::rng(), &mut key_bytes);
+    let issuer_key = p256::ecdsa::SigningKey::from_slice(&key_bytes[..]).unwrap();
     let public_key = p256::PublicKey::from(issuer_key.verifying_key());
-    let compressed = public_key.to_encoded_point(true);
+    let compressed = public_key.to_sec1_point(true);
     let pub_bytes = compressed.as_bytes().to_vec();
 
     let server =
@@ -1581,13 +1581,13 @@ async fn service_auth_es256k_query_allowed() {
 
     // Generate a secp256k1 key pair
     use k256::ecdsa::{SigningKey as K256SigningKey, signature::Signer as K256Signer};
-    use rand::RngCore;
+    use rand::Rng;
 
     let mut key_bytes = [0u8; 32];
     rand::rng().fill_bytes(&mut key_bytes);
-    let k256_signing_key = K256SigningKey::from_bytes((&key_bytes[..]).into()).unwrap();
+    let k256_signing_key = K256SigningKey::from_slice(&key_bytes[..]).unwrap();
     let k256_verifying_key = k256_signing_key.verifying_key();
-    let compressed = k256_verifying_key.to_encoded_point(true);
+    let compressed = k256_verifying_key.to_sec1_point(true);
     let pub_bytes = compressed.as_bytes();
 
     // Build a DID document with secp256k1 key using EcdsaSecp256k1VerificationKey2019
@@ -2027,11 +2027,11 @@ async fn did_doc_missing_atproto_vm_rejected() {
     use base64::Engine;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use p256::ecdsa::{SigningKey, signature::Signer};
-    use rand::RngCore;
+    use rand::Rng;
 
     let mut key_bytes = [0u8; 32];
     rand::rng().fill_bytes(&mut key_bytes);
-    let signing_key = SigningKey::from_bytes((&key_bytes[..]).into()).unwrap();
+    let signing_key = SigningKey::from_slice(&key_bytes[..]).unwrap();
 
     let issuer_did = "did:plc:noatprotovm";
     let did_doc = json!({
@@ -2098,11 +2098,11 @@ async fn did_doc_missing_public_key_multibase_rejected() {
     use base64::Engine;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use p256::ecdsa::{SigningKey, signature::Signer};
-    use rand::RngCore;
+    use rand::Rng;
 
     let mut key_bytes = [0u8; 32];
     rand::rng().fill_bytes(&mut key_bytes);
-    let signing_key = SigningKey::from_bytes((&key_bytes[..]).into()).unwrap();
+    let signing_key = SigningKey::from_slice(&key_bytes[..]).unwrap();
 
     let issuer_did = "did:plc:nokeymultibase";
     let did_doc = json!({
@@ -2215,7 +2215,7 @@ async fn seed_super_user(app: &TestApp, did: &str) {
         "INSERT INTO happyview_users (id, did, is_super, created_at) VALUES (?, ?, ?, ?)",
         app.state.db_backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(uuid::Uuid::new_v4().to_string())
         .bind(did)
         .bind(1_i32)

@@ -55,7 +55,7 @@ pub(super) async fn put(
         "#,
         backend,
     );
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(SETTING_KEY)
         .bind(&json)
         .bind(&now)

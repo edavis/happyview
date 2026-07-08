@@ -44,7 +44,7 @@ pub async fn sync_refs(
         "DELETE FROM happyview_record_refs WHERE source_uri = ?",
         backend,
     );
-    sqlx::query(&delete_sql)
+    crate::db::query(&delete_sql)
         .bind(source_uri)
         .execute(db)
         .await?;
@@ -55,7 +55,7 @@ pub async fn sync_refs(
         backend,
     );
     for target_uri in &uris {
-        sqlx::query(&insert_sql)
+        crate::db::query(&insert_sql)
             .bind(source_uri)
             .bind(target_uri)
             .bind(collection)

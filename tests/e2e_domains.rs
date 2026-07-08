@@ -69,7 +69,7 @@ async fn seed_domain(app: &TestApp, id: &str, url: &str, is_primary: bool) {
         "INSERT INTO happyview_domains (id, url, is_primary, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
         app.state.db_backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(id)
         .bind(url)
         .bind(if is_primary { 1i32 } else { 0i32 })

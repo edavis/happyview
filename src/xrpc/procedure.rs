@@ -85,7 +85,7 @@ pub(crate) async fn handle_procedure(
             "SELECT outbound_xrpcs FROM happyview_scripts WHERE id = ?",
             state.db_backend,
         );
-        if let Ok(Some((Some(json_str),))) = sqlx::query_as::<_, (Option<String>,)>(&outbound_sql)
+        if let Ok(Some((Some(json_str),))) = crate::db::query_as::<(Option<String>,)>(&outbound_sql)
             .bind(&trigger)
             .fetch_optional(&state.db)
             .await
@@ -278,7 +278,7 @@ async fn handle_create_record(
                 backend,
             );
             let now = now_rfc3339();
-            let _ = sqlx::query(&sql)
+            let _ = crate::db::query(&sql)
                 .bind(uri)
                 .bind(claims.did())
                 .bind(collection)
@@ -365,7 +365,7 @@ async fn handle_put_record(
             "#,
             backend,
         );
-        let _ = sqlx::query(&sql)
+        let _ = crate::db::query(&sql)
             .bind(&uri)
             .bind(claims.did())
             .bind(collection)
@@ -423,7 +423,7 @@ async fn handle_delete_record(
 
         let backend = state.db_backend;
         let sql = adapt_sql("DELETE FROM happyview_records WHERE uri = ?", backend);
-        let _ = sqlx::query(&sql).bind(&uri).execute(&state.db).await;
+        let _ = crate::db::query(&sql).bind(&uri).execute(&state.db).await;
 
         Ok((
             StatusCode::OK,

@@ -247,7 +247,7 @@ impl OAuthClientRegistry {
         );
 
         let rows: Vec<(String, String, String, String)> =
-            match sqlx::query_as(&sql).fetch_all(db).await {
+            match crate::db::query_as(&sql).fetch_all(db).await {
                 Ok(r) => r,
                 Err(e) => {
                     tracing::error!("Failed to load API clients from database: {e}");

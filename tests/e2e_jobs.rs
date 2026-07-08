@@ -50,7 +50,7 @@ async fn seed_job(app: &TestApp, job_type: &str, status: &str) -> String {
         "INSERT INTO happyview_jobs (id, job_type, status, input, progress, created_by, created_at) VALUES (?, ?, ?, ?, '{}', ?, ?)",
         app.state.db_backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(&id)
         .bind(job_type)
         .bind(status)
@@ -69,7 +69,7 @@ async fn set_job_status(app: &TestApp, id: &str, status: &str) {
         "UPDATE happyview_jobs SET status = ? WHERE id = ?",
         app.state.db_backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(status)
         .bind(id)
         .execute(&app.state.db)

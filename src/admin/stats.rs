@@ -15,7 +15,7 @@ pub(super) async fn stats(
     auth: UserAuth,
 ) -> Result<Json<StatsResponse>, AppError> {
     auth.require(Permission::StatsRead).await?;
-    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM happyview_records")
+    let total: (i64,) = crate::db::query_as("SELECT COUNT(*) FROM happyview_records")
         .fetch_one(&state.db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to count records: {e}")))?;
@@ -35,7 +35,7 @@ pub(super) async fn stats(
         state.db_backend,
     );
 
-    let collections: Vec<(String, i64)> = sqlx::query_as(&collection_sql)
+    let collections: Vec<(String, i64)> = crate::db::query_as(&collection_sql)
         .fetch_all(&state.db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to count by collection: {e}")))?;

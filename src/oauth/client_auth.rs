@@ -27,7 +27,7 @@ pub async fn authenticate_confidential(
     );
 
     let row: Option<(String, String, String, String, Option<String>, String)> =
-        sqlx::query_as(&sql)
+        crate::db::query_as(&sql)
             .bind(client_key)
             .fetch_optional(pool)
             .await
@@ -71,7 +71,7 @@ pub async fn authenticate_public(
         backend,
     );
 
-    let row: Option<(String, String, String, String, Option<String>)> = sqlx::query_as(&sql)
+    let row: Option<(String, String, String, String, Option<String>)> = crate::db::query_as(&sql)
         .bind(client_key)
         .fetch_optional(pool)
         .await
@@ -130,7 +130,7 @@ pub async fn resolve_client_by_key(
         backend,
     );
 
-    let row: Option<(String, String, String, String, Option<String>)> = sqlx::query_as(&sql)
+    let row: Option<(String, String, String, String, Option<String>)> = crate::db::query_as(&sql)
         .bind(client_key)
         .fetch_optional(pool)
         .await

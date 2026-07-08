@@ -28,7 +28,7 @@ pub async fn start_did_web_server(
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()])
         .expect("failed to generate self-signed cert");
     let cert_der = cert.cert.der().to_vec();
-    let key_der = cert.key_pair.serialize_der();
+    let key_der = cert.signing_key.serialize_der();
 
     let tls_config = rustls::ServerConfig::builder()
         .with_no_client_auth()

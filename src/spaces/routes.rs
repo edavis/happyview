@@ -357,6 +357,14 @@ fn require_auth(claims: &XrpcClaims) -> Result<&crate::auth::Claims, AppError> {
 /// Like `require_auth`, but also accepts a verified space credential as an
 /// identity source. Use this in space endpoints that support `Bearer
 /// <space_credential>` in addition to DPoP auth.
+/// Whether a verified space credential has been revoked (e.g. its holder was
+/// removed from the space). Consulted after signature/exp verification so a
+/// leaked or stale credential can be invalidated before its TTL expires (M3).
+async fn space_credential_revoked(state: &AppState, token: &str) -> Result<bool, AppError> {
+    let token_hash = hex::encode(Sha256::digest(token.as_bytes()));
+    db::is_space_credential_revoked(&state.db, state.db_backend, &token_hash).await
+}
+
 async fn require_auth_or_credential(
     state: &AppState,
     claims: &XrpcClaims,
@@ -372,6 +380,9 @@ async fn require_auth_or_credential(
             &state.config.plc_url,
         )
         .await?;
+        if space_credential_revoked(state, token).await? {
+            return Err(AppError::Auth("space credential has been revoked".into()));
+        }
         return Ok(verified.sub);
     }
 
@@ -417,7 +428,7 @@ async fn require_space_admin(state: &AppState, space: &Space, did: &str) -> Resu
         "SELECT is_super FROM happyview_users WHERE did = ?",
         state.db_backend,
     );
-    let row: Option<(i32,)> = sqlx::query_as(&sql)
+    let row: Option<(i32,)> = crate::db::query_as(&sql)
         .bind(did)
         .fetch_optional(&state.db)
         .await
@@ -450,13 +461,18 @@ async fn require_membership(
         .await
         {
             Ok(claims) if claims.sub == space_uri => {
-                // External credential grants read access; write is not supported via space credential
-                if require_write {
+                // A revoked credential is treated as invalid — fall through to
+                // the local membership check rather than granting access.
+                if space_credential_revoked(state, token).await? {
+                    // fall through
+                } else if require_write {
+                    // External credential grants read access only.
                     return Err(AppError::Forbidden(
                         "Write access is required for this action".into(),
                     ));
+                } else {
+                    return Ok(SpaceAccess::Read);
                 }
-                return Ok(SpaceAccess::Read);
             }
             Ok(_) => {
                 // Credential is valid but for a different space — fall through
@@ -492,7 +508,7 @@ async fn resolve_client_id_url(
         "SELECT client_id_url FROM happyview_api_clients WHERE client_key = ?",
         state.db_backend,
     );
-    let row: Option<(String,)> = sqlx::query_as(&sql)
+    let row: Option<(String,)> = crate::db::query_as(&sql)
         .bind(client_key)
         .fetch_optional(&state.db)
         .await
@@ -958,7 +974,7 @@ async fn create_invite(
     require_space_admin(&state, &space, claims.did()).await?;
 
     let mut token_bytes = [0u8; 24];
-    rand::Fill::fill(&mut token_bytes, &mut rand::rng());
+    rand::Rng::fill_bytes(&mut rand::rng(), &mut token_bytes);
     let token = hex::encode(token_bytes);
     let token_hash = hex::encode(Sha256::digest(token.as_bytes()));
 
@@ -1121,7 +1137,7 @@ async fn get_delegation_token(
         AppError::Internal("TOKEN_ENCRYPTION_KEY is required for space credentials".into())
     })?;
 
-    let signing_key = k256::ecdsa::SigningKey::from_bytes(encryption_key.into())
+    let signing_key = k256::ecdsa::SigningKey::from_slice(encryption_key)
         .map_err(|e| AppError::Internal(format!("failed to derive delegation signing key: {e}")))?;
 
     let now = std::time::SystemTime::now()
@@ -1333,8 +1349,24 @@ async fn list_repos(
     claims: XrpcClaims,
     Query(params): Query<SpaceUriQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let _did = require_auth_or_credential(&state, &claims).await?;
     let space = resolve_space(&state, &params.space).await?;
+
+    // The repo list is the space's participant list. Its visibility follows the
+    // `membershipPublic` config (like `get_space` / `listMembers`): public when
+    // set, otherwise the caller must be an authenticated member (or authority /
+    // space-credential holder). Previously this required *some* auth but never
+    // checked membership, leaking any private space's participants (M2).
+    if !space.config.membership_public {
+        let did = require_auth_or_credential(&state, &claims).await?;
+        require_membership(
+            &state,
+            &space,
+            &did,
+            false,
+            claims.space_credential.as_deref(),
+        )
+        .await?;
+    }
 
     let repos = db::list_space_repos(&state.db, state.db_backend, &space.id).await?;
     Ok(Json(serde_json::json!({ "repos": repos })))
@@ -1490,10 +1522,9 @@ async fn get_space_credential(
     })?;
 
     let verifying_key = {
-        let signing_key =
-            k256::ecdsa::SigningKey::from_bytes(encryption_key.into()).map_err(|e| {
-                AppError::Internal(format!("failed to derive delegation signing key: {e}"))
-            })?;
+        let signing_key = k256::ecdsa::SigningKey::from_slice(encryption_key).map_err(|e| {
+            AppError::Internal(format!("failed to derive delegation signing key: {e}"))
+        })?;
         k256::ecdsa::VerifyingKey::from(&signing_key)
     };
 
@@ -1511,7 +1542,24 @@ async fn get_space_credential(
         )?
     };
 
+    // The credential is minted for the delegation token's subject (`iss`).
+    // Require the authenticated caller to *be* that subject — otherwise anyone
+    // who captures a member's short-lived (60s) delegation token could mint a 2h
+    // credential in that member's name (M4). The documented flow has the same
+    // member's app perform both steps; only the final credential is handed to an
+    // external service.
+    if claims.did() != delegation_claims.iss.as_str() {
+        return Err(AppError::Forbidden(
+            "delegation token was issued to a different account".into(),
+        ));
+    }
+
     let space = resolve_space(&state, &delegation_claims.sub).await?;
+
+    // Re-verify current membership before minting. The `MemberList` mint policy
+    // is a no-op that trusts the delegation token, so a member removed within the
+    // token's 60s window would otherwise still be able to mint.
+    require_membership(&state, &space, &delegation_claims.iss, false, None).await?;
 
     let client_id = if let Some(key) = claims.client_key() {
         resolve_client_id_url(&state, key).await?

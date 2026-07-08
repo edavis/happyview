@@ -1,6 +1,7 @@
 use hkdf::Hkdf;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use k256::ecdsa::{Signature, SigningKey, VerifyingKey, signature::Signer, signature::Verifier};
+use rand::Rng;
 use sha2::Sha256;
 
 use crate::error::AppError;
@@ -50,7 +51,7 @@ pub fn sign_commit(
     signing_key: &SigningKey,
 ) -> Result<SignedCommit, AppError> {
     let mut ikm = [0u8; 32];
-    rand::RngCore::fill_bytes(&mut rand::rng(), &mut ikm);
+    rand::rng().fill_bytes(&mut ikm);
 
     let ctx = build_context(space_uri, author_did, rev, &ikm);
 
@@ -63,7 +64,7 @@ pub fn sign_commit(
     hk.expand(&ctx, &mut derived_key)
         .map_err(|e| AppError::Internal(format!("HKDF expand failed: {e}")))?;
 
-    let mut mac_hasher = <Hmac<Sha256> as Mac>::new_from_slice(&derived_key)
+    let mut mac_hasher = <Hmac<Sha256> as KeyInit>::new_from_slice(&derived_key)
         .map_err(|e| AppError::Internal(format!("HMAC init failed: {e}")))?;
     mac_hasher.update(hash);
     let mac: [u8; 32] = mac_hasher.finalize().into_bytes().into();
@@ -93,7 +94,7 @@ pub fn verify_commit(
 
     let ctx = build_context(space_uri, author_did, &commit.rev, &commit.ikm);
 
-    let sig = Signature::from_bytes(commit.sig.as_slice().into())
+    let sig = Signature::from_slice(commit.sig.as_slice())
         .map_err(|_| AppError::Auth("invalid commit signature format".into()))?;
     verifying_key
         .verify(&ctx, &sig)
@@ -105,7 +106,7 @@ pub fn verify_commit(
     hk.expand(&ctx, &mut derived_key)
         .map_err(|e| AppError::Internal(format!("HKDF expand failed: {e}")))?;
 
-    let mut mac_hasher = <Hmac<Sha256> as Mac>::new_from_slice(&derived_key)
+    let mut mac_hasher = <Hmac<Sha256> as KeyInit>::new_from_slice(&derived_key)
         .map_err(|e| AppError::Internal(format!("HMAC init failed: {e}")))?;
     mac_hasher.update(&commit.hash);
 
@@ -124,7 +125,7 @@ mod tests {
     fn test_signing_key() -> SigningKey {
         let mut bytes = [0u8; 32];
         bytes[31] = 1; // valid non-zero scalar
-        SigningKey::from_bytes((&bytes[..]).into()).unwrap()
+        SigningKey::from_slice(&bytes[..]).unwrap()
     }
 
     #[test]
@@ -226,7 +227,7 @@ mod tests {
         let sk1 = test_signing_key();
         let mut bytes2 = [0u8; 32];
         bytes2[31] = 2;
-        let sk2 = SigningKey::from_bytes((&bytes2[..]).into()).unwrap();
+        let sk2 = SigningKey::from_slice(&bytes2[..]).unwrap();
         let vk2 = *sk2.verifying_key();
 
         let hash = [0xDD; 32];

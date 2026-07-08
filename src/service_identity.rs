@@ -86,7 +86,7 @@ pub async fn get_identity(
         backend,
     );
 
-    let row: Option<ServiceIdentityRow> = sqlx::query_as(&sql)
+    let row: Option<ServiceIdentityRow> = crate::db::query_as(&sql)
         .fetch_optional(db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to get service identity: {e}")))?;
@@ -152,7 +152,7 @@ pub async fn upsert_identity(
         backend,
     );
 
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(mode.as_str())
         .bind(did)
         .bind(signing_key_enc)
@@ -175,7 +175,7 @@ pub async fn mark_setup_complete(db: &AnyPool, backend: DatabaseBackend) -> Resu
         backend,
     );
 
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&now)
         .execute(db)
         .await

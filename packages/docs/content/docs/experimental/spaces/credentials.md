@@ -197,7 +197,19 @@ The JWT payload contains:
 | `sub` | The full `at://` space URI |
 | `iat` | Issued at (Unix timestamp) |
 | `exp` | Expiry (Unix timestamp) |
-| `jti` | Random nonce for replay protection |
+| `jti` | Random nonce making each issued credential unique |
+
+The credential is a bearer token: it is reused for the full 2-hour TTL and is not
+bound to a specific client or audience, so any service holding it can read the
+space's records. Containment relies on the short TTL and on revocation.
+
+## Revocation
+
+A credential is invalidated before its TTL expires when its holder is removed
+from the space (`com.atproto.simplespace.removeMember`): HappyView records the
+revocation and rejects the credential on subsequent reads. Because a credential
+is an opaque bearer token, revocation is scoped to a member — removing (and, if
+needed, re-adding) a member revokes all of that member's outstanding credentials.
 
 ## Using a credential
 

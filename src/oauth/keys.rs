@@ -1,5 +1,5 @@
 use p256::ecdsa::SigningKey;
-use rand::RngCore;
+use rand::Rng;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -23,11 +23,11 @@ pub fn generate_dpop_keypair() -> Result<DpopKeypair, AppError> {
     let mut rng_bytes = [0u8; 32];
     rand::rng().fill_bytes(&mut rng_bytes);
 
-    let signing_key = SigningKey::from_bytes((&rng_bytes[..]).into())
+    let signing_key = SigningKey::from_slice(&rng_bytes[..])
         .map_err(|e| AppError::Internal(format!("failed to generate signing key: {e}")))?;
 
     let verifying_key = signing_key.verifying_key();
-    let public_point = verifying_key.to_encoded_point(false);
+    let public_point = verifying_key.to_sec1_point(false);
 
     let x_bytes = public_point
         .x()
@@ -121,7 +121,7 @@ pub async fn store_dpop_key(
         backend,
     );
 
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(id)
         .bind(provision_id)
         .bind(api_client_id)
@@ -150,7 +150,7 @@ pub async fn get_dpop_key(
     );
 
     #[allow(clippy::type_complexity)]
-    let row: Option<(String, String, Vec<u8>, String, Option<String>)> = sqlx::query_as(&sql)
+    let row: Option<(String, String, Vec<u8>, String, Option<String>)> = crate::db::query_as(&sql)
         .bind(provision_id)
         .fetch_optional(pool)
         .await
@@ -179,7 +179,7 @@ pub async fn get_dpop_key_thumbprint(
         backend,
     );
 
-    let row: Option<(String,)> = sqlx::query_as(&sql)
+    let row: Option<(String,)> = crate::db::query_as(&sql)
         .bind(key_id)
         .fetch_optional(pool)
         .await
@@ -201,7 +201,7 @@ pub async fn get_dpop_key_id_by_thumbprint(
         backend,
     );
 
-    let row: Option<(String,)> = sqlx::query_as(&sql)
+    let row: Option<(String,)> = crate::db::query_as(&sql)
         .bind(api_client_id)
         .bind(thumbprint)
         .fetch_optional(pool)
@@ -223,13 +223,13 @@ pub async fn delete_dpop_key(
         "DELETE FROM happyview_dpop_sessions WHERE dpop_key_id = ?",
         backend,
     );
-    let _ = sqlx::query(&session_sql)
+    let _ = crate::db::query(&session_sql)
         .bind(dpop_key_id)
         .execute(pool)
         .await;
 
     let key_sql = adapt_sql("DELETE FROM happyview_dpop_keys WHERE id = ?", backend);
-    sqlx::query(&key_sql)
+    crate::db::query(&key_sql)
         .bind(dpop_key_id)
         .execute(pool)
         .await

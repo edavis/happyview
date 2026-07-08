@@ -224,7 +224,7 @@ pub(super) async fn count(
             &format!("SELECT COUNT(*) FROM {table} WHERE 1=1{resolved_clause}{collection_clause}"),
             backend,
         );
-        let mut q = sqlx::query_as::<_, (i64,)>(&sql);
+        let mut q = crate::db::query_as::<(i64,)>(&sql);
         if let Some(ref c) = query.collection {
             q = q.bind(c);
         }
@@ -303,7 +303,7 @@ pub(super) async fn bulk_dismiss(
                 sql.push_str(" AND collection = ?");
             }
             let sql = adapt_sql(&sql, backend);
-            let mut q = sqlx::query(&sql).bind(&now);
+            let mut q = crate::db::query(&sql).bind(&now);
             if let Some(ref c) = body.collection {
                 q = q.bind(c);
             }
@@ -383,22 +383,19 @@ async fn list_legacy(
 
     let sql = adapt_sql(&sql, backend);
     #[allow(clippy::type_complexity)]
-    let mut q = sqlx::query_as::<
-        _,
-        (
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            i64,
-            String,
-            Option<String>,
-        ),
-    >(&sql);
+    let mut q = crate::db::query_as::<(
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        i64,
+        String,
+        Option<String>,
+    )>(&sql);
     if let Some(c) = collection {
         q = q.bind(c);
     }
@@ -457,20 +454,17 @@ async fn list_scripts(
 
     let sql = adapt_sql(&sql, backend);
     #[allow(clippy::type_complexity)]
-    let mut q = sqlx::query_as::<
-        _,
-        (
-            i64,
-            String,
-            String,
-            String,
-            String,
-            String,
-            i64,
-            String,
-            Option<String>,
-        ),
-    >(&sql);
+    let mut q = crate::db::query_as::<(
+        i64,
+        String,
+        String,
+        String,
+        String,
+        String,
+        i64,
+        String,
+        Option<String>,
+    )>(&sql);
     if let Some(c) = collection {
         q = q.bind(c);
     }
@@ -595,7 +589,7 @@ async fn detail_legacy(state: &AppState, id: &str) -> Result<DeadLetterDetail, A
         String,
         Option<String>,
         Option<String>,
-    ) = sqlx::query_as(&sql)
+    ) = crate::db::query_as(&sql)
         .bind(id)
         .fetch_optional(&state.db)
         .await
@@ -642,7 +636,7 @@ async fn detail_scripts(state: &AppState, id: &str) -> Result<DeadLetterDetail, 
         i64,
         String,
         Option<String>,
-    ) = sqlx::query_as(&sql)
+    ) = crate::db::query_as(&sql)
         .bind(id_int)
         .fetch_optional(&state.db)
         .await
@@ -703,7 +697,7 @@ async fn fetch_dead_letter_for_action(
                 Option<String>,
                 String,
                 i64,
-            ) = sqlx::query_as(&sql)
+            ) = crate::db::query_as(&sql)
                 .bind(id)
                 .fetch_optional(&state.db)
                 .await
@@ -731,7 +725,7 @@ async fn fetch_dead_letter_for_action(
                  WHERE id = ? AND resolved_at IS NULL",
                 backend,
             );
-            let row: (i64, String, String) = sqlx::query_as(&sql)
+            let row: (i64, String, String) = crate::db::query_as(&sql)
                 .bind(id_int)
                 .fetch_optional(&state.db)
                 .await
@@ -781,7 +775,7 @@ async fn mark_resolved(
         &format!("UPDATE {table} SET resolved_at = ? WHERE id = ?"),
         backend,
     );
-    let q = sqlx::query(&sql).bind(&now);
+    let q = crate::db::query(&sql).bind(&now);
     let q = match source {
         // Scripts table has INTEGER ids; bind as i64 to avoid sqlite's
         // implicit-conversion quirks.
@@ -810,7 +804,7 @@ async fn update_error(
         &format!("UPDATE {table} SET error = ?, attempts = attempts + 1 WHERE id = ?"),
         backend,
     );
-    let q = sqlx::query(&sql).bind(error);
+    let q = crate::db::query(&sql).bind(error);
     let q = match source {
         DeadLetterSource::Scripts => q.bind(id.parse::<i64>().unwrap_or(0)),
         DeadLetterSource::LegacyHooks => q.bind(id),
@@ -833,7 +827,7 @@ async fn resolve_bulk_ids(state: &AppState, body: &BulkRequest) -> Result<Vec<St
             sql.push_str(" AND collection = ?");
         }
         let sql = adapt_sql(&sql, backend);
-        let mut q = sqlx::query_as::<_, (String,)>(&sql);
+        let mut q = crate::db::query_as::<(String,)>(&sql);
         if let Some(ref c) = body.collection {
             q = q.bind(c);
         }
@@ -851,7 +845,7 @@ async fn resolve_bulk_ids(state: &AppState, body: &BulkRequest) -> Result<Vec<St
                 sql.push_str(" AND collection = ?");
             }
             let sql = adapt_sql(&sql, backend);
-            let mut q = sqlx::query_as::<_, (i64,)>(&sql);
+            let mut q = crate::db::query_as::<(i64,)>(&sql);
             if let Some(ref c) = body.collection {
                 q = q.bind(c);
             }

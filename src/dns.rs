@@ -1,5 +1,6 @@
 use atrium_identity::handle::DnsTxtResolver;
 use hickory_resolver::TokioResolver;
+use hickory_resolver::proto::rr::RData;
 
 /// Native DNS TXT resolver using system DNS configuration.
 /// Implements atrium's `DnsTxtResolver` trait for use with `AtprotoHandleResolver`,
@@ -20,7 +21,8 @@ impl NativeDnsResolver {
         Self {
             resolver: TokioResolver::builder_tokio()
                 .expect("Failed to read system DNS config")
-                .build(),
+                .build()
+                .expect("Failed to build DNS resolver"),
         }
     }
 
@@ -32,7 +34,14 @@ impl NativeDnsResolver {
             .await
             .map_err(|e| format!("DNS TXT lookup failed for {name}: {e}"))?;
 
-        Ok(response.iter().map(|txt| txt.to_string()).collect())
+        Ok(response
+            .answers()
+            .iter()
+            .filter_map(|r| match &r.data {
+                RData::TXT(txt) => Some(txt.to_string()),
+                _ => None,
+            })
+            .collect())
     }
 }
 

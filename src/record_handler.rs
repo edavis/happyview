@@ -112,7 +112,7 @@ pub async fn handle_record_event(state: &AppState, record: &RecordEvent) {
                 "#,
                 backend,
             );
-            match sqlx::query(&insert_sql)
+            match crate::db::query(&insert_sql)
                 .bind(&uri)
                 .bind(&record.did)
                 .bind(&record.collection)
@@ -217,7 +217,7 @@ pub async fn handle_record_event(state: &AppState, record: &RecordEvent) {
             }
 
             let delete_sql = adapt_sql("DELETE FROM happyview_records WHERE uri = ?", backend);
-            match sqlx::query(&delete_sql).bind(&uri).execute(db).await {
+            match crate::db::query(&delete_sql).bind(&uri).execute(db).await {
                 Ok(_) => {
                     if state.verbose_event_logging.load(Ordering::Relaxed) {
                         log_event(
@@ -278,7 +278,7 @@ pub async fn handle_lexicon_schema_event(state: &AppState, did: &str, record: &R
         "SELECT target_collection FROM happyview_lexicons WHERE id = ? AND source = 'network' AND authority_did = ?",
         backend,
     );
-    let tracked: Option<(Option<String>,)> = sqlx::query_as(&select_sql)
+    let tracked: Option<(Option<String>,)> = crate::db::query_as(&select_sql)
         .bind(nsid)
         .bind(did)
         .fetch_optional(db)
@@ -328,7 +328,7 @@ pub async fn handle_lexicon_schema_event(state: &AppState, did: &str, record: &R
                 "#,
                 backend,
             );
-            if let Err(e) = sqlx::query(&upsert_sql)
+            if let Err(e) = crate::db::query(&upsert_sql)
                 .bind(nsid)
                 .bind(serde_json::to_string(rec).unwrap_or_default())
                 .bind(&target_collection)
@@ -355,7 +355,7 @@ pub async fn handle_lexicon_schema_event(state: &AppState, did: &str, record: &R
         "delete" => {
             // Remove from lexicons table and registry.
             let delete_sql = adapt_sql("DELETE FROM happyview_lexicons WHERE id = ?", backend);
-            let _ = sqlx::query(&delete_sql).bind(nsid).execute(db).await;
+            let _ = crate::db::query(&delete_sql).bind(nsid).execute(db).await;
 
             let was_present = lexicons.remove(nsid).await;
             if was_present {

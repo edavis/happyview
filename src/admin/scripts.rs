@@ -116,18 +116,15 @@ pub(super) async fn list(
 
     let sql = adapt_sql(&sql, backend);
     #[allow(clippy::type_complexity)]
-    let mut q = sqlx::query_as::<
-        _,
-        (
-            String,
-            String,
-            String,
-            Option<String>,
-            Option<String>,
-            String,
-            String,
-        ),
-    >(&sql);
+    let mut q = crate::db::query_as::<(
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        String,
+        String,
+    )>(&sql);
     if let Some(ref suffix) = query.suffix {
         q = q.bind(format!("%:{suffix}"));
     }
@@ -207,7 +204,7 @@ pub(super) async fn upsert(
     let description = body.description.as_deref().filter(|s| !s.is_empty());
 
     // Distinguish create vs update so we can return 201 vs 200.
-    let pre_exists: Option<(String,)> = sqlx::query_as(&adapt_sql(
+    let pre_exists: Option<(String,)> = crate::db::query_as(&adapt_sql(
         "SELECT id FROM happyview_scripts WHERE id = ?",
         backend,
     ))
@@ -230,7 +227,7 @@ pub(super) async fn upsert(
         "#,
         backend,
     );
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&body.id)
         .bind(script_type.as_str())
         .bind(&body.body)
@@ -343,7 +340,7 @@ pub(super) async fn patch(
         "#,
         backend,
     );
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&new_script_type)
         .bind(&new_body)
         .bind(new_description.as_deref())
@@ -384,7 +381,7 @@ pub(super) async fn delete(
 
     let backend = state.db_backend;
     let sql = adapt_sql("DELETE FROM happyview_scripts WHERE id = ?", backend);
-    let result = sqlx::query(&sql)
+    let result = crate::db::query(&sql)
         .bind(&id)
         .execute(&state.db)
         .await
@@ -429,7 +426,7 @@ async fn fetch_one(state: &AppState, id: &str) -> Result<ScriptResponse, AppErro
         Option<String>,
         String,
         String,
-    )> = sqlx::query_as(&sql)
+    )> = crate::db::query_as(&sql)
         .bind(id)
         .fetch_optional(&state.db)
         .await

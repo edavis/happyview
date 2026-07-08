@@ -35,7 +35,7 @@ pub async fn acquire_test_lock() -> Option<AnyPool> {
         .await
         .expect("failed to create advisory lock pool");
 
-    sqlx::query("SELECT pg_advisory_lock(42)")
+    happyview::db::query("SELECT pg_advisory_lock(42)")
         .execute(&lock_pool)
         .await
         .expect("failed to acquire advisory lock");
@@ -47,7 +47,7 @@ pub async fn truncate_all(pool: &AnyPool) {
     let backend = test_backend();
     match backend {
         DatabaseBackend::Postgres => {
-            sqlx::query(
+            happyview::db::query(
                 "TRUNCATE happyview_records, happyview_lexicons, happyview_backfill_jobs, happyview_users, happyview_user_permissions, happyview_api_keys, happyview_event_logs, happyview_script_variables, happyview_scripts, happyview_dead_letter_scripts, happyview_dead_letter_hooks, happyview_record_refs, happyview_labeler_subscriptions, happyview_labels, happyview_instance_settings, happyview_domains, happyview_dpop_sessions, happyview_dpop_keys, happyview_api_clients, happyview_delegated_accounts, happyview_account_delegates, happyview_service_identity, happyview_service_entries, happyview_service_entry_xrpcs, happyview_jobs, happyview_spaces, happyview_space_members, happyview_space_records, happyview_space_repo_state, happyview_space_record_oplog, happyview_space_notify_registrations, happyview_space_invites RESTART IDENTITY CASCADE",
             )
             .execute(pool)
@@ -93,7 +93,7 @@ pub async fn truncate_all(pool: &AnyPool) {
                 "happyview_jobs",
             ];
             for table in tables {
-                sqlx::query(&format!("DELETE FROM {table}"))
+                happyview::db::query(&format!("DELETE FROM {table}"))
                     .execute(pool)
                     .await
                     .unwrap_or_else(|e| panic!("failed to delete from {table}: {e}"));

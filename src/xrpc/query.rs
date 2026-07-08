@@ -69,7 +69,7 @@ pub(crate) async fn handle_query(
             "SELECT uri, did, record FROM happyview_records WHERE collection = ? AND did = ? ORDER BY indexed_at DESC LIMIT ? OFFSET ?",
             backend,
         );
-        sqlx::query_as(&sql)
+        crate::db::query_as(&sql)
             .bind(collection)
             .bind(did)
             .bind(limit)
@@ -82,7 +82,7 @@ pub(crate) async fn handle_query(
             "SELECT uri, did, record FROM happyview_records WHERE collection = ? ORDER BY indexed_at DESC LIMIT ? OFFSET ?",
             backend,
         );
-        sqlx::query_as(&sql)
+        crate::db::query_as(&sql)
             .bind(collection)
             .bind(limit)
             .bind(offset)
@@ -122,7 +122,7 @@ pub(super) async fn handle_get_record(state: &AppState, uri: &str) -> Result<Res
         "SELECT record FROM happyview_records WHERE uri = ?",
         backend,
     );
-    let row: Option<(String,)> = sqlx::query_as(&sql)
+    let row: Option<(String,)> = crate::db::query_as(&sql)
         .bind(uri)
         .fetch_optional(&state.db)
         .await

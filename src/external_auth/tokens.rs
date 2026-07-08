@@ -69,7 +69,7 @@ pub async fn store_tokens(
         backend,
     );
 
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&id)
         .bind(did)
         .bind(plugin_id)
@@ -102,7 +102,7 @@ pub async fn get_tokens(
         backend,
     );
 
-    let row: Option<TokenRow> = sqlx::query_as(&sql)
+    let row: Option<TokenRow> = crate::db::query_as(&sql)
         .bind(did)
         .bind(plugin_id)
         .fetch_optional(db)
@@ -144,7 +144,7 @@ pub async fn delete_tokens(
         backend,
     );
 
-    let result = sqlx::query(&sql)
+    let result = crate::db::query(&sql)
         .bind(did)
         .bind(plugin_id)
         .execute(db)
@@ -165,7 +165,7 @@ pub async fn is_linked(
         backend,
     );
 
-    let exists: Option<(i32,)> = sqlx::query_as(&sql)
+    let exists: Option<(i32,)> = crate::db::query_as(&sql)
         .bind(did)
         .bind(plugin_id)
         .fetch_optional(db)
@@ -186,7 +186,7 @@ pub async fn get_account_id(
         backend,
     );
 
-    let row: Option<(String,)> = sqlx::query_as(&sql)
+    let row: Option<(String,)> = crate::db::query_as(&sql)
         .bind(did)
         .bind(plugin_id)
         .fetch_optional(db)
@@ -216,7 +216,7 @@ pub async fn list_linked_accounts(
     );
 
     let rows: Vec<(String, String, String, String)> =
-        sqlx::query_as(&sql).bind(did).fetch_all(db).await?;
+        crate::db::query_as(&sql).bind(did).fetch_all(db).await?;
 
     Ok(rows
         .into_iter()

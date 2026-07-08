@@ -268,15 +268,14 @@ fn verify_es256(msg: &[u8], sig_bytes: &[u8], key_bytes: &[u8]) -> bool {
         return false;
     };
 
-    if let Ok(sig) = P256Signature::from_bytes(sig_bytes.into())
+    if let Ok(sig) = P256Signature::from_slice(sig_bytes)
         && verifying_key.verify(msg, &sig).is_ok()
     {
         return true;
     }
 
-    if let Ok(sig) = P256Signature::from_bytes(sig_bytes.into())
-        && let Some(normalized) = sig.normalize_s()
-        && verifying_key.verify(msg, &normalized).is_ok()
+    if let Ok(sig) = P256Signature::from_slice(sig_bytes)
+        && verifying_key.verify(msg, &sig.normalize_s()).is_ok()
     {
         return true;
     }
@@ -316,15 +315,14 @@ fn verify_es256k(msg: &[u8], sig_bytes: &[u8], key_bytes: &[u8]) -> bool {
         return false;
     };
 
-    if let Ok(sig) = K256Signature::from_bytes(sig_bytes.into())
+    if let Ok(sig) = K256Signature::from_slice(sig_bytes)
         && verifying_key.verify(msg, &sig).is_ok()
     {
         return true;
     }
 
-    if let Ok(sig) = K256Signature::from_bytes(sig_bytes.into())
-        && let Some(normalized) = sig.normalize_s()
-        && verifying_key.verify(msg, &normalized).is_ok()
+    if let Ok(sig) = K256Signature::from_slice(sig_bytes)
+        && verifying_key.verify(msg, &sig.normalize_s()).is_ok()
     {
         return true;
     }

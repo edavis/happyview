@@ -104,6 +104,29 @@ Signatures are stored as objects in the record's `signatures` array:
 | `key`       | string | Key identifier (DID with fragment)   |
 | `signature` | table  | Contains `$bytes` (base64-encoded)   |
 
+## Security considerations
+
+`atproto.sign` exposes the instance's signing key to Lua scripts. Treat it as a
+privileged capability:
+
+- **It signs exactly what you give it.** A signature only proves *"this HappyView
+  instance signed this content"* — it does **not** prove the content is authentic,
+  is present in anyone's repo, or was authored by any particular DID. Only sign
+  content you have already verified.
+- **It's available to any script**, including ones that run on untrusted input —
+  record-event and label scripts (triggered by arbitrary firehose records) and
+  anonymous XRPC queries. In those contexts there is no authenticated caller, so
+  the signature's `repository` binding is empty. Don't sign untrusted input (a
+  firehose record, an anonymous request parameter) unless you intend the instance
+  to vouch for it.
+- **Creating scripts requires the `scripts:manage` permission.** The signing key
+  is therefore only reachable by operators you have trusted with that permission —
+  grant it accordingly, and review scripts that call `atproto.sign`.
+
+If you need signatures scoped to a specific verified subject, have the script
+verify the subject itself (e.g. confirm the record's `did` and content against the
+source) before calling `atproto.sign`.
+
 ## Next steps
 
 - [atproto API reference](../api-reference/lua/atproto-api.md#atprotosign) — `atproto.sign` and `atproto.verify_signature` parameter docs

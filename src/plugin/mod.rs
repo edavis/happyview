@@ -93,7 +93,7 @@ impl PluginRegistry {
             self.db_backend,
         );
 
-        sqlx::query(&sql)
+        crate::db::query(&sql)
             .bind(&plugin.info.id)
             .bind(source)
             .bind(url)
@@ -130,7 +130,7 @@ impl PluginRegistry {
             self.db_backend,
         );
 
-        let rows: Vec<(String, String, Option<String>, Option<String>)> = sqlx::query_as(&sql)
+        let rows: Vec<(String, String, Option<String>, Option<String>)> = crate::db::query_as(&sql)
             .fetch_all(db)
             .await
             .map_err(|e| format!("Failed to load plugins from DB: {}", e))?;

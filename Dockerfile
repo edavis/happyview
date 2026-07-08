@@ -7,7 +7,7 @@ COPY web/ .
 ENV NEXT_PUBLIC_BASE_PATH=/__HAPPYVIEW_BP__
 RUN npm run build
 
-FROM rust:1.93-bookworm AS builder
+FROM rust:1.96.1-bookworm AS builder
 
 WORKDIR /app
 
@@ -30,16 +30,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Run the service as a non-root system user; the binary needs no root privileges
+# at runtime and binds an unprivileged port (3000).
+RUN groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid app --home-dir /app --no-create-home \
+       --shell /usr/sbin/nologin app
+
 WORKDIR /app
 
 COPY --from=builder /app/target/release/happyview /usr/local/bin/happyview
 RUN chmod +x /usr/local/bin/happyview
 COPY migrations/ /app/migrations
-COPY --from=frontend /app/web/out /srv/static
+# The static dir is writable at runtime: the entrypoint rewrites the base-path
+# sentinel in place and removes the marker.
+COPY --from=frontend --chown=app:app /app/web/out /srv/static
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh && touch /srv/static/.base-path-pending
 
+# Data dir for the default SQLite backend (DATABASE_URL=sqlite://data/...).
+# A named volume mounted here inherits this ownership on first creation; a bind
+# mount must be chown'd to uid 10001 by the operator.
+RUN mkdir -p /app/data && chown app:app /app/data
+
 ENV STATIC_DIR=/srv/static
+
+USER app
 
 EXPOSE 3000
 

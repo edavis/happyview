@@ -11,6 +11,7 @@ use happyview::config::Config;
 use happyview::db::{DatabaseBackend, adapt_sql, now_rfc3339};
 use happyview::lexicon::LexiconRegistry;
 use happyview::{AppState, server};
+use p256::elliptic_curve::sec1::ToSec1Point;
 use tokio::sync::watch;
 use wiremock::MockServer;
 
@@ -73,7 +74,7 @@ impl TestApp {
             "INSERT INTO happyview_users (id, did, is_super, created_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
             backend,
         );
-        sqlx::query(&sql)
+        happyview::db::query(&sql)
             .bind(uuid::Uuid::new_v4().to_string())
             .bind(&admin_did)
             .bind(1_i32)
@@ -233,7 +234,7 @@ impl TestApp {
         allowed_origins: Option<Vec<String>>,
     ) -> (String, String, String) {
         use happyview::db::{adapt_sql, now_rfc3339};
-        use rand::RngCore;
+        use rand::Rng;
         use sha2::{Digest, Sha256};
 
         let mut key_bytes = [0u8; 16];
@@ -256,7 +257,7 @@ impl TestApp {
             self.state.db_backend,
         );
 
-        sqlx::query(&sql)
+        happyview::db::query(&sql)
             .bind(&id)
             .bind(&client_key)
             .bind(&secret_hash)
@@ -290,14 +291,14 @@ impl TestApp {
 
     pub async fn setup_did_web(&mut self) -> String {
         use p256::ecdsa::SigningKey;
-        use rand::RngCore;
+        use rand::Rng;
 
         let encryption_key = [0x42u8; 32];
         self.state.config.token_encryption_key = Some(encryption_key);
 
         let mut key_bytes = [0u8; 32];
         rand::rng().fill_bytes(&mut key_bytes);
-        let signing_key = SigningKey::from_bytes((&key_bytes[..]).into()).unwrap();
+        let signing_key = SigningKey::from_slice(&key_bytes[..]).unwrap();
         let private_bytes = signing_key.to_bytes();
         let encrypted = happyview::plugin::encryption::encrypt(&encryption_key, &private_bytes)
             .expect("encryption failed");
@@ -388,13 +389,13 @@ impl TestApp {
         use base64::Engine;
         use base64::engine::general_purpose::URL_SAFE_NO_PAD;
         use p256::ecdsa::{SigningKey, signature::Signer};
-        use rand::RngCore;
+        use rand::Rng;
 
         let mut key_bytes = [0u8; 32];
         rand::rng().fill_bytes(&mut key_bytes);
-        let signing_key = SigningKey::from_bytes((&key_bytes[..]).into()).unwrap();
+        let signing_key = SigningKey::from_slice(&key_bytes[..]).unwrap();
         let public_key = signing_key.verifying_key();
-        let compressed = public_key.to_encoded_point(true);
+        let compressed = public_key.to_sec1_point(true);
 
         let did_doc = crate::common::plc::test_did_document(issuer_did, compressed.as_bytes());
         plc_store
@@ -441,14 +442,14 @@ impl TestApp {
 
     pub async fn setup_did_plc(&mut self) -> String {
         use p256::ecdsa::SigningKey;
-        use rand::RngCore;
+        use rand::Rng;
 
         let encryption_key = [0x42u8; 32];
         self.state.config.token_encryption_key = Some(encryption_key);
 
         let mut key_bytes = [0u8; 32];
         rand::rng().fill_bytes(&mut key_bytes);
-        let signing_key = SigningKey::from_bytes((&key_bytes[..]).into()).unwrap();
+        let signing_key = SigningKey::from_slice(&key_bytes[..]).unwrap();
         let private_bytes = signing_key.to_bytes();
         let encrypted = happyview::plugin::encryption::encrypt(&encryption_key, &private_bytes)
             .expect("encryption failed");
@@ -487,13 +488,13 @@ impl TestApp {
         use base64::Engine;
         use base64::engine::general_purpose::URL_SAFE_NO_PAD;
         use p256::ecdsa::{SigningKey, signature::Signer};
-        use rand::RngCore;
+        use rand::Rng;
 
         let mut key_bytes = [0u8; 32];
         rand::rng().fill_bytes(&mut key_bytes);
-        let signing_key = SigningKey::from_bytes((&key_bytes[..]).into()).unwrap();
+        let signing_key = SigningKey::from_slice(&key_bytes[..]).unwrap();
         let public_key = signing_key.verifying_key();
-        let compressed = public_key.to_encoded_point(true);
+        let compressed = public_key.to_sec1_point(true);
 
         let did_doc = crate::common::plc::test_did_document(issuer_did, compressed.as_bytes());
         plc_store
@@ -528,13 +529,13 @@ impl TestApp {
         use base64::Engine;
         use base64::engine::general_purpose::URL_SAFE_NO_PAD;
         use p256::ecdsa::{SigningKey, signature::Signer};
-        use rand::RngCore;
+        use rand::Rng;
 
         let mut key_bytes = [0u8; 32];
         rand::rng().fill_bytes(&mut key_bytes);
-        let signing_key = SigningKey::from_bytes((&key_bytes[..]).into()).unwrap();
+        let signing_key = SigningKey::from_slice(&key_bytes[..]).unwrap();
         let public_key = signing_key.verifying_key();
-        let compressed = public_key.to_encoded_point(true);
+        let compressed = public_key.to_sec1_point(true);
 
         let did_doc = crate::common::plc::test_did_document(issuer_did, compressed.as_bytes());
         plc_store

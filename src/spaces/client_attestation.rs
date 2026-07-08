@@ -112,7 +112,7 @@ pub async fn verify_client_attestation(
             let sig_bytes = URL_SAFE_NO_PAD
                 .decode(parts[2])
                 .map_err(|_| AppError::Auth("invalid attestation signature encoding".into()))?;
-            let sig = p256::ecdsa::Signature::from_bytes(sig_bytes.as_slice().into())
+            let sig = p256::ecdsa::Signature::from_slice(sig_bytes.as_slice())
                 .map_err(|_| AppError::Auth("invalid attestation signature format".into()))?;
             use p256::ecdsa::signature::Verifier;
             jwk.verify(message.as_bytes(), &sig)

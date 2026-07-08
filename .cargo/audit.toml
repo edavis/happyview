@@ -1,0 +1,11 @@
+# cargo-audit configuration.
+#
+# The single ignored advisory below has been triaged and has no upstream fix.
+# Every other advisory must fail CI (see .github/workflows/ci.yml `audit` job) so
+# new ones are caught. Re-review this list when dependencies are updated.
+[advisories]
+ignore = [
+    # fxhash: unmaintained (warning, not a vulnerability). Transitive dependency
+    # of wasmtime (via fxprof-processed-profile); not removable independently.
+    "RUSTSEC-2025-0057",
+]

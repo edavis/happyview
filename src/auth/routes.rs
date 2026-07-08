@@ -140,7 +140,7 @@ async fn login(
                 "INSERT INTO happyview_auth_login_redirects (state, redirect_uri, client_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
                 state.db_backend,
             );
-            let _ = sqlx::query(&sql)
+            let _ = crate::db::query(&sql)
                 .bind(&oauth_state)
                 .bind(redirect_uri)
                 .bind(effective_client_id.as_deref())
@@ -178,7 +178,7 @@ async fn callback(
             state.db_backend,
         );
         let now = now_rfc3339();
-        let row: Option<(String, Option<String>)> = sqlx::query_as(&sql)
+        let row: Option<(String, Option<String>)> = crate::db::query_as(&sql)
             .bind(oauth_state)
             .bind(&now)
             .fetch_optional(&state.db)
@@ -191,7 +191,7 @@ async fn callback(
                 "DELETE FROM happyview_auth_login_redirects WHERE state = ?",
                 state.db_backend,
             );
-            let _ = sqlx::query(&delete_sql)
+            let _ = crate::db::query(&delete_sql)
                 .bind(oauth_state)
                 .execute(&state.db)
                 .await;
@@ -234,13 +234,13 @@ async fn callback(
     // Allow login when no users exist yet (first user will be bootstrapped as admin).
     // Also allow login for the configured attached account DID (setup attach-auth flow).
     // Otherwise, only allow users already in the users table.
-    let user_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM happyview_users")
+    let user_count: (i64,) = crate::db::query_as("SELECT COUNT(*) FROM happyview_users")
         .fetch_one(&state.db)
         .await
         .map_err(|e| AppError::Internal(format!("user count query failed: {e}")))?;
 
     if user_count.0 > 0 {
-        let user_exists: Option<(i32,)> = sqlx::query_as(&adapt_sql(
+        let user_exists: Option<(i32,)> = crate::db::query_as(&adapt_sql(
             "SELECT 1 FROM happyview_users WHERE did = ?",
             state.db_backend,
         ))
@@ -251,7 +251,7 @@ async fn callback(
 
         if user_exists.is_none() {
             // Allow login if this DID is the configured attached account (setup flow)
-            let is_attached_account: Option<(i32,)> = sqlx::query_as(&adapt_sql(
+            let is_attached_account: Option<(i32,)> = crate::db::query_as(&adapt_sql(
                 "SELECT 1 FROM happyview_service_identity WHERE attached_account_did = ?",
                 state.db_backend,
             ))
@@ -279,7 +279,7 @@ async fn callback(
             "SELECT client_key FROM happyview_api_clients WHERE client_id_url = ? AND is_active = 1",
             state.db_backend,
         );
-        let row: Option<(String,)> = sqlx::query_as(&sql)
+        let row: Option<(String,)> = crate::db::query_as(&sql)
             .bind(cid)
             .fetch_optional(&state.db)
             .await
@@ -376,7 +376,7 @@ async fn me(
     let did = raw.split('\n').next().unwrap_or(&raw).to_string();
 
     let backend = state.db_backend;
-    let user: Option<(i32,)> = sqlx::query_as(&adapt_sql(
+    let user: Option<(i32,)> = crate::db::query_as(&adapt_sql(
         "SELECT 1 FROM happyview_users WHERE did = ?",
         backend,
     ))

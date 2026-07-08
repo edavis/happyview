@@ -63,7 +63,7 @@ pub async fn list_entries(
         backend,
     );
 
-    let rows: Vec<ServiceEntryRow> = sqlx::query_as(&sql)
+    let rows: Vec<ServiceEntryRow> = crate::db::query_as(&sql)
         .fetch_all(db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to list service entries: {e}")))?;
@@ -84,7 +84,7 @@ pub async fn create_entry(
         backend,
     );
 
-    let row: (i64,) = sqlx::query_as(&insert_sql)
+    let row: (i64,) = crate::db::query_as(&insert_sql)
         .bind(&body.fragment_id)
         .bind(&body.service_type)
         .bind(&now)
@@ -100,7 +100,7 @@ pub async fn create_entry(
         backend,
     );
 
-    let entry_row: ServiceEntryRow = sqlx::query_as(&fetch_sql)
+    let entry_row: ServiceEntryRow = crate::db::query_as(&fetch_sql)
         .bind(id)
         .fetch_one(db)
         .await
@@ -145,7 +145,7 @@ pub async fn update_entry(
             "SELECT id, fragment_id, service_type, access_mode, created_at, updated_at FROM happyview_service_entries WHERE id = ?",
             backend,
         );
-        let row: Option<ServiceEntryRow> = sqlx::query_as(&fetch_sql)
+        let row: Option<ServiceEntryRow> = crate::db::query_as(&fetch_sql)
             .bind(id)
             .fetch_optional(db)
             .await
@@ -161,7 +161,7 @@ pub async fn update_entry(
     );
     let update_sql = adapt_sql(&raw, backend);
 
-    let mut query = sqlx::query(&update_sql);
+    let mut query = crate::db::query(&update_sql);
     if let Some(v) = &body.fragment_id {
         query = query.bind(v.as_str());
     }
@@ -186,7 +186,7 @@ pub async fn update_entry(
         "SELECT id, fragment_id, service_type, access_mode, created_at, updated_at FROM happyview_service_entries WHERE id = ?",
         backend,
     );
-    let row: ServiceEntryRow = sqlx::query_as(&fetch_sql)
+    let row: ServiceEntryRow = crate::db::query_as(&fetch_sql)
         .bind(id)
         .fetch_one(db)
         .await
@@ -206,7 +206,7 @@ pub async fn delete_entry(
         backend,
     );
 
-    let result = sqlx::query(&sql)
+    let result = crate::db::query(&sql)
         .bind(id)
         .execute(db)
         .await
@@ -230,7 +230,7 @@ pub async fn list_entry_xrpcs(
         backend,
     );
 
-    let rows: Vec<(String,)> = sqlx::query_as(&sql)
+    let rows: Vec<(String,)> = crate::db::query_as(&sql)
         .bind(entry_id)
         .fetch_all(db)
         .await
@@ -252,7 +252,7 @@ pub async fn add_entry_xrpcs(
     );
 
     for lexicon_id in lexicon_ids {
-        sqlx::query(&sql)
+        crate::db::query(&sql)
             .bind(entry_id)
             .bind(lexicon_id.as_str())
             .execute(db)
@@ -276,7 +276,7 @@ pub async fn remove_entry_xrpcs(
     );
 
     for lexicon_id in lexicon_ids {
-        sqlx::query(&sql)
+        crate::db::query(&sql)
             .bind(entry_id)
             .bind(lexicon_id.as_str())
             .execute(db)
@@ -306,7 +306,7 @@ pub async fn check_access(
         backend,
     );
 
-    let row: Option<(i64, String)> = sqlx::query_as(&sql)
+    let row: Option<(i64, String)> = crate::db::query_as(&sql)
         .bind(fragment_id)
         .fetch_optional(db)
         .await
@@ -327,7 +327,7 @@ pub async fn check_access(
         backend,
     );
 
-    let found: Option<(i32,)> = sqlx::query_as(&check_sql)
+    let found: Option<(i32,)> = crate::db::query_as(&check_sql)
         .bind(entry_id)
         .bind(xrpc_method)
         .fetch_optional(db)
@@ -350,7 +350,7 @@ pub async fn services_for_lexicon(
         backend,
     );
 
-    let rows: Vec<ServiceEntryRow> = sqlx::query_as(&sql)
+    let rows: Vec<ServiceEntryRow> = crate::db::query_as(&sql)
         .bind(lexicon_id)
         .fetch_all(db)
         .await

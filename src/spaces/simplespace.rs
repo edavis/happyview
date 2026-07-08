@@ -182,7 +182,7 @@ async fn require_space_admin(state: &AppState, space: &Space, did: &str) -> Resu
         "SELECT is_super FROM happyview_users WHERE did = ?",
         state.db_backend,
     );
-    let row: Option<(i32,)> = sqlx::query_as(&sql)
+    let row: Option<(i32,)> = crate::db::query_as(&sql)
         .bind(did)
         .fetch_optional(&state.db)
         .await
@@ -415,6 +415,15 @@ async fn remove_member(
     let claims = require_auth(&xrpc_claims)?;
     let space = resolve_space(&state, &input.space).await?;
     require_space_admin(&state, &space, claims.did()).await?;
+
+    // Revoke any outstanding space credentials before removing the membership
+    // row. If revocation fails we bail out with the member still present, so a
+    // retry can complete both steps — the reverse order could leave a removed
+    // member holding valid credentials until their 2h TTL (M3). Revoking for a
+    // non-member is a harmless no-op, so the NotFound check still gates on the
+    // delete below.
+    db::revoke_space_credentials_for_member(&state.db, state.db_backend, &space.id, &input.did)
+        .await?;
 
     let removed = db::remove_member(&state.db, state.db_backend, &space.id, &input.did).await?;
 

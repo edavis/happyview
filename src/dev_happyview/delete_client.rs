@@ -51,7 +51,7 @@ pub async fn delete_api_client(
         "SELECT client_id_url, client_key FROM happyview_api_clients WHERE id = ? AND owner_did = ?",
         state.db_backend,
     );
-    let client_info: Option<(String, String)> = sqlx::query_as(&lookup_sql)
+    let client_info: Option<(String, String)> = crate::db::query_as(&lookup_sql)
         .bind(&id)
         .bind(&user_did)
         .fetch_optional(&state.db)
@@ -63,7 +63,7 @@ pub async fn delete_api_client(
         "SELECT client_id_url, client_key FROM happyview_api_clients WHERE parent_client_id = ?",
         state.db_backend,
     );
-    let children: Vec<(String, String)> = sqlx::query_as(&children_sql)
+    let children: Vec<(String, String)> = crate::db::query_as(&children_sql)
         .bind(&id)
         .fetch_all(&state.db)
         .await
@@ -74,7 +74,7 @@ pub async fn delete_api_client(
         "DELETE FROM happyview_api_clients WHERE id = ? AND owner_did = ?",
         state.db_backend,
     );
-    let result = sqlx::query(&delete_sql)
+    let result = crate::db::query(&delete_sql)
         .bind(&id)
         .bind(&user_did)
         .execute(&state.db)

@@ -86,7 +86,7 @@ pub(super) async fn upload_lexicon(
         "#,
         backend,
     );
-    let row: (i32,) = sqlx::query_as(&sql)
+    let row: (i32,) = crate::db::query_as(&sql)
         .bind(&id)
         .bind(&lexicon_json_str)
         .bind(if body.backfill { 1_i32 } else { 0_i32 })
@@ -178,7 +178,7 @@ pub(super) async fn list_lexicons(
         String,
         String,
         Option<i32>,
-    )> = sqlx::query_as(&sql)
+    )> = crate::db::query_as(&sql)
         .fetch_all(&state.db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to list lexicons: {e}")))?;
@@ -260,7 +260,7 @@ pub(super) async fn get_lexicon(
         String,
         String,
         Option<i32>,
-    )> = sqlx::query_as(&sql)
+    )> = crate::db::query_as(&sql)
         .bind(&id)
         .fetch_optional(&state.db)
         .await
@@ -319,7 +319,7 @@ pub(super) async fn delete_lexicon(
     auth.require(Permission::LexiconsDelete).await?;
     let backend = state.db_backend;
     let sql = adapt_sql("DELETE FROM happyview_lexicons WHERE id = ?", backend);
-    let result = sqlx::query(&sql)
+    let result = crate::db::query(&sql)
         .bind(&id)
         .execute(&state.db)
         .await

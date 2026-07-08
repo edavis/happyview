@@ -70,7 +70,7 @@ pub async fn store_dpop_session(
         backend,
     );
 
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(id)
         .bind(api_client_id)
         .bind(dpop_key_id)
@@ -113,7 +113,7 @@ pub async fn get_dpop_session(
         String,
         Option<String>,
         Option<String>,
-    )> = sqlx::query_as(&sql)
+    )> = crate::db::query_as(&sql)
         .bind(api_client_id)
         .bind(user_did)
         .bind(dpop_key_id)
@@ -177,7 +177,7 @@ pub async fn get_dpop_session_by_key_id(
         String,
         Option<String>,
         Option<String>,
-    )> = sqlx::query_as(&sql)
+    )> = crate::db::query_as(&sql)
         .bind(api_client_id)
         .bind(dpop_key_id)
         .fetch_optional(pool)
@@ -228,7 +228,7 @@ pub async fn delete_dpop_session(
         "DELETE FROM happyview_dpop_sessions WHERE api_client_id = ? AND user_did = ? AND dpop_key_id = ?",
         backend,
     );
-    sqlx::query(&del_session_sql)
+    crate::db::query(&del_session_sql)
         .bind(api_client_id)
         .bind(user_did)
         .bind(dpop_key_id)
@@ -237,7 +237,7 @@ pub async fn delete_dpop_session(
         .map_err(|e| AppError::Internal(format!("failed to delete DPoP session: {e}")))?;
 
     let del_key_sql = adapt_sql("DELETE FROM happyview_dpop_keys WHERE id = ?", backend);
-    sqlx::query(&del_key_sql)
+    crate::db::query(&del_key_sql)
         .bind(dpop_key_id)
         .execute(pool)
         .await
@@ -257,7 +257,7 @@ pub async fn delete_all_dpop_sessions(
         "SELECT dpop_key_id FROM happyview_dpop_sessions WHERE api_client_id = ? AND user_did = ?",
         backend,
     );
-    let key_ids: Vec<(String,)> = sqlx::query_as(&key_ids_sql)
+    let key_ids: Vec<(String,)> = crate::db::query_as(&key_ids_sql)
         .bind(api_client_id)
         .bind(user_did)
         .fetch_all(pool)
@@ -268,7 +268,7 @@ pub async fn delete_all_dpop_sessions(
         "DELETE FROM happyview_dpop_sessions WHERE api_client_id = ? AND user_did = ?",
         backend,
     );
-    sqlx::query(&del_sessions_sql)
+    crate::db::query(&del_sessions_sql)
         .bind(api_client_id)
         .bind(user_did)
         .execute(pool)
@@ -277,7 +277,10 @@ pub async fn delete_all_dpop_sessions(
 
     let del_key_sql = adapt_sql("DELETE FROM happyview_dpop_keys WHERE id = ?", backend);
     for (key_id,) in key_ids {
-        let _ = sqlx::query(&del_key_sql).bind(&key_id).execute(pool).await;
+        let _ = crate::db::query(&del_key_sql)
+            .bind(&key_id)
+            .execute(pool)
+            .await;
     }
 
     Ok(())
@@ -295,7 +298,7 @@ pub async fn list_dpop_sessions(
         backend,
     );
 
-    let rows: Vec<(String, String, String, String, String)> = sqlx::query_as(&sql)
+    let rows: Vec<(String, String, String, String, String)> = crate::db::query_as(&sql)
         .bind(api_client_id)
         .bind(user_did)
         .fetch_all(pool)
@@ -341,7 +344,7 @@ pub async fn get_dpop_session_for_user(
         String,
         Option<String>,
         Option<String>,
-    )> = sqlx::query_as(&sql)
+    )> = crate::db::query_as(&sql)
         .bind(api_client_id)
         .bind(user_did)
         .fetch_optional(pool)
@@ -392,7 +395,7 @@ pub async fn delete_dpop_session_by_id(
         "SELECT dpop_key_id FROM happyview_dpop_sessions WHERE id = ? AND api_client_id = ? AND user_did = ?",
         backend,
     );
-    let row: Option<(String,)> = sqlx::query_as(&lookup_sql)
+    let row: Option<(String,)> = crate::db::query_as(&lookup_sql)
         .bind(session_id)
         .bind(api_client_id)
         .bind(user_did)
@@ -403,14 +406,14 @@ pub async fn delete_dpop_session_by_id(
     let (dpop_key_id,) = row.ok_or_else(|| AppError::NotFound("DPoP session not found".into()))?;
 
     let del_session_sql = adapt_sql("DELETE FROM happyview_dpop_sessions WHERE id = ?", backend);
-    sqlx::query(&del_session_sql)
+    crate::db::query(&del_session_sql)
         .bind(session_id)
         .execute(pool)
         .await
         .map_err(|e| AppError::Internal(format!("failed to delete DPoP session: {e}")))?;
 
     let del_key_sql = adapt_sql("DELETE FROM happyview_dpop_keys WHERE id = ?", backend);
-    sqlx::query(&del_key_sql)
+    crate::db::query(&del_key_sql)
         .bind(&dpop_key_id)
         .execute(pool)
         .await

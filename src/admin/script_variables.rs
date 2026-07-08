@@ -23,7 +23,7 @@ pub(super) async fn list(
         "SELECT key, value, created_at, updated_at FROM happyview_script_variables ORDER BY key",
         backend,
     );
-    let rows: Vec<(String, String, String, String)> = sqlx::query_as(&sql)
+    let rows: Vec<(String, String, String, String)> = crate::db::query_as(&sql)
         .fetch_all(&state.db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to list script variables: {e}")))?;
@@ -62,7 +62,7 @@ pub(super) async fn upsert(
         "#,
         backend,
     );
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&body.key)
         .bind(&body.value)
         .bind(&now)
@@ -101,7 +101,7 @@ pub(super) async fn delete(
         "DELETE FROM happyview_script_variables WHERE key = ?",
         backend,
     );
-    let result = sqlx::query(&sql)
+    let result = crate::db::query(&sql)
         .bind(&key)
         .execute(&state.db)
         .await

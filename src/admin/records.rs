@@ -80,7 +80,7 @@ pub(super) async fn list_records(
         "SELECT uri, did, collection, rkey, cid, indexed_at, record FROM happyview_records WHERE collection = ? ORDER BY indexed_at DESC LIMIT ? OFFSET ?",
         backend,
     );
-    let rows: Vec<RecordRow> = sqlx::query_as(&sql)
+    let rows: Vec<RecordRow> = crate::db::query_as(&sql)
         .bind(&params.collection)
         .bind(limit + 1)
         .bind(offset)
@@ -106,7 +106,7 @@ pub(super) async fn list_records(
             "SELECT uri, src, val, cts FROM happyview_labels WHERE uri IN ({ph_str}) AND (exp IS NULL OR exp > ?)"
         );
         let sql = adapt_sql(&raw_sql, backend);
-        let mut q = sqlx::query_as(&sql);
+        let mut q = crate::db::query_as(&sql);
         for uri in &uris {
             q = q.bind(*uri);
         }
@@ -190,7 +190,7 @@ pub(super) async fn delete_collection_records(
         "DELETE FROM happyview_records WHERE collection = ?",
         backend,
     );
-    let result = sqlx::query(&sql)
+    let result = crate::db::query(&sql)
         .bind(&params.collection)
         .execute(&state.db)
         .await
@@ -210,7 +210,7 @@ pub(super) async fn delete_record(
     auth.require(Permission::RecordsDelete).await?;
     let backend = state.db_backend;
     let sql = adapt_sql("DELETE FROM happyview_records WHERE uri = ?", backend);
-    let result = sqlx::query(&sql)
+    let result = crate::db::query(&sql)
         .bind(&params.uri)
         .execute(&state.db)
         .await
@@ -234,7 +234,7 @@ pub(super) async fn list_collections(
         "SELECT id FROM happyview_lexicons WHERE json_extract(lexicon_json, '$.defs.main.type') = 'record' ORDER BY id",
         state.db_backend,
     );
-    let rows: Vec<(String,)> = sqlx::query_as(&sql)
+    let rows: Vec<(String,)> = crate::db::query_as(&sql)
         .fetch_all(&state.db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to list collections: {e}")))?;

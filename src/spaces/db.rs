@@ -22,7 +22,7 @@ pub async fn create_space(
         backend,
     );
 
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&space.id)
         .bind(&space.did)
         .bind(&space.authority_did)
@@ -54,7 +54,7 @@ pub async fn get_space(
         backend,
     );
 
-    let row: Option<SpaceRow> = sqlx::query_as(&sql)
+    let row: Option<SpaceRow> = crate::db::query_as(&sql)
         .bind(id)
         .fetch_optional(pool)
         .await
@@ -75,7 +75,7 @@ pub async fn get_space_by_address(
         backend,
     );
 
-    let row: Option<SpaceRow> = sqlx::query_as(&sql)
+    let row: Option<SpaceRow> = crate::db::query_as(&sql)
         .bind(did)
         .bind(type_nsid)
         .bind(skey)
@@ -96,7 +96,7 @@ pub async fn list_spaces_by_owner(
         backend,
     );
 
-    let rows: Vec<SpaceRow> = sqlx::query_as(&sql)
+    let rows: Vec<SpaceRow> = crate::db::query_as(&sql)
         .bind(authority_did)
         .fetch_all(pool)
         .await
@@ -132,7 +132,7 @@ pub async fn list_spaces_for_user(
         )
     };
 
-    let mut query = sqlx::query_as::<_, (String, String, String, String, String)>(&sql).bind(did);
+    let mut query = crate::db::query_as::<(String, String, String, String, String)>(&sql).bind(did);
     if let Some((ref ts, ref uri)) = decoded_cursor {
         query = query.bind(ts.as_str()).bind(ts.as_str()).bind(uri.as_str());
     }
@@ -179,7 +179,7 @@ pub async fn update_space(
         backend,
     );
 
-    let result = sqlx::query(&sql)
+    let result = crate::db::query(&sql)
         .bind(&space.display_name)
         .bind(&space.description)
         .bind(space.mint_policy.as_str())
@@ -202,7 +202,7 @@ pub async fn delete_space(
 ) -> Result<bool, AppError> {
     let sql = adapt_sql("DELETE FROM happyview_spaces WHERE id = ?", backend);
 
-    let result = sqlx::query(&sql)
+    let result = crate::db::query(&sql)
         .bind(id)
         .execute(pool)
         .await
@@ -271,7 +271,7 @@ pub async fn add_member(
         backend,
     );
 
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&member.id)
         .bind(&member.space_id)
         .bind(&member.did)
@@ -297,7 +297,7 @@ pub async fn remove_member(
         backend,
     );
 
-    let result = sqlx::query(&sql)
+    let result = crate::db::query(&sql)
         .bind(space_id)
         .bind(did)
         .execute(pool)
@@ -305,6 +305,46 @@ pub async fn remove_member(
         .map_err(|e| AppError::Internal(format!("failed to remove member: {e}")))?;
 
     Ok(result.rows_affected() > 0)
+}
+
+/// Returns true if a space credential with the given token hash has been revoked.
+pub async fn is_space_credential_revoked(
+    pool: &sqlx::AnyPool,
+    backend: DatabaseBackend,
+    token_hash: &str,
+) -> Result<bool, AppError> {
+    let sql = adapt_sql(
+        "SELECT revoked_at FROM happyview_space_credentials WHERE token_hash = ? AND revoked_at IS NOT NULL LIMIT 1",
+        backend,
+    );
+    let row: Option<(String,)> = crate::db::query_as(&sql)
+        .bind(token_hash)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to check credential revocation: {e}")))?;
+    Ok(row.is_some())
+}
+
+/// Revoke all active space credentials issued to `did` within `space_id`.
+/// Returns the number of credentials revoked.
+pub async fn revoke_space_credentials_for_member(
+    pool: &sqlx::AnyPool,
+    backend: DatabaseBackend,
+    space_id: &str,
+    did: &str,
+) -> Result<u64, AppError> {
+    let sql = adapt_sql(
+        "UPDATE happyview_space_credentials SET revoked_at = ? WHERE space_id = ? AND issued_to = ? AND revoked_at IS NULL",
+        backend,
+    );
+    let result = crate::db::query(&sql)
+        .bind(now_rfc3339())
+        .bind(space_id)
+        .bind(did)
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to revoke space credentials: {e}")))?;
+    Ok(result.rows_affected())
 }
 
 pub async fn get_member(
@@ -318,7 +358,7 @@ pub async fn get_member(
         backend,
     );
 
-    let row: Option<MemberRow> = sqlx::query_as(&sql)
+    let row: Option<MemberRow> = crate::db::query_as(&sql)
         .bind(space_id)
         .bind(did)
         .fetch_optional(pool)
@@ -338,7 +378,7 @@ pub async fn list_direct_members(
         backend,
     );
 
-    let rows: Vec<MemberRow> = sqlx::query_as(&sql)
+    let rows: Vec<MemberRow> = crate::db::query_as(&sql)
         .bind(space_id)
         .fetch_all(pool)
         .await
@@ -357,7 +397,7 @@ pub async fn list_spaces_for_member(
         backend,
     );
 
-    let rows: Vec<MemberRow> = sqlx::query_as(&sql)
+    let rows: Vec<MemberRow> = crate::db::query_as(&sql)
         .bind(did)
         .fetch_all(pool)
         .await
@@ -406,7 +446,7 @@ pub async fn upsert_space_record(
         ),
     };
 
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&record.uri)
         .bind(&record.space_id)
         .bind(&record.author_did)
@@ -432,7 +472,7 @@ pub async fn get_space_record(
         backend,
     );
 
-    let row: Option<RecordRow> = sqlx::query_as(&sql)
+    let row: Option<RecordRow> = crate::db::query_as(&sql)
         .bind(uri)
         .fetch_optional(pool)
         .await
@@ -453,7 +493,7 @@ pub async fn get_space_record_by_parts(
         backend,
     );
 
-    let row: Option<RecordRow> = sqlx::query_as(&sql)
+    let row: Option<RecordRow> = crate::db::query_as(&sql)
         .bind(space_id)
         .bind(collection)
         .bind(rkey)
@@ -498,7 +538,7 @@ pub async fn list_space_records(
     );
     let sql = adapt_sql(&raw, backend);
 
-    let mut query = sqlx::query_as::<_, RecordRow>(&sql).bind(space_id);
+    let mut query = crate::db::query_as::<RecordRow>(&sql).bind(space_id);
     if let Some(r) = repo {
         query = query.bind(r);
     }
@@ -540,7 +580,7 @@ pub async fn list_all_space_records(
         backend,
     );
 
-    let rows: Vec<RecordRow> = sqlx::query_as(&sql)
+    let rows: Vec<RecordRow> = crate::db::query_as(&sql)
         .bind(space_id)
         .bind(author_did)
         .fetch_all(pool)
@@ -564,7 +604,7 @@ pub async fn insert_space_record(
         backend,
     );
 
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&record.uri)
         .bind(&record.space_id)
         .bind(&record.author_did)
@@ -602,7 +642,7 @@ pub async fn upsert_space_record_with_swap(
         backend,
     );
 
-    let result = sqlx::query(&sql)
+    let result = crate::db::query(&sql)
         .bind(&record_json)
         .bind(&record.cid)
         .bind(&now)
@@ -630,7 +670,7 @@ pub async fn delete_space_record(
 ) -> Result<bool, AppError> {
     let sql = adapt_sql("DELETE FROM happyview_space_records WHERE uri = ?", backend);
 
-    let result = sqlx::query(&sql)
+    let result = crate::db::query(&sql)
         .bind(uri)
         .execute(pool)
         .await
@@ -650,7 +690,7 @@ pub async fn delete_space_record_with_swap(
         backend,
     );
 
-    let result = sqlx::query(&sql)
+    let result = crate::db::query(&sql)
         .bind(uri)
         .bind(swap_cid)
         .execute(pool)
@@ -680,7 +720,7 @@ pub async fn update_space_revision(
         backend,
     );
 
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(revision)
         .bind(&now)
         .bind(space_id)
@@ -706,7 +746,7 @@ pub async fn get_or_create_repo_state(
         backend,
     );
 
-    let row: Option<RepoStateRow> = sqlx::query_as(&sql)
+    let row: Option<RepoStateRow> = crate::db::query_as(&sql)
         .bind(space_id)
         .bind(author_did)
         .fetch_optional(pool)
@@ -724,7 +764,7 @@ pub async fn get_or_create_repo_state(
         "INSERT INTO happyview_space_repo_state (id, space_id, author_did, lthash_state, rev, hash, ikm, sig, mac, updated_at) VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?)",
         backend,
     );
-    sqlx::query(&insert_sql)
+    crate::db::query(&insert_sql)
         .bind(&id)
         .bind(space_id)
         .bind(author_did)
@@ -759,7 +799,7 @@ pub async fn update_repo_state(
         backend,
     );
 
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&state.lthash_state)
         .bind(&state.rev)
         .bind(&state.hash)
@@ -818,7 +858,7 @@ pub async fn register_notify(
         backend,
     );
 
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&reg.id)
         .bind(&reg.space_id)
         .bind(&reg.author_did)
@@ -851,7 +891,7 @@ pub async fn list_notify_registrations(
         )
     };
 
-    let mut query = sqlx::query_as::<_, NotifyRow>(&sql).bind(space_id);
+    let mut query = crate::db::query_as::<NotifyRow>(&sql).bind(space_id);
     if let Some(did) = author_did {
         query = query.bind(did);
     }
@@ -874,7 +914,7 @@ pub async fn delete_notify_registration(
         backend,
     );
 
-    let result = sqlx::query(&sql)
+    let result = crate::db::query(&sql)
         .bind(id)
         .execute(pool)
         .await
@@ -946,7 +986,7 @@ pub async fn find_blob_author_did(
         "SELECT author_did FROM happyview_space_records WHERE space_id = ? AND record LIKE ? LIMIT 1",
         backend,
     );
-    let row: Option<(String,)> = sqlx::query_as(&sql)
+    let row: Option<(String,)> = crate::db::query_as(&sql)
         .bind(space_id)
         .bind(&pattern)
         .fetch_optional(pool)
@@ -969,7 +1009,7 @@ pub async fn list_space_repos(
         backend,
     );
 
-    let rows: Vec<(String, Option<String>)> = sqlx::query_as(&sql)
+    let rows: Vec<(String, Option<String>)> = crate::db::query_as(&sql)
         .bind(space_id)
         .fetch_all(pool)
         .await
@@ -996,7 +1036,7 @@ pub async fn create_invite(
         backend,
     );
 
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&invite.id)
         .bind(&invite.space_id)
         .bind(&invite.token_hash)
@@ -1024,7 +1064,7 @@ pub async fn get_invite_by_token_hash(
         backend,
     );
 
-    let row: Option<InviteRow> = sqlx::query_as(&sql)
+    let row: Option<InviteRow> = crate::db::query_as(&sql)
         .bind(token_hash)
         .fetch_optional(pool)
         .await
@@ -1043,7 +1083,7 @@ pub async fn increment_invite_uses(
         backend,
     );
 
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(invite_id)
         .execute(pool)
         .await
@@ -1062,7 +1102,7 @@ pub async fn revoke_invite(
         backend,
     );
 
-    let result = sqlx::query(&sql)
+    let result = crate::db::query(&sql)
         .bind(invite_id)
         .execute(pool)
         .await
@@ -1081,7 +1121,7 @@ pub async fn list_invites(
         backend,
     );
 
-    let rows: Vec<InviteRow> = sqlx::query_as(&sql)
+    let rows: Vec<InviteRow> = crate::db::query_as(&sql)
         .bind(space_id)
         .fetch_all(pool)
         .await

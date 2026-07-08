@@ -214,6 +214,8 @@ local sig = atproto.sign(record)
 
 Signs a record and returns the inline signature object. Only available when an attestation signer is configured — if no signer is configured, `atproto.sign` is `nil`.
 
+> **Privileged capability.** This signs *exactly* the content you pass with the instance's key; it proves only that this instance signed the content, not that the content is authentic. Only sign data you have verified, and be careful in scripts that run on untrusted input (record-event/label scripts, anonymous queries). See [Attestation Signing — Security considerations](../../guides/attestation-signing.md#security-considerations).
+
 | Parameter | Type  | Description             |
 | --------- | ----- | ----------------------- |
 | `record`  | table | The record data to sign |

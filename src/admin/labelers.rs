@@ -23,7 +23,7 @@ pub(super) async fn list(
         "SELECT did, status, cursor, created_at, updated_at FROM happyview_labeler_subscriptions ORDER BY created_at",
         backend,
     );
-    let rows: Vec<(String, String, Option<i64>, String, String)> = sqlx::query_as(&sql)
+    let rows: Vec<(String, String, Option<i64>, String, String)> = crate::db::query_as(&sql)
         .fetch_all(&state.db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to list labeler subscriptions: {e}")))?;
@@ -62,7 +62,7 @@ pub(super) async fn add(
         "#,
         backend,
     );
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&body.did)
         .bind(&now)
         .bind(&now)
@@ -104,7 +104,7 @@ pub(super) async fn update(
         "UPDATE happyview_labeler_subscriptions SET status = ?, updated_at = ? WHERE did = ?",
         backend,
     );
-    let result = sqlx::query(&sql)
+    let result = crate::db::query(&sql)
         .bind(&body.status)
         .bind(&now)
         .bind(&did)
@@ -149,7 +149,7 @@ pub(super) async fn delete(
         "DELETE FROM happyview_labeler_subscriptions WHERE did = ?",
         backend,
     );
-    let result = sqlx::query(&delete_sql)
+    let result = crate::db::query(&delete_sql)
         .bind(&did)
         .execute(&state.db)
         .await
@@ -163,7 +163,7 @@ pub(super) async fn delete(
 
     // Also remove all labels from this labeler.
     let delete_labels_sql = adapt_sql("DELETE FROM happyview_labels WHERE src = ?", backend);
-    let _ = sqlx::query(&delete_labels_sql)
+    let _ = crate::db::query(&delete_labels_sql)
         .bind(&did)
         .execute(&state.db)
         .await;

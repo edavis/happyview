@@ -51,7 +51,7 @@ async fn load_cursor(db: &AnyPool, backend: DatabaseBackend) -> Option<i64> {
         "SELECT value FROM happyview_instance_settings WHERE key = ?",
         backend,
     );
-    let row: Option<(String,)> = sqlx::query_as(&sql)
+    let row: Option<(String,)> = crate::db::query_as(&sql)
         .bind("jetstream_cursor")
         .fetch_optional(db)
         .await
@@ -69,7 +69,7 @@ async fn save_cursor(db: &AnyPool, backend: DatabaseBackend, cursor: i64) {
         "#,
         backend,
     );
-    if let Err(e) = sqlx::query(&sql)
+    if let Err(e) = crate::db::query(&sql)
         .bind("jetstream_cursor")
         .bind(cursor.to_string())
         .bind(&now)

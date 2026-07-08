@@ -64,7 +64,7 @@ pub async fn create_api_client(
         "SELECT parent_client_id, created_by FROM happyview_api_clients WHERE id = ?",
         state.db_backend,
     );
-    let parent_row: Option<(Option<String>, String)> = sqlx::query_as(&parent_check_sql)
+    let parent_row: Option<(Option<String>, String)> = crate::db::query_as(&parent_check_sql)
         .bind(&parent_client.id)
         .fetch_optional(&state.db)
         .await
@@ -94,7 +94,7 @@ pub async fn create_api_client(
         "SELECT id FROM happyview_api_clients WHERE client_id_url = ?",
         state.db_backend,
     );
-    let dup: Option<(String,)> = sqlx::query_as(&dup_check_sql)
+    let dup: Option<(String,)> = crate::db::query_as(&dup_check_sql)
         .bind(&input.client_id_url)
         .fetch_optional(&state.db)
         .await
@@ -108,12 +108,12 @@ pub async fn create_api_client(
 
     // 6. Generate `hvc_` client key and optional `hvs_` client secret
     let mut random_bytes = [0u8; 16];
-    rand::rng().fill(&mut random_bytes);
+    rand::rng().fill_bytes(&mut random_bytes);
     let child_client_key = format!("hvc_{}", hex::encode(random_bytes));
 
     let (client_secret, client_secret_hash) = if input.client_type == "confidential" {
         let mut secret_bytes = [0u8; 32];
-        rand::rng().fill(&mut secret_bytes);
+        rand::rng().fill_bytes(&mut secret_bytes);
         let secret = format!("hvs_{}", hex::encode(secret_bytes));
         let hash = hex::encode(Sha256::digest(secret.as_bytes()));
         (Some(secret), hash)
@@ -135,7 +135,7 @@ pub async fn create_api_client(
         "INSERT INTO happyview_api_clients (id, client_key, client_secret_hash, name, client_id_url, client_uri, redirect_uris, scopes, rate_limit_capacity, rate_limit_refill_rate, client_type, allowed_origins, is_active, created_by, created_at, updated_at, parent_client_id, owner_did) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, 1, ?, ?, ?, ?, ?)",
         state.db_backend,
     );
-    sqlx::query(&insert_sql)
+    crate::db::query(&insert_sql)
         .bind(&id)
         .bind(&child_client_key)
         .bind(&client_secret_hash)

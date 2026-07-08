@@ -368,7 +368,7 @@ async fn labeler_delete_removes_labels() {
         "INSERT INTO happyview_labels (src, uri, val, cts) VALUES (?, ?, ?, ?)",
         backend,
     );
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind("did:plc:lab1")
         .bind("at://did:plc:user/test.collection/rkey1")
         .bind("adult-content")
@@ -393,7 +393,7 @@ async fn labeler_delete_removes_labels() {
         "SELECT COUNT(*) FROM happyview_labels WHERE src = ?",
         backend,
     );
-    let count: (i64,) = sqlx::query_as(&sql)
+    let count: (i64,) = happyview::db::query_as(&sql)
         .bind("did:plc:lab1")
         .fetch_one(&app.state.db)
         .await

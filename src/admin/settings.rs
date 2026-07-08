@@ -40,7 +40,7 @@ pub async fn get_setting(pool: &AnyPool, key: &str, backend: DatabaseBackend) ->
         "SELECT value FROM happyview_instance_settings WHERE key = ?",
         backend,
     );
-    let row: Option<(String,)> = sqlx::query_as(&sql)
+    let row: Option<(String,)> = crate::db::query_as(&sql)
         .bind(key)
         .fetch_optional(pool)
         .await
@@ -73,7 +73,7 @@ pub(super) async fn list(
         "SELECT key, value FROM happyview_instance_settings ORDER BY key",
         backend,
     );
-    let rows: Vec<(String, String)> = sqlx::query_as(&sql)
+    let rows: Vec<(String, String)> = crate::db::query_as(&sql)
         .fetch_all(&state.db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to list settings: {e}")))?;
@@ -124,7 +124,7 @@ pub(super) async fn upsert(
         "#,
         backend,
     );
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&key)
         .bind(&body.value)
         .bind(&now)
@@ -163,7 +163,7 @@ pub(super) async fn delete(
         "DELETE FROM happyview_instance_settings WHERE key = ?",
         backend,
     );
-    let result = sqlx::query(&sql)
+    let result = crate::db::query(&sql)
         .bind(&key)
         .execute(&state.db)
         .await
@@ -197,7 +197,7 @@ pub(super) async fn db_info(
     auth.require(Permission::SettingsManage).await?;
 
     let server_max: Option<i64> = if state.db_backend == DatabaseBackend::Postgres {
-        sqlx::query_as::<_, (String,)>("SHOW max_connections")
+        crate::db::query_as::<(String,)>("SHOW max_connections")
             .fetch_optional(&state.db)
             .await
             .ok()
@@ -290,7 +290,7 @@ pub(super) async fn upload_logo(
         ("logo_data", encoded.as_str()),
         ("logo_content_type", content_type.as_str()),
     ] {
-        sqlx::query(&sql)
+        crate::db::query(&sql)
             .bind(key)
             .bind(value)
             .bind(&now)
@@ -329,7 +329,7 @@ pub(super) async fn delete_logo(
         "DELETE FROM happyview_instance_settings WHERE key IN (?, ?)",
         backend,
     );
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind("logo_data")
         .bind("logo_content_type")
         .execute(&state.db)
@@ -361,7 +361,7 @@ pub(crate) async fn serve_logo(
         "SELECT key, value FROM happyview_instance_settings WHERE key IN (?, ?)",
         backend,
     );
-    let rows: Vec<(String, String)> = sqlx::query_as(&sql)
+    let rows: Vec<(String, String)> = crate::db::query_as(&sql)
         .bind("logo_data")
         .bind("logo_content_type")
         .fetch_all(&state.db)

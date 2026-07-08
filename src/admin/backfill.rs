@@ -12,7 +12,7 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use rand::Rng;
+use rand::RngExt;
 
 use crate::AppState;
 use crate::db::{adapt_sql, now_rfc3339};
@@ -62,7 +62,7 @@ async fn set_stage(state: &AppState, job_id: &str, stage: &str) {
         "UPDATE happyview_backfill_jobs SET stage = ? WHERE id = ?",
         state.db_backend,
     );
-    let _ = sqlx::query(&sql)
+    let _ = crate::db::query(&sql)
         .bind(stage)
         .bind(job_id)
         .execute(&state.backfill_db)
@@ -91,7 +91,7 @@ async fn update_job_counter(state: &AppState, job_id: &str, column: &str, value:
         }
     };
     let sql = adapt_sql(query, state.db_backend);
-    let _ = sqlx::query(&sql)
+    let _ = crate::db::query(&sql)
         .bind(value)
         .bind(job_id)
         .execute(&state.backfill_db)
@@ -103,7 +103,7 @@ async fn count_repos(state: &AppState, job_id: &str) -> i32 {
         "SELECT COUNT(*) FROM happyview_backfill_repos WHERE job_id = ?",
         state.db_backend,
     );
-    sqlx::query_as::<_, (i32,)>(&sql)
+    crate::db::query_as::<(i32,)>(&sql)
         .bind(job_id)
         .fetch_one(&state.backfill_db)
         .await
@@ -163,7 +163,7 @@ async fn fail_job(state: &AppState, job_id: &str, error: &str) {
         "UPDATE happyview_backfill_jobs SET status = 'failed', completed_at = ?, error = ? WHERE id = ?",
         state.db_backend,
     );
-    let _ = sqlx::query(&sql)
+    let _ = crate::db::query(&sql)
         .bind(&now)
         .bind(error)
         .bind(job_id)
@@ -184,7 +184,7 @@ async fn should_stop(state: &AppState, job_id: &str) -> Option<&'static str> {
         "SELECT status FROM happyview_backfill_jobs WHERE id = ?",
         state.db_backend,
     );
-    let status = sqlx::query_as::<_, (String,)>(&sql)
+    let status = crate::db::query_as::<(String,)>(&sql)
         .bind(job_id)
         .fetch_optional(&state.backfill_db)
         .await
@@ -207,7 +207,7 @@ async fn request_cancel(state: &AppState, job_id: &str) {
         "UPDATE happyview_backfill_jobs SET status = 'cancelling' WHERE id = ? AND status IN ('running', 'paused')",
         state.db_backend,
     );
-    let _ = sqlx::query(&sql)
+    let _ = crate::db::query(&sql)
         .bind(job_id)
         .execute(&state.backfill_db)
         .await;
@@ -219,7 +219,7 @@ async fn finalise_cancel(state: &AppState, job_id: &str) {
         "UPDATE happyview_backfill_jobs SET status = 'cancelled', completed_at = ?, error = 'cancelled by user' WHERE id = ?",
         state.db_backend,
     );
-    let _ = sqlx::query(&sql)
+    let _ = crate::db::query(&sql)
         .bind(&now)
         .bind(job_id)
         .execute(&state.backfill_db)
@@ -239,7 +239,7 @@ async fn request_pause(state: &AppState, job_id: &str) {
         "UPDATE happyview_backfill_jobs SET status = 'pausing' WHERE id = ? AND status = 'running'",
         state.db_backend,
     );
-    let _ = sqlx::query(&sql)
+    let _ = crate::db::query(&sql)
         .bind(job_id)
         .execute(&state.backfill_db)
         .await;
@@ -250,7 +250,7 @@ async fn finalise_pause(state: &AppState, job_id: &str) {
         "UPDATE happyview_backfill_jobs SET status = 'paused' WHERE id = ?",
         state.db_backend,
     );
-    let _ = sqlx::query(&sql)
+    let _ = crate::db::query(&sql)
         .bind(job_id)
         .execute(&state.backfill_db)
         .await;
@@ -276,7 +276,7 @@ async fn complete_job(
         "UPDATE happyview_backfill_jobs SET status = 'completed', stage = 'completed', completed_at = ?, processed_repos = ?, total_records = ?, error = ? WHERE id = ?",
         state.db_backend,
     );
-    let _ = sqlx::query(&sql)
+    let _ = crate::db::query(&sql)
         .bind(&now)
         .bind(processed_repos)
         .bind(total_records)
@@ -311,7 +311,7 @@ async fn run_discovery_phase(
             "INSERT INTO happyview_backfill_repos (job_id, did) VALUES (?, ?) ON CONFLICT DO NOTHING",
             state.db_backend,
         );
-        let _ = sqlx::query(&sql)
+        let _ = crate::db::query(&sql)
             .bind(job_id)
             .bind(did)
             .execute(&state.backfill_db)
@@ -422,7 +422,7 @@ async fn discover_repos_from_relay(
                     placeholders.join(", ")
                 );
 
-                let mut query = sqlx::query(&sql);
+                let mut query = crate::db::query(&sql);
                 for repo in chunk {
                     query = query.bind(job_id).bind(&repo.did);
                 }
@@ -475,7 +475,7 @@ async fn run_pipelined_resolve_and_fetch(
             "SELECT COUNT(*) FROM happyview_backfill_repos WHERE job_id = ? AND pds_endpoint IS NOT NULL",
             state.db_backend,
         );
-        sqlx::query_as::<_, (i32,)>(&sql)
+        crate::db::query_as::<(i32,)>(&sql)
             .bind(job_id)
             .fetch_one(&state.backfill_db)
             .await
@@ -488,7 +488,7 @@ async fn run_pipelined_resolve_and_fetch(
             "SELECT COUNT(*) FROM happyview_backfill_repos WHERE job_id = ? AND status = 'completed'",
             state.db_backend,
         );
-        sqlx::query_as::<_, (i32,)>(&sql)
+        crate::db::query_as::<(i32,)>(&sql)
             .bind(job_id)
             .fetch_one(&state.backfill_db)
             .await
@@ -504,7 +504,7 @@ async fn run_pipelined_resolve_and_fetch(
             "SELECT total_records FROM happyview_backfill_jobs WHERE id = ?",
             state.db_backend,
         );
-        sqlx::query_as::<_, (Option<i32>,)>(&sql)
+        crate::db::query_as::<(Option<i32>,)>(&sql)
             .bind(job_id)
             .fetch_one(&state.backfill_db)
             .await
@@ -534,7 +534,7 @@ async fn run_pipelined_resolve_and_fetch(
             "SELECT did FROM happyview_backfill_repos WHERE job_id = ? AND pds_endpoint IS NULL",
             resolver_state.db_backend,
         );
-        let unresolved: Vec<(String,)> = sqlx::query_as(&sql)
+        let unresolved: Vec<(String,)> = crate::db::query_as(&sql)
             .bind(&resolver_job_id)
             .fetch_all(&resolver_state.backfill_db)
             .await
@@ -573,7 +573,7 @@ async fn run_pipelined_resolve_and_fetch(
                         "UPDATE happyview_backfill_repos SET pds_endpoint = ? WHERE job_id = ? AND did = ?",
                         resolver_state.db_backend,
                     );
-                    let _ = sqlx::query(&sql)
+                    let _ = crate::db::query(&sql)
                         .bind(&pds)
                         .bind(&resolver_job_id)
                         .bind(&did)
@@ -647,7 +647,7 @@ async fn run_pipelined_resolve_and_fetch(
         "SELECT did, pds_endpoint FROM happyview_backfill_repos WHERE job_id = ? AND status = 'pending' AND pds_endpoint IS NOT NULL",
         state.db_backend,
     );
-    let pending_rows: Vec<(String, String)> = sqlx::query_as(&pending_sql)
+    let pending_rows: Vec<(String, String)> = crate::db::query_as(&pending_sql)
         .bind(job_id)
         .fetch_all(&state.backfill_db)
         .await
@@ -830,7 +830,7 @@ async fn run_pipelined_resolve_and_fetch(
         "UPDATE happyview_backfill_jobs SET processed_repos = ?, total_records = ? WHERE id = ?",
         state.db_backend,
     );
-    let _ = sqlx::query(&sql)
+    let _ = crate::db::query(&sql)
         .bind(final_repos)
         .bind(final_records)
         .bind(job_id)
@@ -877,7 +877,7 @@ async fn run_pds_worker(ctx: FetchContext, pds_endpoint: String, mut rx: mpsc::R
                     "UPDATE happyview_backfill_repos SET status = 'completed', records_fetched = ? WHERE job_id = ? AND did = ?",
                     state.db_backend,
                 );
-                let _ = sqlx::query(&sql)
+                let _ = crate::db::query(&sql)
                     .bind(records)
                     .bind(job_id.as_str())
                     .bind(&did)
@@ -898,7 +898,7 @@ async fn run_pds_worker(ctx: FetchContext, pds_endpoint: String, mut rx: mpsc::R
                         "UPDATE happyview_backfill_jobs SET processed_repos = ?, total_records = ? WHERE id = ?",
                         state.db_backend,
                     );
-                    let _ = sqlx::query(&sql)
+                    let _ = crate::db::query(&sql)
                         .bind(repos)
                         .bind(records)
                         .bind(job_id.as_str())
@@ -976,7 +976,7 @@ async fn run_pds_worker(ctx: FetchContext, pds_endpoint: String, mut rx: mpsc::R
             "UPDATE happyview_backfill_repos SET status = 'completed', records_fetched = ? WHERE job_id = ? AND did = ?",
             state.db_backend,
         );
-        let _ = sqlx::query(&sql)
+        let _ = crate::db::query(&sql)
             .bind(records)
             .bind(job_id.as_str())
             .bind(&did)
@@ -1014,7 +1014,7 @@ async fn run_fetching_phase(
         "SELECT did, pds_endpoint FROM happyview_backfill_repos WHERE job_id = ? AND status = 'pending' AND pds_endpoint IS NOT NULL",
         state.db_backend,
     );
-    let rows: Vec<(String, String)> = sqlx::query_as(&sql)
+    let rows: Vec<(String, String)> = crate::db::query_as(&sql)
         .bind(job_id)
         .fetch_all(&state.backfill_db)
         .await
@@ -1030,7 +1030,7 @@ async fn run_fetching_phase(
         "SELECT COUNT(*) FROM happyview_backfill_repos WHERE job_id = ? AND status = 'completed'",
         state.db_backend,
     );
-    let already_completed: i32 = sqlx::query_as::<_, (i32,)>(&sql)
+    let already_completed: i32 = crate::db::query_as::<(i32,)>(&sql)
         .bind(job_id)
         .fetch_one(&state.backfill_db)
         .await
@@ -1046,7 +1046,7 @@ async fn run_fetching_phase(
             "SELECT total_records FROM happyview_backfill_jobs WHERE id = ?",
             state.db_backend,
         );
-        sqlx::query_as::<_, (Option<i32>,)>(&sql)
+        crate::db::query_as::<(Option<i32>,)>(&sql)
             .bind(job_id)
             .fetch_one(&state.backfill_db)
             .await
@@ -1130,7 +1130,7 @@ async fn run_fetching_phase(
                                 "UPDATE happyview_backfill_repos SET status = 'completed', records_fetched = ? WHERE job_id = ? AND did = ?",
                                 state.db_backend,
                             );
-                            let _ = sqlx::query(&sql)
+                            let _ = crate::db::query(&sql)
                                 .bind(did_records)
                                 .bind(job_id.as_str())
                                 .bind(&did)
@@ -1149,7 +1149,7 @@ async fn run_fetching_phase(
                                     "UPDATE happyview_backfill_jobs SET processed_repos = ?, total_records = ? WHERE id = ?",
                                     backend,
                                 );
-                                let _ = sqlx::query(&sql)
+                                let _ = crate::db::query(&sql)
                                     .bind(repos)
                                     .bind(records)
                                     .bind(job_id.as_str())
@@ -1183,7 +1183,7 @@ async fn run_fetching_phase(
         "UPDATE happyview_backfill_jobs SET processed_repos = ?, total_records = ? WHERE id = ?",
         state.db_backend,
     );
-    let _ = sqlx::query(&sql)
+    let _ = crate::db::query(&sql)
         .bind(final_repos)
         .bind(final_records)
         .bind(job_id)
@@ -1220,7 +1220,7 @@ async fn batch_upsert_records(state: &AppState, batch: &[PreparedRecord]) {
     );
     let sql = adapt_sql(&raw_sql, backend);
 
-    let mut query = sqlx::query(&sql);
+    let mut query = crate::db::query(&sql);
     for rec in batch {
         query = query
             .bind(&rec.uri)
@@ -1245,7 +1245,7 @@ async fn batch_upsert_records(state: &AppState, batch: &[PreparedRecord]) {
         delete_placeholders.join(", ")
     );
     let delete_sql = adapt_sql(&delete_raw, backend);
-    let mut del_query = sqlx::query(&delete_sql);
+    let mut del_query = crate::db::query(&delete_sql);
     for uri in &uris {
         del_query = del_query.bind(*uri);
     }
@@ -1269,7 +1269,7 @@ async fn batch_upsert_records(state: &AppState, batch: &[PreparedRecord]) {
             ref_placeholders.join(", ")
         );
         let ref_sql = adapt_sql(&ref_raw, backend);
-        let mut ref_query = sqlx::query(&ref_sql);
+        let mut ref_query = crate::db::query(&ref_sql);
         for (source, target, collection) in chunk {
             ref_query = ref_query.bind(*source).bind(target).bind(*collection);
         }
@@ -1278,7 +1278,7 @@ async fn batch_upsert_records(state: &AppState, batch: &[PreparedRecord]) {
 
     // Queue label backfill only if there are active labeler subscriptions.
     // Check once per batch instead of spawning a task per record.
-    let has_subscriptions: bool = sqlx::query_as::<_, (i64,)>(
+    let has_subscriptions: bool = crate::db::query_as::<(i64,)>(
         "SELECT COUNT(*) FROM happyview_labeler_subscriptions WHERE status = 'active'",
     )
     .fetch_one(&state.db)
@@ -1398,7 +1398,7 @@ async fn run_backfill_job(state: AppState, job_id: String) {
         "SELECT collection, did, stage FROM happyview_backfill_jobs WHERE id = ?",
         backend,
     );
-    let job: Option<(Option<String>, Option<String>, String)> = sqlx::query_as(&sql)
+    let job: Option<(Option<String>, Option<String>, String)> = crate::db::query_as(&sql)
         .bind(&job_id)
         .fetch_optional(&state.backfill_db)
         .await
@@ -1428,7 +1428,10 @@ async fn run_backfill_job(state: AppState, job_id: String) {
             "SELECT id FROM happyview_lexicons WHERE json_extract(lexicon_json, '$.defs.main.type') = 'record'",
             backend,
         );
-        let rows: Vec<(String,)> = match sqlx::query_as(&sql).fetch_all(&state.backfill_db).await {
+        let rows: Vec<(String,)> = match crate::db::query_as(&sql)
+            .fetch_all(&state.backfill_db)
+            .await
+        {
             Ok(rows) => rows,
             Err(e) => {
                 let error = format!("failed to query backfill-eligible lexicons: {e}");
@@ -1556,7 +1559,7 @@ pub(super) async fn create_backfill(
         "INSERT INTO happyview_backfill_jobs (id, collection, did, status, stage, started_at, created_at) VALUES (?, ?, ?, 'running', 'pending', ?, ?) RETURNING id",
         backend,
     );
-    let row: (String,) = sqlx::query_as(&sql)
+    let row: (String,) = crate::db::query_as(&sql)
         .bind(&job_id)
         .bind(&body.collection)
         .bind(&body.did)
@@ -1610,7 +1613,7 @@ pub(super) async fn cancel_backfill(
         "SELECT status FROM happyview_backfill_jobs WHERE id = ?",
         state.db_backend,
     );
-    let row: Option<(String,)> = sqlx::query_as(&sql)
+    let row: Option<(String,)> = crate::db::query_as(&sql)
         .bind(&job_id)
         .fetch_optional(&state.db)
         .await
@@ -1675,7 +1678,7 @@ pub(super) async fn pause_backfill(
         "SELECT status FROM happyview_backfill_jobs WHERE id = ?",
         state.db_backend,
     );
-    let row: Option<(String,)> = sqlx::query_as(&sql)
+    let row: Option<(String,)> = crate::db::query_as(&sql)
         .bind(&job_id)
         .fetch_optional(&state.backfill_db)
         .await
@@ -1722,7 +1725,7 @@ pub(super) async fn resume_backfill(
         "SELECT status FROM happyview_backfill_jobs WHERE id = ?",
         state.db_backend,
     );
-    let row: Option<(String,)> = sqlx::query_as(&sql)
+    let row: Option<(String,)> = crate::db::query_as(&sql)
         .bind(&job_id)
         .fetch_optional(&state.backfill_db)
         .await
@@ -1738,7 +1741,7 @@ pub(super) async fn resume_backfill(
                 "UPDATE happyview_backfill_jobs SET status = 'running' WHERE id = ?",
                 state.db_backend,
             );
-            let _ = sqlx::query(&sql)
+            let _ = crate::db::query(&sql)
                 .bind(&job_id)
                 .execute(&state.backfill_db)
                 .await;
@@ -1795,7 +1798,7 @@ pub(super) async fn backfill_status(
         Option<String>,
         Option<String>,
         String,
-    )> = sqlx::query_as(&sql)
+    )> = crate::db::query_as(&sql)
         .fetch_all(&state.backfill_db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to list backfill jobs: {e}")))?;
@@ -1925,7 +1928,7 @@ pub(super) async fn backfill_repos(
     );
     let sql = adapt_sql(&sql_str, state.db_backend);
 
-    let mut q = sqlx::query_as::<_, (String, Option<String>, String, i32)>(&sql).bind(&job_id);
+    let mut q = crate::db::query_as::<(String, Option<String>, String, i32)>(&sql).bind(&job_id);
     if let Some(ref cursor) = query.cursor {
         q = q.bind(cursor);
     }
@@ -1971,7 +1974,7 @@ pub(super) async fn backfill_pds_summary(
         state.db_backend,
     );
 
-    let rows: Vec<(String, i32, i32, i64)> = sqlx::query_as(&sql)
+    let rows: Vec<(String, i32, i32, i64)> = crate::db::query_as(&sql)
         .bind(&job_id)
         .fetch_all(&state.backfill_db)
         .await
@@ -2009,7 +2012,7 @@ pub(super) async fn flush_backfill_details(
         "DELETE FROM happyview_backfill_repos WHERE job_id = ?",
         state.db_backend,
     );
-    let _ = sqlx::query(&sql)
+    let _ = crate::db::query(&sql)
         .bind(&job_id)
         .execute(&state.backfill_db)
         .await;
@@ -2027,7 +2030,7 @@ pub(super) async fn flush_all_backfill_details(
         "DELETE FROM happyview_backfill_repos WHERE job_id IN (SELECT id FROM happyview_backfill_jobs WHERE status IN ('completed', 'cancelled', 'failed'))",
         state.db_backend,
     );
-    let _ = sqlx::query(&sql).execute(&state.backfill_db).await;
+    let _ = crate::db::query(&sql).execute(&state.backfill_db).await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -2064,7 +2067,7 @@ pub async fn run_backfill_retention_cleanup(state: &AppState) {
             "DELETE FROM happyview_backfill_repos WHERE job_id IN (SELECT id FROM happyview_backfill_jobs WHERE completed_at IS NOT NULL AND completed_at < ?)",
             state.db_backend,
         );
-        match sqlx::query(&sql)
+        match crate::db::query(&sql)
             .bind(&cutoff_str)
             .execute(&state.backfill_db)
             .await
@@ -2097,7 +2100,7 @@ pub async fn resume_backfill_jobs(state: &AppState) {
         "SELECT id, status FROM happyview_backfill_jobs WHERE status IN ('running', 'cancelling', 'pausing')",
         state.db_backend,
     );
-    let rows: Vec<(String, String)> = sqlx::query_as(&sql)
+    let rows: Vec<(String, String)> = crate::db::query_as(&sql)
         .fetch_all(&state.backfill_db)
         .await
         .unwrap_or_default();

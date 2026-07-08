@@ -33,7 +33,7 @@ pub(super) async fn list(
         "SELECT id, url, is_primary, created_at, updated_at FROM happyview_domains ORDER BY created_at",
         state.db_backend,
     );
-    let rows: Vec<(String, String, i32, String, String)> = sqlx::query_as(&sql)
+    let rows: Vec<(String, String, i32, String, String)> = crate::db::query_as(&sql)
         .fetch_all(&state.db)
         .await
         .map_err(|e| AppError::Internal(format!("failed to list domains: {e}")))?;
@@ -84,7 +84,7 @@ pub(super) async fn create(
     }
 
     // Check for duplicates
-    let existing: Option<(String,)> = sqlx::query_as(&adapt_sql(
+    let existing: Option<(String,)> = crate::db::query_as(&adapt_sql(
         "SELECT id FROM happyview_domains WHERE url = ?",
         state.db_backend,
     ))
@@ -106,7 +106,7 @@ pub(super) async fn create(
         "INSERT INTO happyview_domains (id, url, is_primary, created_at, updated_at) VALUES (?, ?, 0, ?, ?)",
         state.db_backend,
     );
-    sqlx::query(&sql)
+    crate::db::query(&sql)
         .bind(&id)
         .bind(&url)
         .bind(&now)
@@ -198,7 +198,7 @@ pub(super) async fn delete(
         "SELECT id, url, is_primary, created_at, updated_at FROM happyview_domains WHERE id = ?",
         state.db_backend,
     );
-    let row: Option<(String, String, i32, String, String)> = sqlx::query_as(&sql)
+    let row: Option<(String, String, i32, String, String)> = crate::db::query_as(&sql)
         .bind(&id)
         .fetch_optional(&state.db)
         .await
@@ -217,7 +217,7 @@ pub(super) async fn delete(
         "DELETE FROM happyview_domains WHERE id = ?",
         state.db_backend,
     );
-    sqlx::query(&delete_sql)
+    crate::db::query(&delete_sql)
         .bind(&id)
         .execute(&state.db)
         .await
@@ -264,7 +264,7 @@ pub(super) async fn set_primary(
         "SELECT id, url, is_primary, created_at, updated_at FROM happyview_domains WHERE id = ?",
         state.db_backend,
     );
-    let row: Option<(String, String, i32, String, String)> = sqlx::query_as(&sql)
+    let row: Option<(String, String, i32, String, String)> = crate::db::query_as(&sql)
         .bind(&id)
         .fetch_optional(&state.db)
         .await
@@ -278,7 +278,7 @@ pub(super) async fn set_primary(
         "UPDATE happyview_domains SET is_primary = 0, updated_at = ? WHERE is_primary = 1",
         state.db_backend,
     );
-    sqlx::query(&unset_sql)
+    crate::db::query(&unset_sql)
         .bind(&now)
         .execute(&state.db)
         .await
@@ -288,7 +288,7 @@ pub(super) async fn set_primary(
         "UPDATE happyview_domains SET is_primary = 1, updated_at = ? WHERE id = ?",
         state.db_backend,
     );
-    sqlx::query(&set_sql)
+    crate::db::query(&set_sql)
         .bind(&now)
         .bind(&id)
         .execute(&state.db)

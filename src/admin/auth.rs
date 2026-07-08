@@ -57,7 +57,7 @@ impl UserAuth {
             "SELECT permission FROM happyview_user_permissions WHERE user_id = ?",
             backend,
         );
-        let rows: Vec<(String,)> = sqlx::query_as(&sql)
+        let rows: Vec<(String,)> = crate::db::query_as(&sql)
             .bind(user_id)
             .fetch_all(db)
             .await
@@ -110,7 +110,7 @@ impl FromRequestParts<AppState> for UserAuth {
         let did = claims.did().to_string();
         let backend = state.db_backend;
 
-        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM happyview_users")
+        let count: (i64,) = crate::db::query_as("SELECT COUNT(*) FROM happyview_users")
             .fetch_one(&state.db)
             .await
             .map_err(|e| AppError::Internal(format!("user count query failed: {e}")))?;
@@ -125,7 +125,7 @@ impl FromRequestParts<AppState> for UserAuth {
                 backend,
             );
 
-            let result = sqlx::query(&insert_sql)
+            let result = crate::db::query(&insert_sql)
                 .bind(&id)
                 .bind(&did)
                 .bind(1_i32)
@@ -139,7 +139,7 @@ impl FromRequestParts<AppState> for UserAuth {
                     backend,
                 );
                 for perm in Permission::all() {
-                    let _ = sqlx::query(&perm_sql)
+                    let _ = crate::db::query(&perm_sql)
                         .bind(&id)
                         .bind(perm.as_str())
                         .bind(&now)
@@ -168,7 +168,7 @@ impl FromRequestParts<AppState> for UserAuth {
             "SELECT id, is_super FROM happyview_users WHERE did = ?",
             backend,
         );
-        let found: Option<(String, i32)> = sqlx::query_as(&select_sql)
+        let found: Option<(String, i32)> = crate::db::query_as(&select_sql)
             .bind(&did)
             .fetch_optional(&state.db)
             .await
@@ -193,7 +193,7 @@ impl FromRequestParts<AppState> for UserAuth {
             backend,
         );
         tokio::spawn(async move {
-            let _ = sqlx::query(&update_sql)
+            let _ = crate::db::query(&update_sql)
                 .bind(&now)
                 .bind(&uid)
                 .execute(&db)
@@ -239,7 +239,7 @@ impl UserAuth {
             backend,
         );
 
-        let row: Option<(String, String, String, i32, String)> = sqlx::query_as(&select_sql)
+        let row: Option<(String, String, String, i32, String)> = crate::db::query_as(&select_sql)
             .bind(&hash)
             .fetch_optional(&state.db)
             .await
@@ -272,7 +272,7 @@ impl UserAuth {
             backend,
         );
         tokio::spawn(async move {
-            let _ = sqlx::query(&update_sql)
+            let _ = crate::db::query(&update_sql)
                 .bind(&now)
                 .bind(&key_id)
                 .execute(&db)

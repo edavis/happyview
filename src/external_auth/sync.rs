@@ -39,7 +39,7 @@ pub async fn process_sync_records(
                 db_backend,
             );
 
-            sqlx::query(&sql)
+            crate::db::query(&sql)
                 .bind(plugin_id)
                 .bind(user_did)
                 .bind(dedup_key)

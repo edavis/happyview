@@ -44,6 +44,25 @@ fn validate_session_secret(secret: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Parse the optional `TOKEN_ENCRYPTION_KEY`, distinguishing "unset"
+/// (`Ok(None)` — encryption-dependent features are simply off) from "set but
+/// invalid" (`Err`), so a botched key is reported loudly at startup instead of
+/// being silently discarded and failing per-call later (M12).
+fn parse_token_encryption_key(raw: Option<&str>) -> Result<Option<[u8; 32]>, String> {
+    use base64::Engine;
+    let raw = match raw {
+        None | Some("") => return Ok(None),
+        Some(s) => s,
+    };
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(raw)
+        .map_err(|e| format!("TOKEN_ENCRYPTION_KEY is not valid base64: {e}"))?;
+    let len = bytes.len();
+    <[u8; 32]>::try_from(bytes)
+        .map(Some)
+        .map_err(|_| format!("TOKEN_ENCRYPTION_KEY must decode to exactly 32 bytes (got {len})"))
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub host: String,
@@ -111,13 +130,20 @@ impl Config {
             logo_uri: env::var("LOGO_URI").ok(),
             tos_uri: env::var("TOS_URI").ok(),
             policy_uri: env::var("POLICY_URI").ok(),
-            token_encryption_key: env::var("TOKEN_ENCRYPTION_KEY").ok().and_then(|s| {
-                use base64::Engine;
-                base64::engine::general_purpose::STANDARD
-                    .decode(&s)
-                    .ok()
-                    .and_then(|bytes| bytes.try_into().ok())
-            }),
+            token_encryption_key: match parse_token_encryption_key(
+                env::var("TOKEN_ENCRYPTION_KEY").ok().as_deref(),
+            ) {
+                Ok(key) => key,
+                Err(reason) => {
+                    // Set-but-invalid is an operator mistake: surface it loudly at
+                    // startup instead of silently disabling encryption.
+                    tracing::error!(
+                        "{reason}. The key is being IGNORED — encryption-dependent features \
+                         (DPoP sessions, spaces, service identity) are DISABLED until it is fixed."
+                    );
+                    None
+                }
+            },
             default_rate_limit_capacity: env::var("DEFAULT_RATE_LIMIT_CAPACITY")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -291,6 +317,34 @@ mod tests {
             env::set_var("PUBLIC_URL", "http://127.0.0.1:3000");
         }
         Config::from_env();
+    }
+
+    #[test]
+    fn token_encryption_key_unset_or_empty_is_none() {
+        assert!(parse_token_encryption_key(None).unwrap().is_none());
+        assert!(parse_token_encryption_key(Some("")).unwrap().is_none());
+    }
+
+    #[test]
+    fn token_encryption_key_valid_32_bytes_parses() {
+        use base64::Engine;
+        let encoded = base64::engine::general_purpose::STANDARD.encode([7u8; 32]);
+        let parsed = parse_token_encryption_key(Some(&encoded)).unwrap().unwrap();
+        assert_eq!(parsed, [7u8; 32]);
+    }
+
+    #[test]
+    fn token_encryption_key_invalid_base64_is_err() {
+        assert!(parse_token_encryption_key(Some("not valid base64 @@@")).is_err());
+    }
+
+    #[test]
+    fn token_encryption_key_wrong_length_is_err() {
+        use base64::Engine;
+        // 16 bytes, not 32.
+        let encoded = base64::engine::general_purpose::STANDARD.encode([7u8; 16]);
+        let err = parse_token_encryption_key(Some(&encoded)).unwrap_err();
+        assert!(err.contains("32 bytes"), "got: {err}");
     }
 
     #[test]

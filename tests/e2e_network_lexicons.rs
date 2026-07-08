@@ -55,7 +55,7 @@ async fn seed_network_lexicon(app: &TestApp, nsid: &str, authority_did: &str) {
         backend,
     );
     let now = now_rfc3339();
-    sqlx::query(&sql)
+    happyview::db::query(&sql)
         .bind(nsid)
         .bind(serde_json::to_string(&lexicon_json).unwrap_or_default())
         .bind(authority_did)
@@ -139,7 +139,7 @@ async fn network_lexicon_delete_removes_tracking_and_lexicon() {
         "SELECT COUNT(*) FROM happyview_lexicons WHERE id = ? AND source = 'network'",
         backend,
     );
-    let count: (i64,) = sqlx::query_as(&sql)
+    let count: (i64,) = happyview::db::query_as(&sql)
         .bind(nsid)
         .fetch_one(&app.state.db)
         .await

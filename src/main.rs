@@ -53,14 +53,14 @@ async fn main() {
         let db_bg = db_pool.clone();
         let backend = db_backend;
         tokio::spawn(async move {
-            let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM happyview_record_refs")
+            let count: (i64,) = crate::db::query_as("SELECT COUNT(*) FROM happyview_record_refs")
                 .fetch_one(&db_bg)
                 .await
                 .expect("failed to count record_refs");
 
             if count.0 == 0 {
                 info!("backfilling record_refs table in background...");
-                let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM happyview_records")
+                let total: (i64,) = crate::db::query_as("SELECT COUNT(*) FROM happyview_records")
                     .fetch_one(&db_bg)
                     .await
                     .expect("failed to count records");
@@ -76,7 +76,7 @@ async fn main() {
                 );
 
                 loop {
-                    let batch: Vec<(String, String, String)> = sqlx::query_as(&query)
+                    let batch: Vec<(String, String, String)> = crate::db::query_as(&query)
                         .bind(batch_size)
                         .bind(offset)
                         .fetch_all(&db_bg)
@@ -120,7 +120,7 @@ async fn main() {
 
     // Re-fetch all network lexicons from their respective PDSes.
     let http = reqwest::Client::new();
-    let network_rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
+    let network_rows: Vec<(String, Option<String>, Option<String>)> = crate::db::query_as(
         "SELECT id, authority_did, target_collection FROM happyview_lexicons WHERE source = 'network'",
     )
     .fetch_all(&db_pool)
@@ -147,7 +147,7 @@ async fn main() {
                                 );
                                 let lexicon_json_str =
                                     serde_json::to_string(&lexicon_json).unwrap_or_default();
-                                if let Err(e) = sqlx::query(&update_sql)
+                                if let Err(e) = crate::db::query(&update_sql)
                                     .bind(&lexicon_json_str)
                                     .bind(&now)
                                     .bind(&now)
@@ -282,7 +282,7 @@ async fn main() {
             Option<f64>,
             Option<String>,
         );
-        let client_rows: Vec<ClientRow> = sqlx::query_as(
+        let client_rows: Vec<ClientRow> = crate::db::query_as(
             "SELECT client_key, client_secret_hash, client_uri, rate_limit_capacity, rate_limit_refill_rate, parent_client_id FROM happyview_api_clients WHERE is_active = 1",
         )
         .fetch_all(&db_pool)
@@ -328,7 +328,7 @@ async fn main() {
     {
         let count_sql =
             happyview::db::adapt_sql("SELECT COUNT(*) FROM happyview_domains", db_backend);
-        let row = sqlx::query(&count_sql)
+        let row = crate::db::query(&count_sql)
             .fetch_one(&db_pool)
             .await
             .expect("Failed to count domains");
@@ -341,7 +341,7 @@ async fn main() {
                 "INSERT INTO happyview_domains (id, url, is_primary, created_at, updated_at) VALUES (?, ?, 1, ?, ?)",
                 db_backend,
             );
-            sqlx::query(&insert_sql)
+            crate::db::query(&insert_sql)
                 .bind(&id)
                 .bind(&config.public_url)
                 .bind(&now)
@@ -356,7 +356,7 @@ async fn main() {
                 "SELECT id, url FROM happyview_domains WHERE is_primary = 1",
                 db_backend,
             );
-            if let Some(row) = sqlx::query(&primary_sql)
+            if let Some(row) = crate::db::query(&primary_sql)
                 .fetch_optional(&db_pool)
                 .await
                 .expect("Failed to check primary domain")
@@ -369,7 +369,7 @@ async fn main() {
                         "UPDATE happyview_domains SET url = ?, updated_at = ? WHERE id = ?",
                         db_backend,
                     );
-                    sqlx::query(&update_sql)
+                    crate::db::query(&update_sql)
                         .bind(&config.public_url)
                         .bind(&now)
                         .bind(&primary_id)
@@ -388,7 +388,7 @@ async fn main() {
             "SELECT id, url, is_primary, created_at, updated_at FROM happyview_domains",
             db_backend,
         );
-        let rows = sqlx::query(&select_sql)
+        let rows = crate::db::query(&select_sql)
             .fetch_all(&db_pool)
             .await
             .expect("Failed to load domains");
@@ -734,7 +734,7 @@ async fn seed_and_load_rate_limit_defaults(
                 "INSERT INTO happyview_instance_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO NOTHING",
                 backend,
             );
-            if let Err(e) = sqlx::query(&sql)
+            if let Err(e) = crate::db::query(&sql)
                 .bind(key)
                 .bind(seed.to_string())
                 .bind(&now)

@@ -331,7 +331,7 @@ async fn load_env_vars(
     backend: crate::db::DatabaseBackend,
 ) -> std::collections::HashMap<String, String> {
     let sql = adapt_sql("SELECT key, value FROM happyview_script_variables", backend);
-    sqlx::query_as::<_, (String, String)>(&sql)
+    crate::db::query_as::<(String, String)>(&sql)
         .fetch_all(db)
         .await
         .unwrap_or_default()
