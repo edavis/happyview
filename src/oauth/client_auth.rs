@@ -36,7 +36,7 @@ pub async fn authenticate_confidential(
     let (id, key, client_type, scopes, origins_json, stored_hash) =
         row.ok_or_else(|| AppError::Auth("invalid client credentials".into()))?;
 
-    if stored_hash != secret_hash {
+    if !crate::constant_time::ct_eq_str(&stored_hash, &secret_hash) {
         return Err(AppError::Auth("invalid client credentials".into()));
     }
 
@@ -290,7 +290,7 @@ pub fn verify_pkce(challenge: &str, verifier: &str) -> bool {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     let hash = Sha256::digest(verifier.as_bytes());
     let computed = URL_SAFE_NO_PAD.encode(hash);
-    computed == challenge
+    crate::constant_time::ct_eq_str(&computed, challenge)
 }
 
 #[cfg(test)]

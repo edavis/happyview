@@ -198,7 +198,7 @@ impl RateLimiter {
         use sha2::{Digest, Sha256};
         if let Some(identity) = self.client_identities.get(client_key) {
             let hash = hex::encode(Sha256::digest(secret.as_bytes()));
-            hash == identity.secret_hash
+            crate::constant_time::ct_eq_str(&hash, &identity.secret_hash)
         } else {
             false
         }
