@@ -57,6 +57,34 @@ pub async fn handle_record_event(state: &AppState, record: &RecordEvent) {
             };
             let cid = record.cid.as_deref().unwrap_or_default();
 
+            // Reject records whose claimed CID doesn't match their content
+            // (security review L9). A hostile source can otherwise store a
+            // record under a mismatched CID. Skip indexing entirely on
+            // mismatch; `Skipped` (no/unencodable CID) proceeds unchanged.
+            if crate::cid_verify::verify_record_cid(cid, rec)
+                == crate::cid_verify::CidCheck::Mismatch
+            {
+                log_event(
+                    db,
+                    EventLog {
+                        event_type: "record.cid_mismatch".to_string(),
+                        severity: Severity::Warn,
+                        actor_did: None,
+                        subject: Some(uri.clone()),
+                        detail: serde_json::json!({
+                            "collection": record.collection,
+                            "did": record.did,
+                            "rkey": record.rkey,
+                            "claimed_cid": cid,
+                            "reason": "record content does not match claimed CID",
+                        }),
+                    },
+                    state.db_backend,
+                )
+                .await;
+                return;
+            }
+
             // Run record-event script (if any) before storing. The script's
             // return value determines what gets written:
             //   None → skip indexing entirely

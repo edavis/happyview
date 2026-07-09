@@ -195,6 +195,16 @@ jobs:
       - name: Build test plugin
         run: cargo build --manifest-path tests/fixtures/test_plugin/Cargo.toml --target wasm32-unknown-unknown --release
 
+      # Fast-failing, named gate: verify migrations apply on an *old* (v2.0.0)
+      # database — schema + data, both SQLite and Postgres — not just a fresh one.
+      # (Also included in the full run below; runs here first for a clear signal,
+      # sharing the compiled test binary so the extra cost is ~a second.)
+      - name: Migration upgrade test (old DB → latest)
+        env:
+          TEST_DATABASE_URL: postgres://happyview:happyview@localhost:5432/happyview_test
+          CARGO_PROFILE_DEV_DEBUG: "0"
+        run: cargo test --test migration_upgrade
+
       - name: Run e2e tests
         env:
           TEST_DATABASE_URL: postgres://happyview:happyview@localhost:5432/happyview_test

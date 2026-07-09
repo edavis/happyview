@@ -1824,6 +1824,7 @@ dependencies = [
  "hkdf 0.13.0",
  "hmac 0.13.0",
  "http-body-util",
+ "ipld-core",
  "ipnet",
  "jose-jwk",
  "jsonwebtoken",

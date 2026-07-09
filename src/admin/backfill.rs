@@ -1347,6 +1347,24 @@ async fn fetch_records_from_pds(
             let rkey = entry.uri.rsplit('/').next().unwrap_or_default().to_string();
             let uri = format!("at://{did}/{collection}/{rkey}");
 
+            // Reject records whose claimed CID doesn't match their content
+            // (security review L9). The backfill source PDS is attacker-
+            // controllable via the DID document, so a hostile PDS could serve a
+            // record under a mismatched CID. Skip on mismatch; `Skipped`
+            // (unencodable value) proceeds unchanged.
+            if crate::cid_verify::verify_record_cid(&entry.cid, &entry.value)
+                == crate::cid_verify::CidCheck::Mismatch
+            {
+                tracing::warn!(
+                    collection,
+                    did,
+                    rkey,
+                    claimed_cid = %entry.cid,
+                    "record content does not match claimed CID, skipping"
+                );
+                continue;
+            }
+
             let rec_to_store = match crate::lua::run_record_event_script(
                 state,
                 crate::lua::RecordEventPayload {
