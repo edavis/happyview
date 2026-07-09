@@ -15,6 +15,7 @@
     "api-keys",
     "permissions",
     "event-logs",
-    "database"
+    "database",
+    "github-actions"
   ]
 }
