@@ -45,6 +45,17 @@ where
     sqlx_query_scalar(AssertSqlSafe(sql.to_owned()))
 }
 
+/// Escape the `LIKE` wildcard metacharacters (`%`, `_`) and the escape character
+/// (`\`) in a value that will be embedded as a *literal* inside a `LIKE` pattern.
+/// Must be paired with an explicit `ESCAPE '\'` clause — SQLite has no default
+/// `LIKE` escape character, so without it the backslashes would be literal.
+pub fn escape_like(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
 /// Database backend type, auto-detected from DATABASE_URL or set via DATABASE_BACKEND.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -396,6 +407,16 @@ pub async fn connect_backfill_pool(url: &str, backend: DatabaseBackend) -> AnyPo
 mod tests {
     use super::*;
     use chrono::Datelike;
+
+    #[test]
+    fn escape_like_escapes_metacharacters() {
+        assert_eq!(escape_like("bafyrealcid"), "bafyrealcid"); // unchanged
+        assert_eq!(escape_like("%"), "\\%");
+        assert_eq!(escape_like("a_b"), "a\\_b");
+        assert_eq!(escape_like("a%b_c"), "a\\%b\\_c");
+        // Backslash is escaped first so it can't form a spurious escape sequence.
+        assert_eq!(escape_like("a\\%"), "a\\\\\\%");
+    }
 
     // -----------------------------------------------------------------------
     // DatabaseBackend detection

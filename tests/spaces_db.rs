@@ -745,3 +745,57 @@ async fn upsert_space_record_overwrites_existing() {
     assert_eq!(fetched.record["v"], 2);
     assert_eq!(fetched.cid, "cid-v2");
 }
+
+// ---------------------------------------------------------------------------
+// find_blob_author_did — LIKE wildcard safety (L8)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+#[serial]
+async fn find_blob_author_did_treats_cid_wildcards_literally() {
+    common::require_db!();
+    let pool = test_db::test_pool().await;
+    let backend = test_db::test_backend();
+    test_db::truncate_all(&pool).await;
+
+    let space_id = new_id();
+    let did = "did:plc:blob-space-owner";
+    let space = make_space(&space_id, did, "com.example.test", "blobspace");
+    spaces_db::create_space(&pool, backend, &space)
+        .await
+        .expect("create_space failed");
+
+    let author = "did:plc:blob-author";
+    let blob_cid = "bafyrealcid";
+    let record = SpaceRecord {
+        uri: format!("at://{did}/space/com.example.test/blobspace/{author}/com.example.post/rk1"),
+        space_id: space_id.clone(),
+        author_did: author.to_string(),
+        collection: "com.example.post".to_string(),
+        rkey: "rk1".to_string(),
+        record: serde_json::json!({ "image": { "$link": blob_cid } }),
+        cid: "bafyrecordcid".to_string(),
+        indexed_at: now_rfc3339(),
+    };
+    spaces_db::insert_space_record(&pool, backend, &record)
+        .await
+        .expect("insert_space_record failed");
+
+    // A genuine CID still resolves to the author (escaping must not break lookups).
+    let found = spaces_db::find_blob_author_did(&pool, backend, &space_id, blob_cid)
+        .await
+        .unwrap();
+    assert_eq!(found.as_deref(), Some(author));
+
+    // `%` must be matched literally, not as a wildcard that leaks any blob ref.
+    let wildcard = spaces_db::find_blob_author_did(&pool, backend, &space_id, "%")
+        .await
+        .unwrap();
+    assert_eq!(wildcard, None, "'%' leaked a record via a LIKE wildcard");
+
+    // `_` must not match the single differing character of a real CID.
+    let underscore = spaces_db::find_blob_author_did(&pool, backend, &space_id, "bafyreal_id")
+        .await
+        .unwrap();
+    assert_eq!(underscore, None, "'_' leaked a record via a LIKE wildcard");
+}
