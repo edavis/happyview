@@ -28,37 +28,27 @@ FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
-    gosu \
     && rm -rf /var/lib/apt/lists/*
 
-# The service runs as a non-root system user (uid/gid 10001); the binary needs no
-# root privileges at runtime and binds an unprivileged port (3000). The container
-# starts as root only so the entrypoint can fix ownership of a mounted data volume
-# (e.g. a SQLite volume carried over from a root-era install) before dropping to
-# the app user via gosu.
-RUN groupadd --system --gid 10001 app \
-    && useradd --system --uid 10001 --gid app --home-dir /app --no-create-home \
-       --shell /usr/sbin/nologin app
-
+# NOTE: The container runs as root. A previous attempt to run as a non-root user
+# (uid 10001) broke upgrades for existing SQLite deployments — mounted data
+# volumes (e.g. Railway volumes, root-owned bind mounts) were not writable by the
+# non-root user, causing "attempt to write a readonly database" on the first
+# migration. Running as root sidesteps volume-ownership entirely. Non-root will be
+# reintroduced as a documented breaking change in a future major release, with the
+# entrypoint chowning the actual (operator-configurable) data directory before
+# dropping privileges. See the L5 note in the security review.
 WORKDIR /app
 
 COPY --from=builder /app/target/release/happyview /usr/local/bin/happyview
 RUN chmod +x /usr/local/bin/happyview
 COPY migrations/ /app/migrations
-# The static dir is writable at runtime: the entrypoint rewrites the base-path
-# sentinel in place and removes the marker.
-COPY --from=frontend --chown=app:app /app/web/out /srv/static
+COPY --from=frontend /app/web/out /srv/static
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh && touch /srv/static/.base-path-pending
-
-# Data dir for the default SQLite backend (DATABASE_URL=sqlite://data/...).
-# The entrypoint re-chowns this to the app user at startup, so a volume mounted
-# here — including one created by an older root-era install — becomes writable.
-RUN mkdir -p /app/data && chown app:app /app/data
 
 ENV STATIC_DIR=/srv/static
 
 EXPOSE 3000
 
-# Starts as root; entrypoint chowns /app/data and drops to the app user via gosu.
 ENTRYPOINT ["/entrypoint.sh"]
