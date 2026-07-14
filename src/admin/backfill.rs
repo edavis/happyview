@@ -5,11 +5,9 @@ use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use futures_util::FutureExt;
-use futures_util::stream::{self, FuturesUnordered, StreamExt};
+use futures_util::stream::{self, StreamExt};
 use serde::Deserialize;
 use serde_json::Value;
-use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use rand::RngExt;
@@ -459,18 +457,13 @@ async fn discover_repos_from_relay(
 }
 
 // ---------------------------------------------------------------------------
-// Pipelined Phase 2+3: Resolve PDS endpoints and fetch records concurrently
+// Phase 2: Resolve PDS endpoints for all discovered repos
 // ---------------------------------------------------------------------------
 
-async fn run_pipelined_resolve_and_fetch(
-    state: &AppState,
-    job_id: &str,
-    collections: &[String],
-    concurrency: &BackfillConcurrency,
-) -> (i32, i32) {
-    set_stage(state, job_id, "resolving_and_fetching").await;
+async fn run_resolution_phase(state: &AppState, job_id: &str, concurrency: &BackfillConcurrency) {
+    set_stage(state, job_id, "resolving_pds").await;
 
-    // Count already-resolved and already-completed repos for accurate progress
+    // Count already-resolved repos so a resumed job reports accurate progress.
     let already_resolved: i32 = {
         let sql = adapt_sql(
             "SELECT COUNT(*) FROM happyview_backfill_repos WHERE job_id = ? AND pds_endpoint IS NOT NULL",
@@ -483,535 +476,120 @@ async fn run_pipelined_resolve_and_fetch(
             .map(|(c,)| c)
             .unwrap_or(0)
     };
-
-    let already_completed: i32 = {
-        let sql = adapt_sql(
-            "SELECT COUNT(*) FROM happyview_backfill_repos WHERE job_id = ? AND status = 'completed'",
-            state.db_backend,
-        );
-        crate::db::query_as::<(i32,)>(&sql)
-            .bind(job_id)
-            .fetch_one(&state.backfill_db)
-            .await
-            .map(|(c,)| c)
-            .unwrap_or(0)
-    };
-
     update_job_counter(state, job_id, "resolved_repos", already_resolved).await;
-    update_job_counter(state, job_id, "processed_repos", already_completed).await;
 
-    let existing_records: i32 = {
-        let sql = adapt_sql(
-            "SELECT total_records FROM happyview_backfill_jobs WHERE id = ?",
-            state.db_backend,
-        );
-        crate::db::query_as::<(Option<i32>,)>(&sql)
-            .bind(job_id)
-            .fetch_one(&state.backfill_db)
-            .await
-            .map(|(c,)| c.unwrap_or(0))
-            .unwrap_or(0)
-    };
-
-    // Shared atomics for lock-free counter updates
-    let resolved_repos = Arc::new(AtomicI32::new(already_resolved));
-    let processed_repos = Arc::new(AtomicI32::new(already_completed));
-    let total_records = Arc::new(AtomicI32::new(existing_records));
-    let cancelled = Arc::new(AtomicBool::new(false));
-
-    let (tx, mut rx) = mpsc::channel::<(String, String)>(256);
-    let tx_resolver = tx.clone();
-    let tx_backlog = tx.clone();
-
-    // --- Resolver task ---
-    let resolution_concurrency = concurrency.resolution;
-    let resolver_state = state.clone();
-    let resolver_job_id = job_id.to_string();
-    let resolver_resolved = Arc::clone(&resolved_repos);
-    let resolver_cancelled = Arc::clone(&cancelled);
-
-    let resolver_handle = tokio::spawn(async move {
-        let sql = adapt_sql(
-            "SELECT did FROM happyview_backfill_repos WHERE job_id = ? AND pds_endpoint IS NULL",
-            resolver_state.db_backend,
-        );
-        let unresolved: Vec<(String,)> = crate::db::query_as(&sql)
-            .bind(&resolver_job_id)
-            .fetch_all(&resolver_state.backfill_db)
-            .await
-            .unwrap_or_default();
-
-        let mut attempted: i32 = 0;
-        let mut next_flush = random_batch_threshold(100);
-        let mut next_cancel_check = random_batch_threshold(10);
-
-        let stream_state = resolver_state.clone();
-        let stream_cancelled = Arc::clone(&resolver_cancelled);
-        let mut results = stream::iter(unresolved)
-            .map(move |(did,)| {
-                let state = stream_state.clone();
-                let cancelled = Arc::clone(&stream_cancelled);
-                async move {
-                    if cancelled.load(Ordering::Relaxed) {
-                        return None;
-                    }
-                    // Bound the entire resolution of one DID (DNS, connect, and
-                    // any rate-limit retry loop) so a single stuck DID can never
-                    // hang the resolver stream. On expiry the DID is skipped.
-                    let result = match tokio::time::timeout(
-                        crate::http_retry::RESOLVE_DEADLINE,
-                        profile::resolve_pds_endpoint(&state.http, &state.config.plc_url, &did),
-                    )
-                    .await
-                    {
-                        Ok(result) => result,
-                        Err(_) => Err(AppError::Internal(format!(
-                            "PDS resolution timed out after {}s",
-                            crate::http_retry::RESOLVE_DEADLINE.as_secs()
-                        ))),
-                    };
-                    Some((did, result))
-                }
-            })
-            .buffer_unordered(resolution_concurrency);
-
-        while let Some(item) = results.next().await {
-            let Some((did, result)) = item else {
-                break;
-            };
-
-            match result {
-                Ok(pds) => {
-                    let sql = adapt_sql(
-                        "UPDATE happyview_backfill_repos SET pds_endpoint = ? WHERE job_id = ? AND did = ?",
-                        resolver_state.db_backend,
-                    );
-                    let _ = crate::db::query(&sql)
-                        .bind(&pds)
-                        .bind(&resolver_job_id)
-                        .bind(&did)
-                        .execute(&resolver_state.backfill_db)
-                        .await;
-
-                    publish_event(
-                        &resolver_state,
-                        super::types::BackfillEvent::RepoResolved {
-                            job_id: resolver_job_id.clone(),
-                            did: did.clone(),
-                            pds_endpoint: pds.clone(),
-                        },
-                    );
-
-                    let count = resolver_resolved.fetch_add(1, Ordering::Relaxed) + 1;
-                    if count >= next_flush {
-                        update_job_counter(
-                            &resolver_state,
-                            &resolver_job_id,
-                            "resolved_repos",
-                            count,
-                        )
-                        .await;
-                        next_flush = count + random_batch_threshold(100);
-                    }
-                    publish_event(
-                        &resolver_state,
-                        super::types::BackfillEvent::JobCounters {
-                            job_id: resolver_job_id.clone(),
-                            total_repos: None,
-                            resolved_repos: Some(count),
-                            processed_repos: None,
-                            total_records: None,
-                        },
-                    );
-
-                    if tx_resolver.send((did, pds)).await.is_err() {
-                        break;
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(did, error = %e, "failed to resolve PDS endpoint, skipping DID");
-                }
-            }
-
-            attempted += 1;
-            if attempted >= next_cancel_check {
-                if should_stop_worker(&resolver_state, &resolver_job_id).await {
-                    resolver_cancelled.store(true, Ordering::Relaxed);
-                    break;
-                }
-                next_cancel_check = attempted + random_batch_threshold(10);
-            }
-        }
-
-        // Persist final resolved count
-        let final_resolved = resolver_resolved.load(Ordering::Relaxed);
-        update_job_counter(
-            &resolver_state,
-            &resolver_job_id,
-            "resolved_repos",
-            final_resolved,
-        )
-        .await;
-        // tx is dropped here, signalling the fetcher that no more DIDs are coming
-    });
-
-    // --- Also send already-resolved-but-unfetched DIDs to the fetcher ---
-    let pending_sql = adapt_sql(
-        "SELECT did, pds_endpoint FROM happyview_backfill_repos WHERE job_id = ? AND status = 'pending' AND pds_endpoint IS NOT NULL",
+    let sql = adapt_sql(
+        "SELECT did FROM happyview_backfill_repos WHERE job_id = ? AND pds_endpoint IS NULL",
         state.db_backend,
     );
-    let pending_rows: Vec<(String, String)> = crate::db::query_as(&pending_sql)
+    let unresolved: Vec<(String,)> = crate::db::query_as(&sql)
         .bind(job_id)
         .fetch_all(&state.backfill_db)
         .await
         .unwrap_or_default();
 
-    let backlog_cancelled = Arc::clone(&cancelled);
-    let backlog_handle = tokio::spawn(async move {
-        for (did, pds) in pending_rows {
-            if backlog_cancelled.load(Ordering::Relaxed) {
-                break;
-            }
-            if tx_backlog.send((did, pds)).await.is_err() {
-                break;
-            }
-        }
-    });
+    let resolved = Arc::new(AtomicI32::new(already_resolved));
+    let cancelled = Arc::new(AtomicBool::new(false));
 
-    // Drop our copy of tx so the channel closes when both senders finish
-    drop(tx);
+    let mut attempted: i32 = 0;
+    let mut next_flush = random_batch_threshold(100);
+    let mut next_cancel_check = random_batch_threshold(10);
 
-    // --- Fetcher: receive (did, pds) pairs and dispatch to PDS workers ---
-    // Each PDS gets its own worker with a DID channel. Workers acquire a
-    // semaphore permit before starting, limiting concurrent PDS connections.
-    // We never hold the workers lock across an `.await` — use `try_send` to
-    // avoid blocking when a worker's channel is full (overflow goes to a
-    // retry queue drained on each iteration).
-    let state = Arc::new(state.clone());
-    let collections = Arc::new(collections.to_vec());
-    let job_id_arc = Arc::new(job_id.to_string());
-
-    let pds_semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency.pds));
-    let mut pds_workers: HashMap<String, mpsc::Sender<String>> = HashMap::new();
-    let mut worker_handles = FuturesUnordered::new();
-    let mut overflow: Vec<(String, String)> = Vec::new();
-
-    loop {
-        if cancelled.load(Ordering::Relaxed) {
-            break;
-        }
-
-        let poll_state = Arc::clone(&state);
-        let poll_job_id = Arc::clone(&job_id_arc);
-        let poll_cancelled = Arc::clone(&cancelled);
-        let pair = tokio::select! {
-            result = rx.recv() => result,
-            _ = async move {
-                loop {
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    if poll_cancelled.load(Ordering::Relaxed) || should_stop_worker(&poll_state, &poll_job_id).await {
-                        poll_cancelled.store(true, Ordering::Relaxed);
-                        return;
-                    }
+    let stream_state = state.clone();
+    let stream_cancelled = Arc::clone(&cancelled);
+    let mut results = stream::iter(unresolved)
+        .map(move |(did,)| {
+            let state = stream_state.clone();
+            let cancelled = Arc::clone(&stream_cancelled);
+            async move {
+                if cancelled.load(Ordering::Relaxed) {
+                    return None;
                 }
-            } => None,
-        };
-        let Some((did, pds_endpoint)) = pair else {
-            break;
-        };
-
-        // Also drain any overflow from previous iterations
-        overflow.push((did, pds_endpoint));
-
-        let mut still_pending = Vec::new();
-        for (did, pds_endpoint) in overflow.drain(..) {
-            if cancelled.load(Ordering::Relaxed) {
-                break;
-            }
-
-            // Try to send to an existing PDS worker
-            if let Some(pds_tx) = pds_workers.get(&pds_endpoint) {
-                match pds_tx.try_send(did.clone()) {
-                    Ok(()) => continue,
-                    Err(mpsc::error::TrySendError::Full(_)) => {
-                        still_pending.push((did, pds_endpoint));
-                        continue;
-                    }
-                    Err(mpsc::error::TrySendError::Closed(_)) => {
-                        // Worker finished, will be removed below
-                    }
-                }
-            }
-
-            // Remove stale workers whose channels have closed
-            pds_workers.retain(|_, tx| !tx.is_closed());
-
-            // Spawn a new PDS worker
-            let permit = Arc::clone(&pds_semaphore);
-            let (pds_tx, pds_rx) = mpsc::channel::<String>(64);
-            let _ = pds_tx.try_send(did);
-            pds_workers.insert(pds_endpoint.clone(), pds_tx);
-
-            let ctx = FetchContext {
-                state: Arc::clone(&state),
-                job_id: Arc::clone(&job_id_arc),
-                collections: Arc::clone(&collections),
-                processed_repos: Arc::clone(&processed_repos),
-                total_records: Arc::clone(&total_records),
-                cancelled: Arc::clone(&cancelled),
-                dids_per_pds: concurrency.dids_per_pds,
-            };
-
-            worker_handles.push(tokio::spawn(async move {
-                let _permit = permit
-                    .acquire()
-                    .await
-                    .expect("semaphore should not be closed");
-
-                run_pds_worker(ctx, pds_endpoint, pds_rx).await;
-            }));
-        }
-        overflow = still_pending;
-
-        // Drain any completed worker handles to avoid unbounded accumulation
-        while let Some(result) = worker_handles.next().now_or_never() {
-            if let Some(Err(e)) = result {
-                tracing::warn!(error = %e, "PDS worker task panicked");
-            }
-        }
-    }
-
-    // Drain remaining overflow after channel closes
-    for (did, pds_endpoint) in overflow.drain(..) {
-        if cancelled.load(Ordering::Relaxed) {
-            break;
-        }
-
-        // Remove stale workers
-        pds_workers.retain(|_, tx| !tx.is_closed());
-
-        if let Some(pds_tx) = pds_workers.get(&pds_endpoint) {
-            // Channel is bounded; this can block, but all senders are done so it's fine
-            let _ = pds_tx.send(did).await;
-            continue;
-        }
-
-        let permit = Arc::clone(&pds_semaphore);
-        let (pds_tx, pds_rx) = mpsc::channel::<String>(64);
-        let _ = pds_tx.try_send(did);
-        pds_workers.insert(pds_endpoint.clone(), pds_tx);
-
-        let ctx = FetchContext {
-            state: Arc::clone(&state),
-            job_id: Arc::clone(&job_id_arc),
-            collections: Arc::clone(&collections),
-            processed_repos: Arc::clone(&processed_repos),
-            total_records: Arc::clone(&total_records),
-            cancelled: Arc::clone(&cancelled),
-            dids_per_pds: concurrency.dids_per_pds,
-        };
-
-        worker_handles.push(tokio::spawn(async move {
-            let _permit = permit
-                .acquire()
+                // Bound the entire resolution of one DID (DNS, connect, and any
+                // rate-limit retry loop) so a single stuck DID can never hang
+                // the resolver stream. On expiry the DID is skipped.
+                let result = match tokio::time::timeout(
+                    crate::http_retry::RESOLVE_DEADLINE,
+                    profile::resolve_pds_endpoint(&state.http, &state.config.plc_url, &did),
+                )
                 .await
-                .expect("semaphore should not be closed");
+                {
+                    Ok(result) => result,
+                    Err(_) => Err(AppError::Internal(format!(
+                        "PDS resolution timed out after {}s",
+                        crate::http_retry::RESOLVE_DEADLINE.as_secs()
+                    ))),
+                };
+                Some((did, result))
+            }
+        })
+        .buffer_unordered(concurrency.resolution);
 
-            run_pds_worker(ctx, pds_endpoint.clone(), pds_rx).await;
-        }));
-    }
+    while let Some(item) = results.next().await {
+        let Some((did, result)) = item else {
+            break;
+        };
 
-    // Drop all PDS senders so workers know no more DIDs are coming
-    drop(pds_workers);
-
-    // Wait for all PDS workers to finish
-    while let Some(result) = worker_handles.next().await {
-        if let Err(e) = result {
-            tracing::warn!(error = %e, "PDS worker task panicked");
-        }
-    }
-
-    // Wait for resolver and backlog tasks
-    let _ = resolver_handle.await;
-    let _ = backlog_handle.await;
-
-    let final_repos = processed_repos.load(Ordering::Relaxed);
-    let final_records = total_records.load(Ordering::Relaxed);
-
-    // Persist final counts
-    let sql = adapt_sql(
-        "UPDATE happyview_backfill_jobs SET processed_repos = ?, total_records = ? WHERE id = ?",
-        state.db_backend,
-    );
-    let _ = crate::db::query(&sql)
-        .bind(final_repos)
-        .bind(final_records)
-        .bind(job_id)
-        .execute(&state.backfill_db)
-        .await;
-
-    (final_repos, final_records)
-}
-
-struct FetchContext {
-    state: Arc<AppState>,
-    job_id: Arc<String>,
-    collections: Arc<Vec<String>>,
-    processed_repos: Arc<AtomicI32>,
-    total_records: Arc<AtomicI32>,
-    cancelled: Arc<AtomicBool>,
-    dids_per_pds: usize,
-}
-
-async fn run_pds_worker(ctx: FetchContext, pds_endpoint: String, mut rx: mpsc::Receiver<String>) {
-    let FetchContext {
-        state,
-        job_id,
-        collections,
-        processed_repos,
-        total_records,
-        cancelled,
-        dids_per_pds,
-    } = ctx;
-    let mut fetches = FuturesUnordered::new();
-    let mut rx_open = true;
-    let mut next_flush = random_batch_threshold(10);
-
-    loop {
-        tokio::select! {
-            biased;
-
-            Some(result) = fetches.next(), if !fetches.is_empty() => {
-                let (did, records): (String, i32) = result;
-                total_records.fetch_add(records, Ordering::Relaxed);
-
-                // Mark DID as completed
+        match result {
+            Ok(pds) => {
                 let sql = adapt_sql(
-                    "UPDATE happyview_backfill_repos SET status = 'completed', records_fetched = ? WHERE job_id = ? AND did = ?",
+                    "UPDATE happyview_backfill_repos SET pds_endpoint = ? WHERE job_id = ? AND did = ?",
                     state.db_backend,
                 );
                 let _ = crate::db::query(&sql)
-                    .bind(records)
-                    .bind(job_id.as_str())
+                    .bind(&pds)
+                    .bind(job_id)
                     .bind(&did)
                     .execute(&state.backfill_db)
                     .await;
 
-                publish_event(&state, super::types::BackfillEvent::RepoFetched {
-                    job_id: job_id.to_string(),
-                    did: did.clone(),
-                    pds_endpoint: pds_endpoint.clone(),
-                    records_fetched: records,
-                });
+                publish_event(
+                    state,
+                    super::types::BackfillEvent::RepoResolved {
+                        job_id: job_id.to_string(),
+                        did: did.clone(),
+                        pds_endpoint: pds.clone(),
+                    },
+                );
 
-                let repos = processed_repos.fetch_add(1, Ordering::Relaxed) + 1;
-                let records = total_records.load(Ordering::Relaxed);
-                if repos >= next_flush {
-                    let sql = adapt_sql(
-                        "UPDATE happyview_backfill_jobs SET processed_repos = ?, total_records = ? WHERE id = ?",
-                        state.db_backend,
-                    );
-                    let _ = crate::db::query(&sql)
-                        .bind(repos)
-                        .bind(records)
-                        .bind(job_id.as_str())
-                        .execute(&state.backfill_db)
-                        .await;
-                    next_flush = repos + random_batch_threshold(10);
+                let count = resolved.fetch_add(1, Ordering::Relaxed) + 1;
+                if count >= next_flush {
+                    update_job_counter(state, job_id, "resolved_repos", count).await;
+                    next_flush = count + random_batch_threshold(100);
                 }
-                if cancelled.load(Ordering::Relaxed) || should_stop_worker(&state, job_id.as_str()).await {
-                    cancelled.store(true, Ordering::Relaxed);
-                    break;
-                }
-                publish_event(&state, super::types::BackfillEvent::JobCounters {
-                    job_id: job_id.to_string(),
-                    total_repos: None,
-                    resolved_repos: None,
-                    processed_repos: Some(repos),
-                    total_records: Some(records),
-                });
+                publish_event(
+                    state,
+                    super::types::BackfillEvent::JobCounters {
+                        job_id: job_id.to_string(),
+                        total_repos: None,
+                        resolved_repos: Some(count),
+                        processed_repos: None,
+                        total_records: None,
+                    },
+                );
             }
-
-            did = rx.recv(), if rx_open && fetches.len() < dids_per_pds => {
-                match did {
-                    Some(did) if !cancelled.load(Ordering::Relaxed) => {
-                        let state = Arc::clone(&state);
-                        let collections = collections.clone();
-                        let pds_endpoint = pds_endpoint.clone();
-                        let cancelled = Arc::clone(&cancelled);
-
-                        fetches.push(async move {
-                            let mut count: i32 = 0;
-                            for collection in collections.iter() {
-                                if cancelled.load(Ordering::Relaxed) {
-                                    break;
-                                }
-                                match fetch_records_from_pds(
-                                    &state,
-                                    &pds_endpoint,
-                                    &did,
-                                    collection,
-                                    &cancelled,
-                                )
-                                .await
-                                {
-                                    Ok(c) => count += c as i32,
-                                    Err(e) => {
-                                        tracing::warn!(
-                                            did,
-                                            collection,
-                                            pds = %pds_endpoint,
-                                            error = %e,
-                                            "failed to fetch records from PDS"
-                                        );
-                                    }
-                                }
-                            }
-                            (did, count)
-                        });
-                    }
-                    _ => {
-                        rx_open = false;
-                    }
-                }
+            Err(e) => {
+                tracing::warn!(did, error = %e, "failed to resolve PDS endpoint, skipping DID");
             }
+        }
 
-            else => break,
+        attempted += 1;
+        if attempted >= next_cancel_check {
+            if should_stop_worker(state, job_id).await {
+                cancelled.store(true, Ordering::Relaxed);
+                break;
+            }
+            next_cancel_check = attempted + random_batch_threshold(10);
         }
     }
 
-    // Drain any remaining fetches
-    while let Some(result) = fetches.next().await {
-        let (did, records): (String, i32) = result;
-        total_records.fetch_add(records, Ordering::Relaxed);
-
-        let sql = adapt_sql(
-            "UPDATE happyview_backfill_repos SET status = 'completed', records_fetched = ? WHERE job_id = ? AND did = ?",
-            state.db_backend,
-        );
-        let _ = crate::db::query(&sql)
-            .bind(records)
-            .bind(job_id.as_str())
-            .bind(&did)
-            .execute(&state.backfill_db)
-            .await;
-
-        publish_event(
-            &state,
-            super::types::BackfillEvent::RepoFetched {
-                job_id: job_id.to_string(),
-                did: did.clone(),
-                pds_endpoint: pds_endpoint.clone(),
-                records_fetched: records,
-            },
-        );
-
-        processed_repos.fetch_add(1, Ordering::Relaxed);
-    }
+    // Persist the final resolved count regardless of the last flush threshold.
+    let final_resolved = resolved.load(Ordering::Relaxed);
+    update_job_counter(state, job_id, "resolved_repos", final_resolved).await;
 }
 
 // ---------------------------------------------------------------------------
-// Phase 3: Fetch records from PDS instances (legacy, for resumed jobs)
+// Phase 3: Fetch records from PDS instances, grouped by PDS
 // ---------------------------------------------------------------------------
 
 async fn run_fetching_phase(
@@ -1528,15 +1106,30 @@ async fn run_backfill_job(state: AppState, job_id: String) {
     }
 
     let concurrency = load_concurrency(&state).await;
-    let (final_processed, final_records) = if matches!(
-        stage.as_str(),
-        "pending" | "discovering_repos" | "resolving_pds" | "resolving_and_fetching"
-    ) {
-        run_pipelined_resolve_and_fetch(&state, &job_id, &collections, &concurrency).await
-    } else {
-        // stage == "fetching_records": resolution already done (legacy or resumed)
-        run_fetching_phase(&state, &job_id, &collections, &concurrency).await
-    };
+
+    // Resolve PDS endpoints for all discovered repos. Skipped only when a
+    // resumed job has already advanced to the fetching stage; resolution is
+    // idempotent (repos with a pds_endpoint already set are left untouched).
+    if stage.as_str() != "fetching_records" {
+        run_resolution_phase(&state, &job_id, &concurrency).await;
+
+        match should_stop(&state, &job_id).await {
+            Some("cancelling") => {
+                tracing::info!(job_id, "backfill job cancelled");
+                finalise_cancel(&state, &job_id).await;
+                return;
+            }
+            Some("pausing") => {
+                tracing::info!(job_id, "backfill job paused");
+                finalise_pause(&state, &job_id).await;
+                return;
+            }
+            _ => {}
+        }
+    }
+
+    let (final_processed, final_records) =
+        run_fetching_phase(&state, &job_id, &collections, &concurrency).await;
 
     match should_stop(&state, &job_id).await {
         Some("cancelling") => {
