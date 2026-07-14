@@ -555,9 +555,21 @@ async fn run_pipelined_resolve_and_fetch(
                     if cancelled.load(Ordering::Relaxed) {
                         return None;
                     }
-                    let result =
-                        profile::resolve_pds_endpoint(&state.http, &state.config.plc_url, &did)
-                            .await;
+                    // Bound the entire resolution of one DID (DNS, connect, and
+                    // any rate-limit retry loop) so a single stuck DID can never
+                    // hang the resolver stream. On expiry the DID is skipped.
+                    let result = match tokio::time::timeout(
+                        crate::http_retry::RESOLVE_DEADLINE,
+                        profile::resolve_pds_endpoint(&state.http, &state.config.plc_url, &did),
+                    )
+                    .await
+                    {
+                        Ok(result) => result,
+                        Err(_) => Err(AppError::Internal(format!(
+                            "PDS resolution timed out after {}s",
+                            crate::http_retry::RESOLVE_DEADLINE.as_secs()
+                        ))),
+                    };
                     Some((did, result))
                 }
             })

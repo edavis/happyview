@@ -2,10 +2,15 @@ use std::time::Duration;
 
 /// Per-request timeout for outbound atproto network fetches (relay, PLC/DID
 /// resolution, PDS reads). Bounds a single HTTP attempt so a host that connects
-/// but never responds fails instead of stalling a backfill job forever. This is
-/// deliberately a per-request timeout, not a wall-clock deadline over a retry
-/// loop, so rate-limit backoffs are left intact.
+/// but never responds fails instead of stalling a backfill job forever.
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Overall deadline for resolving a single DID's PDS endpoint. Unlike
+/// [`REQUEST_TIMEOUT`], this bounds the *entire* resolution of one DID —
+/// including DNS, connection setup, and any rate-limit retry/backoff loop — so
+/// a single stuck DID can never hang the resolver stream. On expiry the DID is
+/// treated as a resolution failure and skipped, and the backfill moves on.
+pub const RESOLVE_DEADLINE: Duration = Duration::from_secs(30);
 
 /// Parse rate-limit sleep duration from response headers.
 /// Checks `RateLimit-Reset` (Unix timestamp, used by XRPC servers) first,
