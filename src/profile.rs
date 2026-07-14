@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
-use crate::http_retry::parse_retry_after;
+use crate::http_retry::{REQUEST_TIMEOUT, parse_retry_after};
 
 #[derive(Serialize)]
 pub struct Profile {
@@ -147,6 +147,7 @@ pub async fn resolve_did_document(
         loop {
             let r = http
                 .get(&url)
+                .timeout(REQUEST_TIMEOUT)
                 .send()
                 .await
                 .map_err(|e| AppError::Internal(format!("DID resolution failed: {e}")))?;

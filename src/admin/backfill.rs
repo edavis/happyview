@@ -371,6 +371,7 @@ async fn discover_repos_from_relay(
             let r = state
                 .http
                 .get(&url)
+                .timeout(crate::http_retry::REQUEST_TIMEOUT)
                 .send()
                 .await
                 .map_err(|e| format!("relay request failed: {e}"))?;
@@ -1320,6 +1321,7 @@ async fn fetch_records_from_pds(
         let resp = state
             .http
             .get(&url)
+            .timeout(crate::http_retry::REQUEST_TIMEOUT)
             .send()
             .await
             .map_err(|e| format!("PDS request failed: {e}"))?;

@@ -1,3 +1,12 @@
+use std::time::Duration;
+
+/// Per-request timeout for outbound atproto network fetches (relay, PLC/DID
+/// resolution, PDS reads). Bounds a single HTTP attempt so a host that connects
+/// but never responds fails instead of stalling a backfill job forever. This is
+/// deliberately a per-request timeout, not a wall-clock deadline over a retry
+/// loop, so rate-limit backoffs are left intact.
+pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Parse rate-limit sleep duration from response headers.
 /// Checks `RateLimit-Reset` (Unix timestamp, used by XRPC servers) first,
 /// then `retry-after` (seconds), defaulting to 5s.
